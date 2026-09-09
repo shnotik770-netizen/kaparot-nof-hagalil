@@ -97,15 +97,36 @@ CREATE TABLE IF NOT EXISTS payments (
   amount                  NUMERIC(10,2) NOT NULL CHECK (amount > 0),
   method                  TEXT NOT NULL CHECK (method IN
                             ('nedarim_plus','manual_cash','manual_card','manual_admin')),
-  nedarim_transaction_id  TEXT UNIQUE,                  -- מפתח אידמפוטנטיות ל-webhook (עתידי)
+  nedarim_transaction_id  TEXT,                         -- מזהה עסקת נדרים פלוס (לא ייחודי לבד: תשלום
+                                                          -- אחד יכול להתפצל לכמה הזמנות ב"מפל", ראו payment_sessions)
   recorded_by             TEXT NOT NULL,                -- 'customer' | שם המנהל שרשם ידנית
   note                    TEXT,
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
+-- מונע רישום כפול של אותה עסקת נדרים פלוס על אותה הזמנה (הגנת אידמפוטנטיות משנית —
+-- ההגנה הראשית היא payment_sessions.status, ראו allocateNedarimPayment ב-payments.js)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_order_transaction
+  ON payments(order_id, nedarim_transaction_id) WHERE nedarim_transaction_id IS NOT NULL;
 
--- לוג גולמי לכל קריאת webhook נכנסת מנדרים פלוס — ייכתב אוטומטית ברגע שהאינטגרציה
--- תיבנה (עדיין לא בקוד). processed_ok=false = ממתין לעיבוד/בדיקה ידנית.
+-- כפתור "תשלום" באזור האישי יוצר כאן שורה אחת (עם token אקראי כ-Param2 מול
+-- נדרים פלוס), לפני קריאת CreateTransaction — כך שכשה-Webhook חוזר אנחנו
+-- יודעים בדיוק לאיזה טלפון ולאיזה סכום מבוקש הוא שייך, ומקצים אותו ל"מפל"
+-- (waterfall) על ההזמנות הפתוחות של אותו טלפון (הישנה ביותר קודם).
+CREATE TABLE IF NOT EXISTS payment_sessions (
+  id                SERIAL PRIMARY KEY,
+  token             TEXT NOT NULL UNIQUE,             -- נשלח כ-Param2 לנדרים פלוס
+  normalized_phone  TEXT NOT NULL,
+  requested_amount  NUMERIC(10,2) NOT NULL CHECK (requested_amount > 0),
+  status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','completed')),
+  nedarim_transaction_id TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at      TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_payment_sessions_phone ON payment_sessions(normalized_phone);
+
+-- לוג גולמי לכל קריאת webhook נכנסת מנדרים פלוס, מוצלחת או לא — לניפוי
+-- תקלות ולזיהוי ניסיונות זיוף (חתימה לא תקינה / חותמת זמן חשודה / IP לא מוכר).
 CREATE TABLE IF NOT EXISTS webhook_events (
   id             SERIAL PRIMARY KEY,
   provider       TEXT NOT NULL DEFAULT 'nedarim_plus',

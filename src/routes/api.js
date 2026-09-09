@@ -9,8 +9,9 @@ import {
 import { getActivePriceRules, getAllPriceRules, upsertPriceRules } from '../lib/priceRules.js';
 import { countOrdersForPhone, createOrder, listOrdersForPhone } from '../lib/orders.js';
 import { getRedemptionStatus, confirmRedemption } from '../lib/redemption.js';
-import { recordManualPayment, listPaymentsForOrder } from '../lib/payments.js';
+import { recordManualPayment, listPaymentsForOrder, createPaymentSession } from '../lib/payments.js';
 import { listAllOrders, getDashboardStats, hardReset } from '../lib/adminOps.js';
+import { createTransaction } from '../lib/nedarim.js';
 
 const router = Router();
 
@@ -99,12 +100,34 @@ router.post('/redeem/confirm', requireVerifiedPhone, wrap(async (req, res) => {
   res.json(result);
 }));
 
-// מחשב יתרת חוב לתשלום — פתיחת חלונית נדרים פלוס בפועל תתווסף בשלב הבא.
 router.get('/payment-balance', requireVerifiedPhone, wrap(async (req, res) => {
   const normalized = normalizePhone(req.query.phone);
   const orders = await listOrdersForPhone(normalized);
   const balanceDue = orders.reduce((sum, o) => sum + o.balanceDue, 0);
   res.json({ balanceDue, ordersWithBalance: orders.filter((o) => o.balanceDue > 0).map((o) => o.orderNumber) });
+}));
+
+function publicBaseUrl() {
+  return process.env.PUBLIC_BASE_URL || `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+}
+
+// שיטה 3 מסלול ב' (עסקה שהוקמה בשרת) — ראו docs/nedarim-plus-integration.md.
+// מחשב את היתרה האמיתית ברגע הלחיצה (לא סומך על מה שהלקוח ראה קודם), פותח
+// payment_session (Param2), ומקים עסקה נעולה-סכום מול נדרים פלוס.
+router.post('/payment/create-session', requireVerifiedPhone, wrap(async (req, res) => {
+  const normalized = normalizePhone(req.body.phone);
+  const orders = await listOrdersForPhone(normalized);
+  const balanceDue = orders.reduce((sum, o) => sum + o.balanceDue, 0);
+  if (balanceDue <= 0) {
+    return res.status(400).json({ error: 'אין יתרת חוב פתוחה לתשלום.' });
+  }
+  const session = await createPaymentSession(normalized, balanceDue);
+  const { transactionId, key } = await createTransaction({
+    amount: balanceDue,
+    param2: session.token,
+    callbackUrl: `${publicBaseUrl()}/webhooks/nedarim-plus`,
+  });
+  res.json({ transactionId, key, amount: balanceDue });
 }));
 
 // מנקה את אימות הטלפון מה-session — קריטי בעמדת הקיוסק המשותפת, כדי שלקוח

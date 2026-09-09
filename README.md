@@ -3,18 +3,21 @@
 מערכת רישום, תשלום וחלוקת כפרות. Node.js + Express + PostgreSQL, באותה ארכיטקטורה
 כמו מערכת הזמנת הספרים הקיימת (session מבוסס-עוגייה, RPC/REST פשוט, PostgreSQL על Railway).
 
-> **סטטוס**: שלד עובד מלא — הרשמה, אזור אישי, אימות סמס, מימוש/חלוקה, פאנל ניהול.
-> **עדיין לא מחובר בפועל**: תשלום מקוון בפועל דרך iframe של נדרים פלוס (הכפתור קיים ומחשב
-> יתרה, אך לא פותח את חלונית התשלום עצמה — ממתין להנחיות סופיות). ה-API של ימות המשיח
-> (SMS) מחובר אך יש לאמת את הפרמטרים המדויקים מול הפאנל שלכם, ראו `src/lib/sms.js`.
+> **סטטוס**: שלד עובד מלא — הרשמה, אזור אישי, אימות סמס, מימוש/חלוקה, פאנל ניהול,
+> ותשלום מקוון דרך אייפרם נדרים פלוס (שיטה 3 מסלול ב', ראו `docs/nedarim-plus-integration.md`).
+> חסרים רק שני פרטים כדי שהתשלום יעבוד בפועל — ראו "מה עוד חסר" למטה.
 
 ## מבנה
 
 - `src/server.js` — שרת Express, שלוש חזיתות: `/` (לקוח), `/kiosk` (עמדת חלוקה), `/admin` (ניהול).
+  ה-Webhook של נדרים פלוס (`/webhooks/nedarim-plus`) מותקן *לפני* ה-JSON parser הגלובלי,
+  עם body גולמי — נדרש לאימות חתימת ה-HMAC.
 - `src/db/schema.sql` — סכימת הדאטהבייס המלאה.
-- `src/lib/*` — כל לוגיקת השרת (settings, sms, otp, auth, orders, redemption, priceRules, payments, adminOps).
-- `src/routes/api.js` — כל נקודות הקצה של ה-API.
+- `src/lib/*` — כל לוגיקת השרת (settings, sms, otp, auth, orders, redemption, priceRules,
+  payments, adminOps, nedarim).
+- `src/routes/api.js` — כל נקודות הקצה של ה-API. `src/routes/webhooks.js` — קבלת ה-Webhook.
 - `public/*.html` — שלוש החזיתות (וניל JS, ללא build step).
+- `docs/nedarim-plus-integration.md` — סיכום האינטגרציה עם נדרים פלוס, מה הוחלט ולמה.
 
 ## הרצה מקומית
 
@@ -29,8 +32,10 @@ npm start
 
 ## מה עוד חסר לפני עלייה לאוויר
 
-1. **נדרים פלוס** — פתיחת חלונית תשלום אמיתית + נקודת קצה ל-Webhook. ממתין לפרמטרים
-   הסופיים (ApiValid, Mosad ID) ולהנחיה איך למפות את ה-callback לטבלת `payments`.
+1. **נדרים פלוס** — חסר `NEDARIM_MOSAD_ID` (מספר המוסד, 7 ספרות; יש רק `ApiValid` של
+   "חסדי מנחם"). וברגע שיש דומיין: להגדיר בפאנל שלהם (הגדרות > API > Webhook) כתובת
+   `https://<דומיין>/webhooks/nedarim-plus` ומפתח חתימת HMAC (`NEDARIM_WEBHOOK_SECRET`) —
+   ראו `docs/nedarim-plus-integration.md`.
 2. **SMS** — `src/lib/sms.js` מבוסס על קוד עובד שסופק (Google Apps Script, `SendSms`),
    כך שאמור לעבוד ללא שינוי — צריך רק להזין `YEMOT_SMS_API_KEY`.
-3. **פריסה ל-Railway** — עדיין לא הוגדר שירות Railway/Postgres לפרויקט הזה.
+3. **פריסה ל-Railway** — הפרויקט פרוס (`kaparot-nof-hagalil`, Railway + Postgres).

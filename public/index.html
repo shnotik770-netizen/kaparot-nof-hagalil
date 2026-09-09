@@ -13,6 +13,32 @@
 </div>
 <div class="wrap" id="app"><div class="loading">טוען…</div></div>
 
+<!--
+  מסך התשלום (נדרים פלוס, שיטה 3) קבוע ב-DOM מחוץ ל-#app בכוונה: render()
+  מחליף את כל תוכן #app בכל ניווט, וזה היה הורס ויוצר מחדש את ה-iframe/המאזין
+  בכל פעם — בניגוד מפורש לכלל של נדרים פלוס: "רישום המאזין וטעינת ה-src
+  חייבים לקרות פעם אחת בלבד בחיי הדף, אחרת כל תוצאת עסקה מטופלת פעמיים".
+-->
+<div class="wrap" id="paymentScreen" style="display:none">
+  <button class="ghost" id="paymentBack">← חזרה</button>
+  <div class="card">
+    <h2>תשלום</h2>
+    <div id="paymentLoading" class="loading">מחשב יתרה…</div>
+    <div id="paymentNoBalance" class="success" style="display:none">אין יתרת חוב פתוחה — תודה!</div>
+    <div id="paymentHasBalance" style="display:none">
+      <p class="hint">יתרת חוב כוללת (כל ההזמנות):</p>
+      <div class="total-row"><span>לתשלום</span><span id="paymentAmountDisplay"></span></div>
+      <button class="primary" id="paymentContinueBtn">המשך לתשלום</button>
+      <div id="paymentError" class="error" style="display:none"></div>
+      <div id="paymentFrameWrap" style="display:none;margin-top:16px">
+        <iframe id="NedarimFrame" allow="payment" scrolling="no"
+                style="width:100%;border:none;height:0"></iframe>
+      </div>
+      <div id="paymentSuccess" class="success" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 const DAY_LABEL = { thu: 'יום חמישי', sun: 'יום ראשון' };
 const SLOT_LABEL = { morning: 'בוקר', night: 'לילה' };
@@ -465,23 +491,84 @@ function showTicket(result) {
   document.getElementById('doneBtn').onclick = screenRedeem;
 }
 
-// ---- תשלום ----
+// ---- תשלום (נדרים פלוס, שיטה 3 מסלול ב' — עסקה שהוקמה בשרת, ראו docs/nedarim-plus-integration.md) ----
+
+// רישום המאזין וטעינת ה-src של האייפרם - פעם אחת בלבד בחיי הדף (ראו האזהרה למעלה).
+const nedarimFrame = document.getElementById('NedarimFrame');
+function PostNedarim(data) { nedarimFrame.contentWindow.postMessage(data, '*'); }
+window.addEventListener('message', (event) => {
+  const msg = event.data || {};
+  if (msg.Name === 'Height') {
+    nedarimFrame.style.height = (parseInt(msg.Value, 10) + 15) + 'px';
+  } else if (msg.Name === 'TransactionResponse') {
+    onNedarimTransactionResponse(msg.Value || {});
+  }
+});
+nedarimFrame.src = 'https://www.matara.pro/nedarimplus/iframe/v3/?language=he';
+
+function showPaymentScreen() {
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('paymentScreen').style.display = '';
+}
+function hidePaymentScreen() {
+  document.getElementById('paymentScreen').style.display = 'none';
+  document.getElementById('app').style.display = '';
+}
+
+document.getElementById('paymentBack').onclick = () => { hidePaymentScreen(); screenPersonalArea(); };
+document.getElementById('paymentContinueBtn').onclick = onPaymentContinue;
 
 async function screenPayment() {
-  render(`<div class="loading">מחשב יתרה…</div>`);
+  showPaymentScreen();
+  document.getElementById('paymentLoading').style.display = '';
+  document.getElementById('paymentNoBalance').style.display = 'none';
+  document.getElementById('paymentHasBalance').style.display = 'none';
+  document.getElementById('paymentFrameWrap').style.display = 'none';
+  document.getElementById('paymentSuccess').style.display = 'none';
+  document.getElementById('paymentError').style.display = 'none';
+
   const { balanceDue } = await api(`/payment-balance?phone=${encodeURIComponent(state.phone)}`);
-  render(`
-    <button class="ghost" id="back">← חזרה</button>
-    <div class="card">
-      <h2>תשלום</h2>
-      ${balanceDue > 0 ? `
-        <p class="hint">יתרת חוב כוללת (כל ההזמנות):</p>
-        <div class="total-row"><span>לתשלום</span><span>${money(balanceDue)}</span></div>
-        <div class="notice">חלונית התשלום המקוון (נדרים פלוס) תיפתח כאן בקרוב. בינתיים ניתן להסדיר את התשלום במשרד.</div>
-      ` : `<div class="success">אין יתרת חוב פתוחה — תודה!</div>`}
-    </div>
-  `);
-  document.getElementById('back').onclick = screenPersonalArea;
+  document.getElementById('paymentLoading').style.display = 'none';
+  if (balanceDue <= 0) {
+    document.getElementById('paymentNoBalance').style.display = '';
+    return;
+  }
+  document.getElementById('paymentHasBalance').style.display = '';
+  document.getElementById('paymentAmountDisplay').textContent = money(balanceDue);
+  document.getElementById('paymentContinueBtn').style.display = '';
+  document.getElementById('paymentContinueBtn').disabled = false;
+}
+
+async function onPaymentContinue() {
+  const btn = document.getElementById('paymentContinueBtn');
+  btn.disabled = true; btn.textContent = 'פותח חלונית תשלום…';
+  document.getElementById('paymentError').style.display = 'none';
+  try {
+    const session = await api('/payment/create-session', { method: 'POST', body: { phone: state.phone } });
+    document.getElementById('paymentFrameWrap').style.display = '';
+    btn.style.display = 'none';
+    PostNedarim({ Name: 'StartPayment', Value: { TransactionId: session.transactionId, Key: session.key } });
+  } catch (err) {
+    btn.disabled = false; btn.textContent = 'המשך לתשלום';
+    document.getElementById('paymentError').textContent = err.message;
+    document.getElementById('paymentError').style.display = '';
+  }
+}
+
+function onNedarimTransactionResponse(value) {
+  document.getElementById('paymentFrameWrap').style.display = 'none';
+  const successEl = document.getElementById('paymentSuccess');
+  if (value.Status === 'OK') {
+    successEl.textContent = 'התשלום התקבל בהצלחה! מרעננים את הסטטוס…';
+    successEl.style.display = '';
+    // אישור סופי מגיע מה-Webhook לשרת, לא מכאן — רק מרעננים תצוגה אחרי רגע.
+    setTimeout(screenPayment, 1500);
+  } else {
+    document.getElementById('paymentContinueBtn').style.display = '';
+    document.getElementById('paymentContinueBtn').disabled = false;
+    document.getElementById('paymentError').textContent = value.Message || 'התשלום לא הושלם. ניתן לנסות שוב.';
+    document.getElementById('paymentError').style.display = '';
+  }
 }
 
 // ============== אתחול ==============
