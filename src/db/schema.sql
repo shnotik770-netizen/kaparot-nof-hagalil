@@ -10,6 +10,7 @@ INSERT INTO settings(key, value) VALUES
   ('registration_open', 'true'),
   ('distribution_open', 'false'),  -- מתג-על גלובלי: האם החלוקה בכלל פעילה היום (בנוסף לסימון פר-זמן)
   ('order_title', 'הרשמה לכפרות'),
+  ('order_subtitle', 'מוסדות חסדי מנחם נוף הגליל'),
   ('admin_password_hash', NULL),  -- סיסמת "בוטסטרפ" ישנה — נבדקת רק כל עוד טבלת admins ריקה, ראו auth.js
   ('deferred_payment_notice',
    'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל בשעת ההזמנה.'),
@@ -98,10 +99,21 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_phone_sequence
   ON orders(normalized_phone, order_sequence) WHERE NOT is_deleted;
 CREATE INDEX IF NOT EXISTS idx_orders_phone ON orders(normalized_phone);
+-- orders כבר קיימת מפריסות קודמות (CREATE TABLE IF NOT EXISTS לא מוסיף עמודות לטבלה קיימת) —
+-- notes הוא שדה חדש, נוסף כאן במפורש.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS notes TEXT;
 
 -- ================= שורות הזמנה: זמן חלוקה + מגדר + כמות =================
 -- כל שורה נמשכת/נשלמת בנפרד — quantity_redeemed מתעדכן בעסקה נעולה (FOR UPDATE)
 -- בזמן משיכה בפועל, בלי לגעת בשאר שורות אותה הזמנה.
+--
+-- הדגם הישן (לפני מעבר לזמני חלוקה דינמיים) היה מבוסס עמודות day/time_slot קבועות,
+-- בלי slot_id. המערכת טרם עלתה לאוויר בעונה זו (אין הזמנות אמיתיות לשמר), אז
+-- מוחקים ובונים מחדש עם הסכימה החדשה — כמו price_rules למעלה. redemptions תלויה
+-- ב-order_items (FK), ולכן נמחקת ונבנית מחדש גם היא (ראו הגדרתה בהמשך הקובץ).
+DROP TABLE IF EXISTS redemptions CASCADE;
+DROP TABLE IF EXISTS order_items CASCADE;
+
 CREATE TABLE IF NOT EXISTS order_items (
   id                SERIAL PRIMARY KEY,
   order_id          INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,

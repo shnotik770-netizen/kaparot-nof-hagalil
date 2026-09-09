@@ -8,7 +8,10 @@
 </head>
 <body>
 <div class="topbar">
-  <h1 id="pageTitle">🐔 הרשמה לכפרות</h1>
+  <div>
+    <h1 id="pageTitle">🐔 הרשמה לכפרות</h1>
+    <div class="topbar-subtitle" id="pageSubtitle"></div>
+  </div>
   <span class="badge" id="topBadge"></span>
 </div>
 <div class="wrap" id="app"><div class="loading">טוען…</div></div>
@@ -698,6 +701,7 @@ function maybeShowWelcomeNotice() {
 async function init() {
   state.publicSettings = await api('/public-settings');
   document.getElementById('pageTitle').textContent = '🐔 ' + (state.publicSettings.orderTitle || 'הרשמה לכפרות');
+  document.getElementById('pageSubtitle').textContent = state.publicSettings.orderSubtitle || '';
   screenPhone();
   maybeShowWelcomeNotice();
 }
