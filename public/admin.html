@@ -170,6 +170,8 @@ async function renderSettingsTab() {
       <h2>טקסטים ניתנים לעריכה</h2>
       <label>כותרת הטופס</label>
       <input type="text" id="orderTitle" value="${s.orderTitle}">
+      <label>הודעת "רישום סגור" (מוצגת גם כשאין תעריף פעיל, לא רק כשהרישום סגור ידנית)</label>
+      <input type="text" id="closedRegMsg" value="${s.closedRegistrationMessage}">
       <label>הודעת "תשלום דחוי" (בסיום הרשמה)</label>
       <input type="text" id="deferredNotice" value="${s.deferredPaymentNotice}">
       <label>הודעת חסימה — לא שולם כלל</label>
@@ -225,6 +227,7 @@ async function renderSettingsTab() {
   document.getElementById('saveTexts').onclick = async () => {
     await api('/admin/settings', { method: 'PUT', body: {
       order_title: document.getElementById('orderTitle').value,
+      closed_registration_message: document.getElementById('closedRegMsg').value,
       deferred_payment_notice: document.getElementById('deferredNotice').value,
       unpaid_block_message: document.getElementById('unpaidMsg').value,
       partial_payment_notice: document.getElementById('partialMsg').value,

@@ -2,6 +2,7 @@
 
 import { query } from '../db/pool.js';
 import { normalizePhone } from './normalize.js';
+import { getActivePriceRules } from './priceRules.js';
 
 const DEFAULTS = {
   registrationOpen: true,
@@ -13,6 +14,7 @@ const DEFAULTS = {
   unpaidBlockMessage: 'עליך לגשת למשרד להסדרת התשלום טרם מימוש ההזמנה.',
   partialPaymentNotice: 'שולם באופן חלקי — ניתן למשוך רק את ההזמנות ששולמו.',
   smsOtpTemplate: 'קוד האימות שלך: {code} (בתוקף ל-10 דקות)',
+  closedRegistrationMessage: 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.',
 };
 
 export async function getSettings() {
@@ -33,18 +35,27 @@ export async function getSettings() {
     unpaidBlockMessage: (map.unpaid_block_message || '').trim() || DEFAULTS.unpaidBlockMessage,
     partialPaymentNotice: (map.partial_payment_notice || '').trim() || DEFAULTS.partialPaymentNotice,
     smsOtpTemplate: (map.sms_otp_template || '').trim() || DEFAULTS.smsOtpTemplate,
+    closedRegistrationMessage: (map.closed_registration_message || '').trim() || DEFAULTS.closedRegistrationMessage,
   };
 }
 
+/**
+ * "פתוח בפועל" = המנהל אישר (registrationOpen) *וגם* יש לפחות תעריף פעיל אחד.
+ * בלי תעריף פעיל הטופס לא שמיש בכל מקרה (כל פריט מציג "אין תעריף פעיל") —
+ * עדיף להראות ללקוח הודעת "סגור, ייפתח בקרוב" ברורה במקום טופס שבור.
+ */
 export async function getPublicSettings() {
   const s = await getSettings();
+  const priceRules = await getActivePriceRules();
+  const registrationEffectivelyOpen = s.registrationOpen && priceRules.length > 0;
   return {
-    registrationOpen: s.registrationOpen,
+    registrationOpen: registrationEffectivelyOpen,
     distributionOpen: s.distributionOpen,
     activeDay: s.activeDay,
     activeTimeSlot: s.activeTimeSlot,
     orderTitle: s.orderTitle,
     deferredPaymentNotice: s.deferredPaymentNotice,
+    closedRegistrationMessage: s.closedRegistrationMessage,
   };
 }
 

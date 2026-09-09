@@ -94,7 +94,7 @@ function screenPhone(errorMsg) {
       <h2>${state.publicSettings?.orderTitle || 'הרשמה לכפרות'}</h2>
       <p class="hint">הזינו מספר טלפון כדי להירשם, או כדי להיכנס לאזור האישי אם כבר נרשמתם.</p>
       ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
-      ${!state.publicSettings?.registrationOpen ? `<div class="notice">שימו לב: הרישום סגור כרגע. ניתן עדיין לצפות בהזמנה קיימת.</div>` : ''}
+      ${!state.publicSettings?.registrationOpen ? `<div class="notice">${state.publicSettings?.closedRegistrationMessage || 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.'} ניתן עדיין לצפות בהזמנה קיימת.</div>` : ''}
       <label for="phoneInput">מספר טלפון</label>
       <input type="tel" id="phoneInput" placeholder="05XXXXXXXX" value="${state.phone}" inputmode="numeric">
       <div class="spacer"></div>
@@ -247,12 +247,28 @@ function computeTotal() {
 }
 
 function renderRegisterScreen(errorMsg) {
+  // "חסום" = המנהל סגר את הרישום, או שאין עדיין אף תעריף פעיל (הטופס לא
+  // שמיש בכל מקרה) — בשני המקרים עדיף הודעת "סגור, ייפתח בקרוב" ברורה
+  // במקום טופס עם "אין תעריף פעיל" בכל שורה.
   const blocked = !state.publicSettings?.registrationOpen;
+  if (blocked) {
+    render(`
+      <div class="card">
+        <h2>${state.isFirstTime ? 'טופס הרשמה' : 'הזמנה נוספת'}</h2>
+        <div class="notice">${state.publicSettings?.closedRegistrationMessage || 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.'}</div>
+        <div class="spacer"></div>
+        <button class="ghost" id="registerBack">${state.isFirstTime ? 'חזרה' : 'חזרה לאזור האישי'}</button>
+      </div>
+    `);
+    document.getElementById('registerBack').onclick = () => {
+      state.isFirstTime ? screenPhone() : screenPersonalArea();
+    };
+    return;
+  }
   render(`
     <div class="card">
       <h2>${state.isFirstTime ? 'טופס הרשמה' : 'הזמנה נוספת'}</h2>
       ${!state.isFirstTime ? `<p class="hint">זו תירשם כ"הזמנה נוספת" בנפרד מההזמנות הקודמות שלכם באותו מספר טלפון.</p>` : ''}
-      ${blocked ? `<div class="error">הרישום סגור כרגע. לא ניתן לשלוח הזמנה חדשה.</div>` : ''}
       ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
       <label for="nameInput">שם מלא</label>
       <input type="text" id="nameInput" placeholder="שם פרטי ומשפחה">
@@ -261,7 +277,7 @@ function renderRegisterScreen(errorMsg) {
       <div id="itemsContainer"></div>
       <button class="secondary" id="addItemBtn" type="button">+ הוספת פריט נוסף</button>
       <div class="total-row"><span>סה"כ לתשלום</span><span id="totalDisplay">${money(computeTotal())}</span></div>
-      <button class="primary" id="registerSubmit" ${blocked ? 'disabled' : ''}>שליחת ההזמנה</button>
+      <button class="primary" id="registerSubmit">שליחת ההזמנה</button>
       <div class="spacer"></div>
       <button class="ghost" id="registerBack">${state.isFirstTime ? 'חזרה' : 'ביטול, חזרה לאזור האישי'}</button>
     </div>
@@ -349,7 +365,7 @@ function screenPersonalArea() {
       <button class="big-btn" id="btnRedeem" ${!s.distributionOpen ? 'disabled' : ''}><span class="ico">🎟️</span>מימוש הזמנה</button>
       <button class="big-btn" id="btnPay"><span class="ico">💳</span>תשלום על הזמנה</button>
     </div>
-    ${!s.registrationOpen ? `<p class="hint">* הרישום סגור כרגע — לא ניתן לבצע הזמנה נוספת.</p>` : ''}
+    ${!s.registrationOpen ? `<p class="hint">* ${s.closedRegistrationMessage || 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.'}</p>` : ''}
     ${!s.distributionOpen ? `<p class="hint">* החלוקה טרם נפתחה — לא ניתן לממש הזמנה כרגע.</p>` : ''}
   `);
   document.getElementById('btnShow').onclick = screenMyOrders;
