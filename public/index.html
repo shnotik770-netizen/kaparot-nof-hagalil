@@ -33,12 +33,8 @@
       <div class="total-row"><span>סה"כ יתרה לתשלום</span><span id="paymentAmountDisplay"></span></div>
       <label for="paymentAmountInput">סכום לתשלום כעת (אפשר לשלם רק חלק מהסכום)</label>
       <input type="number" id="paymentAmountInput" min="1" step="1">
-      <label for="paymentZeoutInput">תעודת זהות (לא חובה)</label>
-      <input type="text" id="paymentZeoutInput" inputmode="numeric" maxlength="9" placeholder="מספר תעודת זהות">
-      <label for="paymentMailInput">אימייל (לא חובה)</label>
-      <input type="email" id="paymentMailInput" placeholder="לקבלת אישור/קבלה במייל">
       <div class="spacer"></div>
-      <button class="primary" id="paymentContinueBtn">המשך לתשלום</button>
+      <button class="primary" id="paymentContinueBtn">פתח חלון תשלום</button>
       <div id="paymentError" class="error" style="display:none"></div>
       <div id="paymentFrameWrap" style="display:none;margin-top:16px">
         <iframe id="NedarimFrame" allow="payment" scrolling="no"
@@ -48,7 +44,7 @@
       <div id="paymentSkipSection">
         <div class="spacer"></div>
         <button class="ghost" id="paymentSkipLink">דלג על התשלום כרגע (שלם אחר כך)</button>
-        <div id="paymentSkipNotice" class="notice" style="display:none"></div>
+        <div id="paymentSkipNotice" class="notice critical" style="display:none"></div>
         <button class="secondary" id="paymentSkipContinueBtn" style="display:none">המשך לאזור האישי</button>
       </div>
     </div>
@@ -94,6 +90,8 @@ function el(html) {
 function render(html) {
   document.getElementById('app').innerHTML = html;
 }
+
+function esc(s) { return String(s ?? '').replace(/"/g, '&quot;'); }
 
 function money(n) {
   return `₪${Number(n).toLocaleString('he-IL', { maximumFractionDigits: 0 })}`;
@@ -231,8 +229,9 @@ function slotOptionLabel(s) {
 
 function itemRowHtml(item, idx) {
   const price = priceForItem(item);
+  const slot = state.slots.find((s) => s.id === item.slotId);
   return `
-    <div class="item-select-row" data-idx="${idx}">
+    <div class="item-select-row" data-idx="${idx}" style="border-inline-start:4px solid ${slot?.color || 'var(--accent)'}">
       ${state.registerItems.length > 1 ? `<button class="remove-item" data-remove="${idx}">✕ הסר</button>` : ''}
       <div>
         <label>זמן חלוקה</label>
@@ -381,6 +380,7 @@ function screenPersonalArea() {
     <div class="card">
       <h2>האזור האישי שלי</h2>
       <p class="hint">טלפון: ${state.normalizedPhone}</p>
+      <div id="customerNameSection"></div>
     </div>
     <div class="grid4">
       <button class="big-btn" id="btnShow"><span class="ico">📋</span>הצג הזמנה שלי</button>
@@ -402,6 +402,56 @@ function screenPersonalArea() {
     state.phone = ''; state.normalizedPhone = '';
     goToScreen('phone');
     screenPhone();
+  };
+  if (!state.isFirstTime) loadCustomerNameSection();
+}
+
+async function loadCustomerNameSection() {
+  try {
+    const { customerName } = await api(`/customer-name?phone=${encodeURIComponent(state.phone)}`);
+    renderCustomerNameView(customerName || '');
+  } catch { /* לא קריטי — פשוט לא מציגים את קטע השם */ }
+}
+
+function renderCustomerNameView(name) {
+  const container = document.getElementById('customerNameSection');
+  if (!container) return;
+  container.innerHTML = `
+    <p class="hint" style="margin:6px 0 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>שם: <b style="color:var(--ink)">${esc(name) || '—'}</b></span>
+      <button type="button" class="ghost" id="editNameBtn" style="width:auto;padding:2px 6px">עריכה</button>
+    </p>
+  `;
+  document.getElementById('editNameBtn').onclick = () => renderCustomerNameEdit(name);
+}
+
+function renderCustomerNameEdit(name) {
+  const container = document.getElementById('customerNameSection');
+  if (!container) return;
+  container.innerHTML = `
+    <div style="margin-top:8px">
+      <label for="customerNameInput">שם מלא</label>
+      <input type="text" id="customerNameInput" value="${esc(name)}">
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button type="button" class="primary" id="saveNameBtn" style="width:auto">שמירה</button>
+        <button type="button" class="ghost" id="cancelNameBtn" style="width:auto">ביטול</button>
+      </div>
+      <div id="customerNameError" class="error" style="display:none"></div>
+    </div>
+  `;
+  document.getElementById('cancelNameBtn').onclick = () => renderCustomerNameView(name);
+  document.getElementById('saveNameBtn').onclick = async () => {
+    const newName = document.getElementById('customerNameInput').value.trim();
+    const btn = document.getElementById('saveNameBtn');
+    btn.disabled = true; btn.textContent = 'שומר…';
+    try {
+      const res = await api('/customer-name', { method: 'PUT', body: { phone: state.phone, customerName: newName } });
+      renderCustomerNameView(res.customerName);
+    } catch (err) {
+      btn.disabled = false; btn.textContent = 'שמירה';
+      document.getElementById('customerNameError').textContent = err.message;
+      document.getElementById('customerNameError').style.display = '';
+    }
   };
 }
 
@@ -614,7 +664,8 @@ function showPaymentExitWarning(onConfirm) {
     <div class="modal-backdrop">
       <div class="modal">
         <h2>לא סיימת את התשלום</h2>
-        <p class="hint">${state.publicSettings?.deferredPaymentNotice || 'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל.'}<br>ההזמנה שלכם כבר נשמרה, אך תיחשב "לא שולם" עד שתשלימו את התשלום.</p>
+        <div class="notice critical">${state.publicSettings?.deferredPaymentNotice || 'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל.'}</div>
+        <p class="hint">ההזמנה שלכם כבר נשמרה, אך תיחשב "לא שולם" עד שתשלימו את התשלום.</p>
         <button class="primary" id="stayInPayment" style="width:100%">חזרה לתשלום</button>
         <div class="spacer"></div>
         <button class="secondary" id="confirmLeavePayment" style="width:100%">יציאה בכל זאת</button>
@@ -683,24 +734,17 @@ let currentPaymentSession = null; // { token, transactionId } — לאישור �
 async function onPaymentContinue() {
   const btn = document.getElementById('paymentContinueBtn');
   const amount = Number(document.getElementById('paymentAmountInput').value);
-  const zeout = document.getElementById('paymentZeoutInput').value.trim();
-  const mail = document.getElementById('paymentMailInput').value.trim();
-  if (zeout && !/^\d{4,9}$/.test(zeout)) {
-    document.getElementById('paymentError').textContent = 'מספר תעודת הזהות שהוזן אינו תקין (4-9 ספרות) — אפשר גם להשאיר ריק.';
-    document.getElementById('paymentError').style.display = '';
-    return;
-  }
-  btn.disabled = true; btn.textContent = 'פותח חלונית תשלום…';
+  btn.disabled = true; btn.textContent = 'פותח חלון תשלום…';
   document.getElementById('paymentError').style.display = 'none';
   try {
-    const session = await api('/payment/create-session', { method: 'POST', body: { phone: state.phone, amount, zeout, mail } });
+    const session = await api('/payment/create-session', { method: 'POST', body: { phone: state.phone, amount } });
     currentPaymentSession = { token: session.token, transactionId: session.transactionId };
     document.getElementById('paymentFrameWrap').style.display = '';
     document.getElementById('paymentSkipSection').style.display = 'none';
     btn.style.display = 'none';
     PostNedarim({ Name: 'StartPayment', Value: { TransactionId: session.transactionId, Key: session.key } });
   } catch (err) {
-    btn.disabled = false; btn.textContent = 'המשך לתשלום';
+    btn.disabled = false; btn.textContent = 'פתח חלון תשלום';
     document.getElementById('paymentError').textContent = err.message;
     document.getElementById('paymentError').style.display = '';
   }
@@ -740,6 +784,7 @@ async function onNedarimTransactionResponse(value) {
   } else {
     document.getElementById('paymentContinueBtn').style.display = '';
     document.getElementById('paymentContinueBtn').disabled = false;
+    document.getElementById('paymentContinueBtn').textContent = 'פתח חלון תשלום';
     document.getElementById('paymentError').textContent = value.Message || 'התשלום לא הושלם. ניתן לנסות שוב.';
     document.getElementById('paymentError').style.display = '';
   }

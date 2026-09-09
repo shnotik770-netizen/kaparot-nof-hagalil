@@ -31,6 +31,35 @@ export async function countOrdersForPhone(normalizedPhone) {
   return rows[0].n;
 }
 
+export async function getCustomerName(normalizedPhone) {
+  const { rows } = await pool.query(
+    `SELECT customer_name FROM orders WHERE normalized_phone = $1 AND NOT is_deleted ORDER BY order_sequence DESC LIMIT 1`,
+    [normalizedPhone]
+  );
+  return rows.length ? rows[0].customer_name : null;
+}
+
+/** מעדכן את שם הלקוח על כל ההזמנות שלו (אין טבלת "לקוחות" נפרדת — השם חי על כל שורת הזמנה). */
+export async function updateCustomerName(normalizedPhone, customerName) {
+  const name = String(customerName || '').trim();
+  if (!name) {
+    const err = new Error('יש להזין שם.');
+    err.status = 400;
+    throw err;
+  }
+  const { rowCount } = await pool.query(
+    `UPDATE orders SET customer_name = $1 WHERE normalized_phone = $2 AND NOT is_deleted`,
+    [name, normalizedPhone]
+  );
+  if (!rowCount) {
+    const err = new Error('לא נמצאו הזמנות עבור מספר טלפון זה.');
+    err.status = 404;
+    throw err;
+  }
+  await logAction('customer_name_updated', { normalizedPhone, customerName: name });
+  return { customerName: name };
+}
+
 export async function createOrder(payload, { changedBy = 'customer' } = {}) {
   // אין יותר מתג-על גלובלי — כל בדיקת "האם ההרשמה פתוחה" נעשית פר-זמן-חלוקה,
   // ראו הבדיקה על slot.isOpenForRegistration בכל שורת פריט למטה.

@@ -7,7 +7,9 @@ import {
 } from '../lib/auth.js';
 import { listAdmins, createAdmin, updateAdmin, deleteAdmin } from '../lib/admins.js';
 import { getOpenSlotsForRegistration, getAllSlots, createSlot, updateSlot, suggestDayLabel } from '../lib/slots.js';
-import { countOrdersForPhone, createOrder, listOrdersForPhone } from '../lib/orders.js';
+import {
+  countOrdersForPhone, createOrder, listOrdersForPhone, getCustomerName, updateCustomerName,
+} from '../lib/orders.js';
 import { getRedemptionStatus, confirmSlotRedemption } from '../lib/redemption.js';
 import {
   recordManualPayment, recordManualPaymentForCustomer, listPaymentsForOrder, listAllPayments,
@@ -103,6 +105,16 @@ router.get('/my-orders', requireVerifiedPhone, wrap(async (req, res) => {
   res.json(await listOrdersForPhone(normalized));
 }));
 
+router.get('/customer-name', requireVerifiedPhone, wrap(async (req, res) => {
+  const normalized = normalizePhone(req.query.phone);
+  res.json({ customerName: await getCustomerName(normalized) });
+}));
+
+router.put('/customer-name', requireVerifiedPhone, wrap(async (req, res) => {
+  const normalized = normalizePhone(req.body.phone);
+  res.json(await updateCustomerName(normalized, req.body.customerName));
+}));
+
 router.get('/redeem/status', requireVerifiedPhone, wrap(async (req, res) => {
   const normalized = normalizePhone(req.query.phone);
   const settings = await getPublicSettings();
@@ -151,26 +163,20 @@ router.post('/payment/create-session', requireVerifiedPhone, wrap(async (req, re
       return res.status(400).json({ error: `יש להזין סכום בין 1 ל-${balanceDue} ₪.` });
     }
   }
-  const zeout = String(req.body.zeout || '').trim();
-  if (zeout && !/^\d{4,9}$/.test(zeout)) {
-    return res.status(400).json({ error: 'מספר תעודת הזהות שהוזן אינו תקין (4-9 ספרות) — אפשר גם להשאיר ריק.' });
-  }
-  const mail = String(req.body.mail || '').trim();
-  if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
-    return res.status(400).json({ error: 'כתובת המייל אינה תקינה.' });
-  }
   const customerName = orders[0]?.customerName || '';
   const [firstName, ...restName] = customerName.split(' ').filter(Boolean);
   const lastName = restName.join(' ');
   const session = await createPaymentSession(normalized, amount);
+  // לא שולחים Zeout/Mail משלנו — לא אוספים אותם בדף שלנו בכוונה: לפי התיעוד
+  // הרשמי, אם המוסד מוגדר לחייב ת"ז ולא נשלחה, שדה הטופס בתוך האייפרם עצמו
+  // מבקש אותה (ראו docs/nedarim-plus-integration.md), כך שההצגה נשארת חלק
+  // אחד רציף בתוך חלון התשלום ולא שלב נפרד בדף שלנו.
   const { transactionId, key } = await createTransaction({
     amount,
     param2: session.token,
     callbackUrl: `${publicBaseUrl()}/webhooks/nedarim-plus`,
-    zeout,
     firstName,
     lastName,
-    mail: mail || undefined,
     groupe: 'תשלום על כפרות',
   });
   res.json({ transactionId, key, amount, token: session.token });

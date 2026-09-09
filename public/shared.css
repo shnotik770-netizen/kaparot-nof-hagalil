@@ -55,6 +55,7 @@ button.danger{background:var(--wine);color:#fff}
 .error{background:var(--wine-soft);color:var(--wine);border-radius:10px;padding:10px 12px;font-size:13.5px;margin:10px 0}
 .success{background:var(--sage-soft);color:var(--sage);border-radius:10px;padding:10px 12px;font-size:13.5px;margin:10px 0}
 .notice{background:var(--accent-soft);color:var(--accent-ink);border-radius:10px;padding:10px 12px;font-size:13.5px;margin:10px 0}
+.notice.critical{background:var(--wine-soft);color:var(--wine);font-size:15.5px;font-weight:800;padding:14px 14px;border:2px solid var(--wine)}
 .order-row-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .order-row-header b{font-size:15px}
 .item-select-row{display:grid;grid-template-columns:1fr;gap:8px;padding:14px;border:1.5px solid var(--line);border-radius:12px;margin-bottom:10px;position:relative}
