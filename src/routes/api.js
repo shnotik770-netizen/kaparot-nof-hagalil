@@ -152,8 +152,8 @@ router.post('/payment/create-session', requireVerifiedPhone, wrap(async (req, re
     }
   }
   const zeout = String(req.body.zeout || '').trim();
-  if (!/^\d{4,9}$/.test(zeout)) {
-    return res.status(400).json({ error: 'יש להזין מספר תעודת זהות תקין (4-9 ספרות).' });
+  if (zeout && !/^\d{4,9}$/.test(zeout)) {
+    return res.status(400).json({ error: 'מספר תעודת הזהות שהוזן אינו תקין (4-9 ספרות) — אפשר גם להשאיר ריק.' });
   }
   const mail = String(req.body.mail || '').trim();
   if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
