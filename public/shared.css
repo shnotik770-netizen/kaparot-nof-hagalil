@@ -75,18 +75,18 @@ button.danger{background:var(--wine);color:#fff}
 /* מסך "מימוש והצגה למחלק" — takeover בצבע זמן החלוקה, לעמדת החלוקה */
 .big-ticket-screen{
   position:fixed; inset:0; z-index:80; display:flex; flex-direction:column;
-  align-items:center; justify-content:center; padding:24px; text-align:center; color:#fff;
+  align-items:center; justify-content:center; padding:24px; text-align:center; color:#000;
 }
-.big-ticket-screen .slot-name{ font-size:15px; opacity:.85; margin-bottom:8px; font-weight:600; }
-.big-ticket-screen .customer-name{ font-size:30px; font-weight:900; margin-bottom:26px; text-shadow:0 2px 10px rgba(0,0,0,.3); }
+.big-ticket-screen .slot-name{ font-size:15px; opacity:.85; margin-bottom:8px; font-weight:700; color:#000; }
+.big-ticket-screen .customer-name{ font-size:30px; font-weight:900; margin-bottom:26px; color:#000; }
 .gender-squares{ display:flex; gap:16px; }
 .gender-square{ flex:1; max-width:150px; aspect-ratio:1; border-radius:22px; display:flex; flex-direction:column; align-items:center; justify-content:center; box-shadow:0 10px 26px rgba(0,0,0,.28); }
-.gender-square .num{ font-size:46px; font-weight:900; line-height:1; }
-.gender-square .lbl{ font-size:14px; font-weight:700; margin-top:8px; }
-.gender-square.male{ background:#2f6fed; color:#fff; }
-.gender-square.female{ background:#e0489a; color:#fff; }
-.big-ticket-screen .code{ margin-top:24px; font-family:monospace; direction:ltr; font-size:22px; font-weight:800; background:rgba(255,255,255,.2); padding:9px 22px; border-radius:10px; letter-spacing:3px; }
-.big-ticket-screen button{ margin-top:32px; max-width:280px; }
+.gender-square .num{ font-size:46px; font-weight:900; line-height:1; color:#000; }
+.gender-square .lbl{ font-size:14px; font-weight:700; margin-top:8px; color:#000; }
+.gender-square.male{ background:#2f6fed; }
+.gender-square.female{ background:#e0489a; }
+.big-ticket-screen .code{ margin-top:24px; font-family:monospace; direction:ltr; font-size:22px; font-weight:800; background:rgba(255,255,255,.2); padding:9px 22px; border-radius:10px; letter-spacing:3px; color:#000; }
+.big-ticket-screen button{ margin-top:32px; max-width:280px; color:#000; }
 
 .must-show-notice{ font-size:16px; font-weight:900; text-align:center; margin:12px 0; line-height:1.5; }
 .must-show-notice.on-color{ color:#000; background:rgba(255,255,255,.92); padding:12px 16px; border-radius:12px; box-shadow:0 4px 14px rgba(0,0,0,.18); }
