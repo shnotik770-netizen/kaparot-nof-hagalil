@@ -107,12 +107,12 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS notes TEXT;
 -- בזמן משיכה בפועל, בלי לגעת בשאר שורות אותה הזמנה.
 --
 -- הדגם הישן (לפני מעבר לזמני חלוקה דינמיים) היה מבוסס עמודות day/time_slot קבועות,
--- בלי slot_id. המערכת טרם עלתה לאוויר בעונה זו (אין הזמנות אמיתיות לשמר), אז
--- מוחקים ובונים מחדש עם הסכימה החדשה — כמו price_rules למעלה. redemptions תלויה
--- ב-order_items (FK), ולכן נמחקת ונבנית מחדש גם היא (ראו הגדרתה בהמשך הקובץ).
-DROP TABLE IF EXISTS redemptions CASCADE;
-DROP TABLE IF EXISTS order_items CASCADE;
-
+-- בלי slot_id. המעבר לסכימה עם slot_id בוצע פעם אחת בתחילת הפיתוח, לפני
+-- שהמערכת עלתה לאוויר, ע"י DROP TABLE + הקמה מחדש. **קריטי: אסור להחזיר את
+-- ה-DROP הזה** — הוא רץ בכל דיפלוי (schema.sql מופעל אוטומטית בכל עלייה של
+-- השרת), ומאז שיש הזמנות אמיתיות במערכת הוא ימחק את order_items/redemptions
+-- מחדש בכל דיפלוי ויבטל את הפריטים של כל ההזמנות הקיימות. זה בדיוק מה שקרה
+-- בפועל בהזמנות #1001/#1002 — נוצרו בדיפלוי אחד, ונמחקו בדיפלוי הבא.
 CREATE TABLE IF NOT EXISTS order_items (
   id                SERIAL PRIMARY KEY,
   order_id          INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
