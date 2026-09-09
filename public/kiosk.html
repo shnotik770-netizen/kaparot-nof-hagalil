@@ -218,16 +218,19 @@ function openSlotRedeemConfirm(group, chosenQty) {
 function showBigTicket(result) {
   render(`
     <div class="big-ticket-screen" style="background:${result.slotColor}">
-      <div class="slot-name">${result.slotName}</div>
-      <div class="customer-name">${result.customerName || ''}</div>
-      <div class="gender-squares">
-        ${result.maleQuantity > 0 ? `<div class="gender-square male"><div class="num">${result.maleQuantity}</div><div class="lbl">זכרים</div></div>` : ''}
-        ${result.femaleQuantity > 0 ? `<div class="gender-square female"><div class="num">${result.femaleQuantity}</div><div class="lbl">נקבות</div></div>` : ''}
+      <div class="ticket-card">
+        <div class="slot-name" style="color:${result.slotColor}">${result.slotName}</div>
+        ${result.hebrewDateNow ? `<div class="hebrew-date">${result.hebrewDateNow}</div>` : ''}
+        <div class="customer-name">${result.customerName || ''}</div>
+        <div class="gender-squares">
+          ${result.maleQuantity > 0 ? `<div class="gender-square male"><div class="num">${result.maleQuantity}</div><div class="lbl">זכרים</div></div>` : ''}
+          ${result.femaleQuantity > 0 ? `<div class="gender-square female"><div class="num">${result.femaleQuantity}</div><div class="lbl">נקבות</div></div>` : ''}
+        </div>
+        <div class="must-show-notice">יש להציג את האישור למחלק העופות<br>לא ניתן לחזור לדף זה שנית</div>
+        <div class="ticket-issued-at">אישור זה הונפק כעת: ${new Date().toLocaleString('he-IL')}<br>אישור עם תאריך/שעה אחרים אינו תקף</div>
+        <button class="secondary" id="moreBtn">משיכת פריט נוסף לאותו לקוח</button>
+        <button class="secondary" id="endBtn">סיום — לקוח הבא</button>
       </div>
-      <div class="must-show-notice on-color">יש להציג את האישור למחלק העופות<br>לא ניתן לחזור לדף זה שנית</div>
-      <div class="ticket-issued-at">אישור זה הונפק כעת: ${new Date().toLocaleString('he-IL')}<br>אישור עם תאריך/שעה אחרים אינו תקף</div>
-      <button class="secondary" id="moreBtn" style="background:rgba(255,255,255,.85)">משיכת פריט נוסף לאותו לקוח</button>
-      <button class="secondary" id="endBtn" style="background:rgba(255,255,255,.6)">סיום — לקוח הבא</button>
     </div>
   `);
   document.getElementById('moreBtn').onclick = screenRedeem;

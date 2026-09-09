@@ -17,6 +17,7 @@ import crypto from 'node:crypto';
 import { pool, withTransaction } from '../db/pool.js';
 import { getSettings } from './settings.js';
 import { logAction } from './actionLog.js';
+import { toHebrewDateString } from './hebcal.js';
 
 function itemLabel(row) {
   const genderLabel = row.gender === 'male' ? 'זכרים' : 'נקבות';
@@ -180,6 +181,7 @@ export async function confirmSlotRedemption(normalizedPhone, slotId, { maleQuant
       customerName,
       slotName: slot.name,
       slotColor: slot.color,
+      hebrewDateNow: toHebrewDateString(new Date()),
     };
   });
 }
