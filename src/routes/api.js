@@ -151,11 +151,27 @@ router.post('/payment/create-session', requireVerifiedPhone, wrap(async (req, re
       return res.status(400).json({ error: `יש להזין סכום בין 1 ל-${balanceDue} ₪.` });
     }
   }
+  const zeout = String(req.body.zeout || '').trim();
+  if (!/^\d{4,9}$/.test(zeout)) {
+    return res.status(400).json({ error: 'יש להזין מספר תעודת זהות תקין (4-9 ספרות).' });
+  }
+  const mail = String(req.body.mail || '').trim();
+  if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
+    return res.status(400).json({ error: 'כתובת המייל אינה תקינה.' });
+  }
+  const customerName = orders[0]?.customerName || '';
+  const [firstName, ...restName] = customerName.split(' ').filter(Boolean);
+  const lastName = restName.join(' ');
   const session = await createPaymentSession(normalized, amount);
   const { transactionId, key } = await createTransaction({
     amount,
     param2: session.token,
     callbackUrl: `${publicBaseUrl()}/webhooks/nedarim-plus`,
+    zeout,
+    firstName,
+    lastName,
+    mail: mail || undefined,
+    groupe: 'תשלום על כפרות',
   });
   res.json({ transactionId, key, amount, token: session.token });
 }));

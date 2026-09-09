@@ -10,7 +10,7 @@ const HMAC_TOLERANCE_SECONDS = 300; // 5 דקות — הגנה מפני שידו
  * מקימה עסקה בצד שרת (הסכום ננעל, לא ניתן לשינוי מהדפדפן). מחזירה
  * { transactionId, key } שאותם שולחים לאייפרם ב-StartPayment.
  */
-export async function createTransaction({ amount, param2, callbackUrl }) {
+export async function createTransaction({ amount, param2, callbackUrl, zeout, firstName, lastName, mail, groupe }) {
   const mosad = process.env.NEDARIM_MOSAD_ID;
   const apiValid = process.env.NEDARIM_API_VALID;
   if (!mosad || !apiValid) {
@@ -29,6 +29,11 @@ export async function createTransaction({ amount, param2, callbackUrl }) {
     Param2: param2, // המזהה שלנו לצורך הצלבה מול ה-Webhook — לא Param1 (חוסם ביט/העברה)
     CallBack: callbackUrl,
   });
+  if (zeout) form.set('Zeout', zeout);
+  if (firstName) form.set('FirstName', firstName);
+  if (lastName) form.set('LastName', lastName);
+  if (mail) form.set('Mail', mail);
+  if (groupe) form.set('Groupe', groupe);
 
   const res = await fetch(CREATE_TRANSACTION_URL, { method: 'POST', body: form });
   const text = await res.text();

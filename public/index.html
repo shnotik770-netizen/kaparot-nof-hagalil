@@ -33,6 +33,10 @@
       <div class="total-row"><span>סה"כ יתרה לתשלום</span><span id="paymentAmountDisplay"></span></div>
       <label for="paymentAmountInput">סכום לתשלום כעת (אפשר לשלם רק חלק מהסכום)</label>
       <input type="number" id="paymentAmountInput" min="1" step="1">
+      <label for="paymentZeoutInput">תעודת זהות</label>
+      <input type="text" id="paymentZeoutInput" inputmode="numeric" maxlength="9" placeholder="מספר תעודת זהות">
+      <label for="paymentMailInput">אימייל (לא חובה)</label>
+      <input type="email" id="paymentMailInput" placeholder="לקבלת אישור/קבלה במייל">
       <div class="spacer"></div>
       <button class="primary" id="paymentContinueBtn">המשך לתשלום</button>
       <div id="paymentError" class="error" style="display:none"></div>
@@ -679,10 +683,17 @@ let currentPaymentSession = null; // { token, transactionId } — לאישור �
 async function onPaymentContinue() {
   const btn = document.getElementById('paymentContinueBtn');
   const amount = Number(document.getElementById('paymentAmountInput').value);
+  const zeout = document.getElementById('paymentZeoutInput').value.trim();
+  const mail = document.getElementById('paymentMailInput').value.trim();
+  if (!/^\d{4,9}$/.test(zeout)) {
+    document.getElementById('paymentError').textContent = 'יש להזין מספר תעודת זהות תקין (4-9 ספרות).';
+    document.getElementById('paymentError').style.display = '';
+    return;
+  }
   btn.disabled = true; btn.textContent = 'פותח חלונית תשלום…';
   document.getElementById('paymentError').style.display = 'none';
   try {
-    const session = await api('/payment/create-session', { method: 'POST', body: { phone: state.phone, amount } });
+    const session = await api('/payment/create-session', { method: 'POST', body: { phone: state.phone, amount, zeout, mail } });
     currentPaymentSession = { token: session.token, transactionId: session.transactionId };
     document.getElementById('paymentFrameWrap').style.display = '';
     document.getElementById('paymentSkipSection').style.display = 'none';
