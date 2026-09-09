@@ -224,3 +224,24 @@ export async function confirmClientReportedPayment(token, normalizedPhone, trans
     return { allocated: true, allocations, unallocatedSurplus };
   });
 }
+
+/**
+ * מנהל בדק ידנית (מול נדרים פלוס) והחליט שאין כאן תשלום אמיתי לטפל בו —
+ * מסמן את ה-session כ-'dismissed' כדי שיפסיק להופיע כאזהרה "ייתכן שיש
+ * תשלום שלא אושר". לא נוגע בהזמנות/תשלומים בכלל, רק מפסיק להתריע.
+ */
+export async function dismissStalePaymentSession(token, adminName) {
+  const { rows } = await pool.query(
+    `UPDATE payment_sessions SET status = 'dismissed' WHERE token = $1 AND status = 'pending' RETURNING *`,
+    [token]
+  );
+  if (!rows.length) {
+    const err = new Error('בקשת התשלום לא נמצאה או שכבר טופלה.');
+    err.status = 404;
+    throw err;
+  }
+  await logAction('payment_alert_dismissed', {
+    phone: rows[0].normalized_phone, amount: Number(rows[0].requested_amount), adminName,
+  });
+  return { success: true };
+}

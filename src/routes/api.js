@@ -11,7 +11,7 @@ import { countOrdersForPhone, createOrder, listOrdersForPhone } from '../lib/ord
 import { getRedemptionStatus, confirmSlotRedemption } from '../lib/redemption.js';
 import {
   recordManualPayment, recordManualPaymentForCustomer, listPaymentsForOrder, listAllPayments,
-  createPaymentSession, confirmClientReportedPayment,
+  createPaymentSession, confirmClientReportedPayment, dismissStalePaymentSession,
 } from '../lib/payments.js';
 import {
   listAllOrders, listCustomersSummary, getDashboardStats, hardReset,
@@ -272,6 +272,11 @@ router.post('/admin/customers/:phone/payments', requireAdmin, requirePermission(
     normalized, req.body?.amount, req.body?.method, req.session.adminName || 'admin', req.body?.note
   );
   res.json(result);
+}));
+
+// "בדקתי ידנית, אין כאן תשלום אמיתי" — משתיק את אזהרת "ייתכן שיש תשלום שלא אושר" עבור session ספציפי.
+router.post('/admin/payment-sessions/:token/dismiss', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await dismissStalePaymentSession(req.params.token, req.session.adminName || 'admin'));
 }));
 
 router.get('/admin/orders/:id/payments', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {

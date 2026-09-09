@@ -154,12 +154,16 @@ CREATE TABLE IF NOT EXISTS payment_sessions (
   token             TEXT NOT NULL UNIQUE,             -- נשלח כ-Param2 לנדרים פלוס
   normalized_phone  TEXT NOT NULL,
   requested_amount  NUMERIC(10,2) NOT NULL CHECK (requested_amount > 0),
-  status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','completed')),
+  -- 'dismissed' = מנהל בדק ידנית והחליט להתעלם מהאזהרה (ראו dismissStalePaymentSession ב-payments.js)
+  status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','completed','dismissed')),
   nedarim_transaction_id TEXT,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at      TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_payment_sessions_phone ON payment_sessions(normalized_phone);
+-- מרחיב CHECK ישן (pending/completed בלבד) בהתקנות שכבר קיימות מלפני הוספת 'dismissed'
+ALTER TABLE payment_sessions DROP CONSTRAINT IF EXISTS payment_sessions_status_check;
+ALTER TABLE payment_sessions ADD CONSTRAINT payment_sessions_status_check CHECK (status IN ('pending','completed','dismissed'));
 
 -- לוג גולמי לכל קריאת webhook נכנסת מנדרים פלוס, מוצלחת או לא — לניפוי
 -- תקלות ולזיהוי ניסיונות זיוף (חתימה לא תקינה / חותמת זמן חשודה / IP לא מוכר).

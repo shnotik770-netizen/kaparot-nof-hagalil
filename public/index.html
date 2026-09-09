@@ -564,6 +564,7 @@ function showBigTicket(result) {
         ${result.femaleQuantity > 0 ? `<div class="gender-square female"><div class="num">${result.femaleQuantity}</div><div class="lbl">נקבות</div></div>` : ''}
       </div>
       <div class="must-show-notice on-color">יש להציג את האישור למחלק העופות<br>לא ניתן לחזור לדף זה שנית</div>
+      <div class="ticket-issued-at">אישור זה הונפק כעת: ${new Date().toLocaleString('he-IL')}<br>אישור עם תאריך/שעה אחרים אינו תקף</div>
       <button class="secondary" id="ticketDoneBtn">חזרה</button>
     </div>
   `);
@@ -594,7 +595,40 @@ function hidePaymentScreen() {
   document.getElementById('app').style.display = '';
 }
 
-document.getElementById('paymentBack').onclick = () => { goBack(); };
+// אזהרת "לא סיימת תשלום" — יציאה ממסך התשלום (כפתור "חזרה" או "חזרה" של
+// הנייד/הדפדפן) בזמן שיש עדיין יתרה שלא שולמה ולא נלחץ "דלג" במפורש.
+let paymentExitConfirmed = false;
+function paymentHasUnfinishedBalance() {
+  if (document.getElementById('paymentScreen').style.display === 'none') return false;
+  const hasBalance = document.getElementById('paymentHasBalance').style.display !== 'none';
+  const success = document.getElementById('paymentSuccess').style.display !== 'none';
+  const skipAcknowledged = document.getElementById('paymentSkipNotice').style.display !== 'none';
+  return hasBalance && !success && !skipAcknowledged;
+}
+function showPaymentExitWarning(onConfirm) {
+  const backdrop = el(`
+    <div class="modal-backdrop">
+      <div class="modal">
+        <h2>לא סיימת את התשלום</h2>
+        <p class="hint">${state.publicSettings?.deferredPaymentNotice || 'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל.'}<br>ההזמנה שלכם כבר נשמרה, אך תיחשב "לא שולם" עד שתשלימו את התשלום.</p>
+        <button class="primary" id="stayInPayment" style="width:100%">חזרה לתשלום</button>
+        <div class="spacer"></div>
+        <button class="secondary" id="confirmLeavePayment" style="width:100%">יציאה בכל זאת</button>
+      </div>
+    </div>
+  `);
+  document.body.appendChild(backdrop);
+  backdrop.querySelector('#stayInPayment').onclick = () => backdrop.remove();
+  backdrop.querySelector('#confirmLeavePayment').onclick = () => { backdrop.remove(); onConfirm(); };
+}
+
+document.getElementById('paymentBack').onclick = () => {
+  if (paymentHasUnfinishedBalance()) {
+    showPaymentExitWarning(() => { paymentExitConfirmed = true; goBack(); });
+  } else {
+    goBack();
+  }
+};
 document.getElementById('paymentContinueBtn').onclick = onPaymentContinue;
 document.getElementById('paymentSkipLink').onclick = onPaymentSkip;
 
@@ -741,6 +775,15 @@ function goBack() {
   history.back();
 }
 window.addEventListener('popstate', (event) => {
+  // חזרה אחורה בחומרה/מחווה (לא רק כפתור "חזרה" שבתוך המסך) בזמן תשלום שלא
+  // הושלם — מבטלים את הניווט (דוחפים בחזרה את מצב "payment") ומציגים אזהרה,
+  // באותו אופן כמו כפתור "חזרה" המפורש.
+  if (paymentHasUnfinishedBalance() && !paymentExitConfirmed) {
+    history.pushState({ screenId: 'payment' }, '', location.href);
+    showPaymentExitWarning(() => { paymentExitConfirmed = true; goBack(); });
+    return;
+  }
+  paymentExitConfirmed = false;
   // ניקוי כל חלונית פתוחה (הסבר/אישור מימוש) — מונע חלונית "תקועה" מעל מסך חדש
   document.querySelectorAll('.modal-backdrop').forEach((b) => b.remove());
   hidePaymentScreen();

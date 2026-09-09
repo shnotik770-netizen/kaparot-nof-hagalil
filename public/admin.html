@@ -24,6 +24,10 @@
   .perm-checks input{width:auto}
   .slot-card{border-inline-start:5px solid var(--accent);position:relative}
   .cols2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .filter-row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .filter-row > div{flex:1 1 130px;min-width:0}
+  .filter-row label{font-size:11px;margin:0 0 3px}
+  .filter-row select{font-size:13px;padding:9px 8px}
   .colorpick{display:flex;align-items:center;gap:8px}
   .colorpick input[type=color]{width:44px;height:38px;padding:2px;border:1.5px solid var(--line);border-radius:8px;cursor:pointer}
   .inline-hint{font-size:12px;color:var(--ink-dim);margin:2px 0 0}
@@ -38,6 +42,8 @@
   .compact-table{width:100%;border-collapse:collapse;font-size:13.5px}
   .compact-table td{padding:9px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
   .compact-table tr:last-child td{border-bottom:none}
+  .pending-payment-line{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px}
+  .pending-payment-line .ghost{color:inherit;text-decoration:underline;font-size:12px;padding:2px 4px;width:auto}
 </style>
 </head>
 <body>
@@ -573,7 +579,15 @@ function customerCardHtml(c) {
         <span class="pill ${c.paymentStatus}">${STATUS_LABEL[c.paymentStatus]}</span>
       </div>
       ${pending.length ? `
-        <div class="notice">⚠️ ייתכן שיש תשלום באשראי שלא אושר במערכת (${pending.map((p) => `${money(p.amount)} מ-${new Date(p.createdAt).toLocaleString('he-IL')}`).join(', ')}) — כדאי לבדוק ידנית מול נדרים פלוס, ולרשום תשלום ידני אם התשלום כן עבר.</div>
+        <div class="notice">
+          ⚠️ ייתכן שיש תשלום באשראי שלא אושר במערכת — כדאי לבדוק ידנית מול נדרים פלוס, ולרשום תשלום ידני אם התשלום כן עבר.
+          ${pending.map((p) => `
+            <div class="pending-payment-line">
+              <span>${money(p.amount)} מ-${new Date(p.createdAt).toLocaleString('he-IL')}</span>
+              <button type="button" class="ghost" data-dismiss-pending="${esc(p.token)}">✕ בדקתי, הסתר</button>
+            </div>
+          `).join('')}
+        </div>
       ` : ''}
       ${customerSummaryRowsHtml(c)}
       <div class="row" style="margin-top:10px">
@@ -615,6 +629,7 @@ function customerPanelHtml(c) {
           <span class="meta">${new Date(o.createdAt).toLocaleString('he-IL')}</span>
         </div>
         ${o.notes ? `<div class="notice">הערות: ${esc(o.notes)}</div>` : ''}
+        ${!o.items.length ? `<p class="hint">אין פריטים בהזמנה זו (כנראה כל השורות נמחקו) — אפשר למחוק אותה.</p>` : ''}
         ${o.items.map((it) => `
           <div style="padding:8px 0;border-top:1px solid var(--line)">
             <div class="item-row" style="border:none;padding:0">
@@ -723,7 +738,7 @@ async function renderOrdersTab() {
       <p class="hint">${customers.length} לקוחות · ${customers.filter((c) => c.paymentStatus === 'paid').length} שולמו במלואם</p>
       <label for="orderSearch">חיפוש לפי שם או טלפון</label>
       <input type="text" id="orderSearch" placeholder="הקלידו שם או מספר טלפון...">
-      <div class="cols2" style="margin-top:10px">
+      <div class="filter-row">
         <div>
           <label for="filterPaid">סטטוס תשלום</label>
           <select id="filterPaid">
@@ -741,12 +756,14 @@ async function renderOrdersTab() {
             <option value="partial">לא מומש במלואו</option>
           </select>
         </div>
+        <div>
+          <label for="filterSlot">זמן חלוקה</label>
+          <select id="filterSlot">
+            <option value="all">כל הזמנים</option>
+            ${slots.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+          </select>
+        </div>
       </div>
-      <label for="filterSlot">זמן חלוקה</label>
-      <select id="filterSlot">
-        <option value="all">כל הזמנים</option>
-        ${slots.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
-      </select>
       <div class="spacer"></div>
       <div class="row">
         <button class="secondary" id="exportCsvBtn">ייצוא דוח תשלומים (CSV)</button>
@@ -810,6 +827,14 @@ async function renderOrdersTab() {
         panel.innerHTML = customerPanelHtml(c);
         panel.hidden = false;
         wireCustomerPanel(c);
+      };
+    });
+    wrap.querySelectorAll('[data-dismiss-pending]').forEach((b) => {
+      b.onclick = async () => {
+        try {
+          await api(`/admin/payment-sessions/${encodeURIComponent(b.dataset.dismissPending)}/dismiss`, { method: 'POST' });
+          renderOrdersTab();
+        } catch (err) { alert(err.message); }
       };
     });
   }
@@ -979,6 +1004,7 @@ const ACTION_LABELS = {
   order_item_deleted: 'שורת הזמנה נמחקה',
   order_deleted: 'הזמנה נמחקה',
   sms_bulk_sent: 'סמס קבוצתי נשלח',
+  payment_alert_dismissed: 'אזהרת תשלום לא-מאושר הוסתרה',
   settings_updated: 'הגדרות עודכנו',
   slot_created: 'זמן חלוקה נוסף',
   slot_updated: 'זמן חלוקה עודכן',
@@ -1012,6 +1038,8 @@ function actionSummaryHtml(a) {
       return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ע"י ${esc(d.adminName || '')}`;
     case 'sms_bulk_sent':
       return `${d.recipientCount ?? 0} נמענים · ע"י ${esc(d.sentBy || '')}`;
+    case 'payment_alert_dismissed':
+      return `${esc(d.phone || '')} · ${money(d.amount || 0)} · ע"י ${esc(d.adminName || '')}`;
     case 'redemption_confirmed':
       return `${esc(d.customerName || '')} · ${esc(d.slotName || '')} · ${d.maleQuantity || 0} זכרים + ${d.femaleQuantity || 0} נקבות · קוד ${esc(d.confirmationCode || '')}`;
     case 'settings_updated':
