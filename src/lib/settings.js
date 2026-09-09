@@ -1,20 +1,19 @@
 // מקביל ל-settings.js של מערכת הספרים — קורא/כותב לטבלת settings (key/value).
 
 import { query } from '../db/pool.js';
-import { normalizePhone } from './normalize.js';
-import { getActivePriceRules } from './priceRules.js';
+import { getOpenSlotsForRegistration } from './slots.js';
 
 const DEFAULTS = {
   registrationOpen: true,
   distributionOpen: false,
-  activeDay: null,
-  activeTimeSlot: null,
   orderTitle: 'הרשמה לכפרות',
   deferredPaymentNotice: 'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל בשעת ההזמנה.',
   unpaidBlockMessage: 'עליך לגשת למשרד להסדרת התשלום טרם מימוש ההזמנה.',
   partialPaymentNotice: 'שולם באופן חלקי — ניתן למשוך רק את ההזמנות ששולמו.',
   smsOtpTemplate: 'קוד האימות שלך: {code} (בתוקף ל-10 דקות)',
   closedRegistrationMessage: 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.',
+  welcomeNoticeTitle: '',
+  welcomeNoticeBody: '',
 };
 
 export async function getSettings() {
@@ -25,37 +24,36 @@ export async function getSettings() {
   return {
     registrationOpen: map.registration_open === 'true',
     distributionOpen: map.distribution_open === 'true',
-    activeDay: map.active_day || null,
-    activeTimeSlot: map.active_time_slot || null,
     orderTitle: (map.order_title || '').trim() || DEFAULTS.orderTitle,
     adminPasswordHash: map.admin_password_hash || null,
-    adminPhone: map.admin_phone || null,
-    normalizedAdminPhone: map.normalized_admin_phone || (map.admin_phone ? normalizePhone(map.admin_phone) : null),
     deferredPaymentNotice: (map.deferred_payment_notice || '').trim() || DEFAULTS.deferredPaymentNotice,
     unpaidBlockMessage: (map.unpaid_block_message || '').trim() || DEFAULTS.unpaidBlockMessage,
     partialPaymentNotice: (map.partial_payment_notice || '').trim() || DEFAULTS.partialPaymentNotice,
     smsOtpTemplate: (map.sms_otp_template || '').trim() || DEFAULTS.smsOtpTemplate,
     closedRegistrationMessage: (map.closed_registration_message || '').trim() || DEFAULTS.closedRegistrationMessage,
+    // חלונית הסבר שמוצגת ללקוח במסך הראשי — ריק = לא מוצגת בכלל (ראו getPublicSettings)
+    welcomeNoticeTitle: (map.welcome_notice_title || '').trim(),
+    welcomeNoticeBody: (map.welcome_notice_body || '').trim(),
   };
 }
 
 /**
- * "פתוח בפועל" = המנהל אישר (registrationOpen) *וגם* יש לפחות תעריף פעיל אחד.
- * בלי תעריף פעיל הטופס לא שמיש בכל מקרה (כל פריט מציג "אין תעריף פעיל") —
- * עדיף להראות ללקוח הודעת "סגור, ייפתח בקרוב" ברורה במקום טופס שבור.
+ * "פתוח בפועל" = המנהל אישר (registrationOpen) *וגם* יש לפחות זמן חלוקה
+ * אחד שפתוח כרגע להרשמה. בלי זמן פתוח הטופס לא שמיש בכל מקרה — עדיף
+ * להראות ללקוח הודעת "סגור, ייפתח בקרוב" ברורה במקום טופס בלי אף אפשרות בחירה.
  */
 export async function getPublicSettings() {
   const s = await getSettings();
-  const priceRules = await getActivePriceRules();
-  const registrationEffectivelyOpen = s.registrationOpen && priceRules.length > 0;
+  const openSlots = await getOpenSlotsForRegistration();
+  const registrationEffectivelyOpen = s.registrationOpen && openSlots.length > 0;
   return {
     registrationOpen: registrationEffectivelyOpen,
     distributionOpen: s.distributionOpen,
-    activeDay: s.activeDay,
-    activeTimeSlot: s.activeTimeSlot,
     orderTitle: s.orderTitle,
     deferredPaymentNotice: s.deferredPaymentNotice,
     closedRegistrationMessage: s.closedRegistrationMessage,
+    welcomeNoticeTitle: s.welcomeNoticeTitle,
+    welcomeNoticeBody: s.welcomeNoticeBody,
   };
 }
 

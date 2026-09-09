@@ -1,52 +1,56 @@
-// כניסת מנהל בשתי שיטות אפשריות (לבחירת המנהל בכל כניסה):
-//  1) סיסמה קבועה (bcrypt) — בדיוק כמו במערכת הספרים.
-//  2) קוד חד-פעמי בסמס לטלפון שהוגדר כ-admin_phone בהגדרות.
+// כניסת מנהל: תמיד דורשת מספר טלפון + או סיסמה קבועה או קוד חד-פעמי בסמס,
+// נבדק מול טבלת admins (שם+טלפון+סיסמה+הרשאות, מנוהלת בפאנל עצמו).
+//
+// בוטסטרפ: כל עוד טבלת admins ריקה (התקנה חדשה, לפני שהוגדר אף מנהל בשם),
+// מתקבלת סיסמת ה"בוטסטרפ" הישנה (settings.admin_password_hash, שנקבעת ע"י
+// scripts/set-admin-password.js / INITIAL_ADMIN_PASSWORD) עם כל טלפון —
+// כדי שאפשר יהיה להיכנס פעם ראשונה ולהוסיף מנהלים אמיתיים. ברגע שיש מנהל
+// אחד לפחות, הבוטסטרפ מפסיק לעבוד לגמרי.
 
 import bcrypt from 'bcryptjs';
-import { getSettings, setSetting } from './settings.js';
+import { getSettings } from './settings.js';
 import { normalizePhone } from './normalize.js';
 import { requestOtp, verifyOtp } from './otp.js';
+import { countAdmins, getAdminByPhone, verifyAdminCredentials } from './admins.js';
 
-export async function verifyAdminPassword(password) {
-  const settings = await getSettings();
-  if (!settings.adminPasswordHash) {
-    const err = new Error('סיסמת מנהל קבועה עדיין לא הוגדרה. הריצו את scripts/set-admin-password.js.');
-    err.status = 400;
-    throw err;
-  }
-  const ok = await bcrypt.compare(String(password || ''), settings.adminPasswordHash);
-  if (!ok) {
-    const err = new Error('סיסמה שגויה.');
-    err.status = 401;
-    throw err;
-  }
-  return true;
-}
+const FULL_PERMISSIONS = { settings: true, orders: true, dashboard: true, slots: true };
 
-export async function changeAdminPassword(currentPassword, newPassword) {
-  await verifyAdminPassword(currentPassword);
-  const clean = String(newPassword || '').trim();
-  if (clean.length < 6) {
-    const err = new Error('סיסמה חדשה חייבת להכיל לפחות 6 תווים.');
-    err.status = 400;
-    throw err;
-  }
-  const hash = await bcrypt.hash(clean, 12);
-  await setSetting('admin_password_hash', hash);
-  return { success: true };
-}
-
-export async function setAdminPhone(phone) {
+export async function loginWithPassword(phone, password) {
   const normalized = normalizePhone(phone);
-  await setSetting('admin_phone', phone);
-  await setSetting('normalized_admin_phone', normalized);
-  return { success: true, normalizedPhone: normalized };
+  if (!normalized) {
+    const err = new Error('יש להזין מספר טלפון.');
+    err.status = 400;
+    throw err;
+  }
+
+  if ((await countAdmins()) === 0) {
+    const settings = await getSettings();
+    if (!settings.adminPasswordHash) {
+      const err = new Error('טרם הוגדר אף מנהל. הריצו את scripts/set-admin-password.js.');
+      err.status = 400;
+      throw err;
+    }
+    const ok = await bcrypt.compare(String(password || ''), settings.adminPasswordHash);
+    if (!ok) {
+      const err = new Error('מספר טלפון או סיסמה שגויים.');
+      err.status = 401;
+      throw err;
+    }
+    return { id: null, name: 'מנהל ראשי (זמני)', normalizedPhone: normalized, permissions: FULL_PERMISSIONS };
+  }
+
+  return verifyAdminCredentials(normalized, password);
 }
 
 export async function requestAdminOtp(phone) {
-  const settings = await getSettings();
   const normalized = normalizePhone(phone);
-  if (!settings.normalizedAdminPhone || normalized !== settings.normalizedAdminPhone) {
+  if ((await countAdmins()) === 0) {
+    const err = new Error('אימות בסמס עדיין לא זמין — יש להיכנס פעם ראשונה עם הסיסמה ולהוסיף מנהלים בהגדרות.');
+    err.status = 400;
+    throw err;
+  }
+  const admin = await getAdminByPhone(normalized);
+  if (!admin) {
     // לא חושפים אם המספר קיים במערכת או לא — הודעה גנרית בלבד.
     const err = new Error('לא ניתן לשלוח קוד למספר זה.');
     err.status = 401;
@@ -58,10 +62,24 @@ export async function requestAdminOtp(phone) {
 export async function verifyAdminOtp(phone, code) {
   const normalized = normalizePhone(phone);
   await verifyOtp(normalized, code, 'admin_login');
-  return true;
+  const admin = await getAdminByPhone(normalized);
+  if (!admin) {
+    const err = new Error('מנהל לא נמצא.');
+    err.status = 401;
+    throw err;
+  }
+  return admin;
 }
 
 export function requireAdmin(req, res, next) {
   if (req.session && req.session.isAdmin) return next();
   return res.status(401).json({ error: 'נדרשת התחברות מנהל.' });
+}
+
+/** לשימוש אחרי requireAdmin: requirePermission('slots') וכו'. */
+export function requirePermission(permission) {
+  return (req, res, next) => {
+    if (req.session?.adminPermissions?.[permission]) return next();
+    return res.status(403).json({ error: 'אין לך הרשאה לפעולה זו.' });
+  };
 }

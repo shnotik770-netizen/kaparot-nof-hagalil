@@ -19,6 +19,15 @@
   .toggle-row:first-child{border-top:none}
   fieldset{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 14px}
   legend{font-size:12.5px;font-weight:700;color:var(--ink-dim);padding:0 6px}
+  .perm-checks{display:flex;flex-wrap:wrap;gap:12px;margin:8px 0}
+  .perm-checks label{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--ink);margin:0}
+  .perm-checks input{width:auto}
+  .slot-card{border-inline-start:5px solid var(--accent);position:relative}
+  .cols2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .colorpick{display:flex;align-items:center;gap:8px}
+  .colorpick input[type=color]{width:44px;height:38px;padding:2px;border:1.5px solid var(--line);border-radius:8px;cursor:pointer}
+  .inline-hint{font-size:12px;color:var(--ink-dim);margin:2px 0 0}
+  .admin-card .row{margin-bottom:8px}
 </style>
 </head>
 <body>
@@ -26,13 +35,12 @@
 <div class="wrap" id="app"><div class="loading">טוען…</div></div>
 
 <script>
-const DAY_LABEL = { thu: 'חמישי', sun: 'ראשון' };
-const SLOT_LABEL = { morning: 'בוקר', night: 'לילה' };
 const GENDER_LABEL = { male: 'זכרים', female: 'נקבות' };
 const STATUS_LABEL = { paid: 'שולם', partial: 'חלקי', unpaid: 'לא שולם' };
-const METHOD_LABEL = { nedarim_plus: 'נדרים פלוס', manual_cash: 'מזומן', manual_card: 'אשראי ידני', manual_admin: 'ידני (מנהל)' };
+const TAB_TITLES = { settings: 'הגדרות', slots: 'זמני חלוקה', orders: 'הזמנות ותשלומים', dashboard: 'דשבורד' };
 
-let currentTab = 'settings';
+let currentTab = null;
+let myPermissions = {};
 
 async function api(path, options = {}) {
   const res = await fetch('/api' + path, {
@@ -48,6 +56,22 @@ async function api(path, options = {}) {
 function el(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; }
 function render(html) { document.getElementById('app').innerHTML = html; }
 function money(n) { return `₪${Number(n).toLocaleString('he-IL', { maximumFractionDigits: 0 })}`; }
+function esc(s) { return String(s ?? '').replace(/"/g, '&quot;'); }
+
+function toDateInputValue(dateStr) {
+  if (!dateStr) return '';
+  return String(dateStr).slice(0, 10);
+}
+function toLocalDatetimeInputValue(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function fromLocalDatetimeInputValue(value) {
+  if (!value) return null;
+  return new Date(value).toISOString();
+}
 
 // ============== כניסה ==============
 
@@ -60,14 +84,14 @@ function screenLogin(errorMsg, mode = 'password') {
         <button class="${mode === 'password' ? 'active' : ''}" id="tabPassword">סיסמה קבועה</button>
         <button class="${mode === 'otp' ? 'active' : ''}" id="tabOtp">קוד חד-פעמי בסמס</button>
       </div>
+      <label for="phoneInput">מספר טלפון מנהל</label>
+      <input type="tel" id="phoneInput" inputmode="numeric" placeholder="05XXXXXXXX">
       ${mode === 'password' ? `
         <label for="pwInput">סיסמה</label>
         <input type="password" id="pwInput">
         <div class="spacer"></div>
         <button class="primary" id="pwSubmit">כניסה</button>
       ` : `
-        <label for="phoneInput">מספר טלפון מנהל</label>
-        <input type="tel" id="phoneInput" inputmode="numeric">
         <div class="spacer"></div>
         <button class="primary" id="otpRequest">שליחת קוד</button>
         <div id="otpVerifyBlock" style="display:none">
@@ -84,8 +108,9 @@ function screenLogin(errorMsg, mode = 'password') {
   if (mode === 'password') {
     document.getElementById('pwSubmit').onclick = async () => {
       try {
-        await api('/admin/login-password', { method: 'POST', body: { password: document.getElementById('pwInput').value } });
-        loadShell();
+        const phone = document.getElementById('phoneInput').value.trim();
+        const res = await api('/admin/login-password', { method: 'POST', body: { phone, password: document.getElementById('pwInput').value } });
+        loadShell(res);
       } catch (err) { screenLogin(err.message, 'password'); }
     };
   } else {
@@ -100,8 +125,8 @@ function screenLogin(errorMsg, mode = 'password') {
       const phone = document.getElementById('phoneInput').value.trim();
       const code = document.getElementById('codeInput').value.trim();
       try {
-        await api('/admin/otp/verify', { method: 'POST', body: { phone, code } });
-        loadShell();
+        const res = await api('/admin/otp/verify', { method: 'POST', body: { phone, code } });
+        loadShell(res);
       } catch (err) { screenLogin(err.message, 'otp'); }
     };
   }
@@ -109,20 +134,23 @@ function screenLogin(errorMsg, mode = 'password') {
 
 // ============== מעטפת + טאבים ==============
 
-async function loadShell() {
-  document.getElementById('whoBadge').innerHTML = `<button class="ghost" id="logoutBtn" style="color:#fff">יציאה</button>`;
+function loadShell(session) {
+  myPermissions = session.permissions || {};
+  document.getElementById('whoBadge').innerHTML = `${esc(session.name || '')} · <button class="ghost" id="logoutBtn" style="color:#fff">יציאה</button>`;
+  const availableTabs = Object.keys(TAB_TITLES).filter((t) => myPermissions[t]);
+  if (!availableTabs.length) {
+    render(`<div class="card"><div class="error">לחשבון זה אין הרשאה לאף מסך ניהול. פנה למנהל אחר להוספת הרשאות.</div></div>`);
+    return;
+  }
   render(`
     <div class="tabs">
-      <button data-tab="settings">הגדרות</button>
-      <button data-tab="prices">תעריפים</button>
-      <button data-tab="orders">הזמנות ותשלומים</button>
-      <button data-tab="dashboard">דשבורד</button>
+      ${availableTabs.map((t) => `<button data-tab="${t}">${TAB_TITLES[t]}</button>`).join('')}
     </div>
     <div id="tabContent"><div class="loading">טוען…</div></div>
   `);
   document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
   document.getElementById('logoutBtn').onclick = async () => { await api('/admin/logout', { method: 'POST' }); screenLogin(); };
-  showTab(currentTab);
+  showTab(currentTab && availableTabs.includes(currentTab) ? currentTab : availableTabs[0]);
 }
 
 function markActiveTab(tab) {
@@ -135,7 +163,7 @@ async function showTab(tab) {
   const content = document.getElementById('tabContent');
   content.innerHTML = '<div class="loading">טוען…</div>';
   if (tab === 'settings') return renderSettingsTab();
-  if (tab === 'prices') return renderPricesTab();
+  if (tab === 'slots') return renderSlotsTab();
   if (tab === 'orders') return renderOrdersTab();
   if (tab === 'dashboard') return renderDashboardTab();
 }
@@ -150,18 +178,7 @@ async function renderSettingsTab() {
       <h2>מצבי מערכת</h2>
       <div class="toggle-row"><span>רישום פתוח</span><input type="checkbox" id="regOpen" ${s.registrationOpen ? 'checked' : ''}></div>
       <div class="toggle-row"><span>חלוקה פתוחה</span><input type="checkbox" id="distOpen" ${s.distributionOpen ? 'checked' : ''}></div>
-      <label>יום פעיל למשיכה</label>
-      <select id="activeDay">
-        <option value="">— לא נבחר —</option>
-        <option value="thu" ${s.activeDay === 'thu' ? 'selected' : ''}>חמישי</option>
-        <option value="sun" ${s.activeDay === 'sun' ? 'selected' : ''}>ראשון</option>
-      </select>
-      <label>שעה פעילה למשיכה</label>
-      <select id="activeSlot">
-        <option value="">— לא נבחר —</option>
-        <option value="morning" ${s.activeTimeSlot === 'morning' ? 'selected' : ''}>בוקר</option>
-        <option value="night" ${s.activeTimeSlot === 'night' ? 'selected' : ''}>לילה</option>
-      </select>
+      <p class="inline-hint">מי פתוח בפועל למשיכה נקבע לפי כל זמן חלוקה בנפרד, בטאב "זמני חלוקה".</p>
       <div class="spacer"></div>
       <button class="primary" id="saveStatus">שמירת מצבים</button>
     </div>
@@ -169,38 +186,52 @@ async function renderSettingsTab() {
     <div class="card">
       <h2>טקסטים ניתנים לעריכה</h2>
       <label>כותרת הטופס</label>
-      <input type="text" id="orderTitle" value="${s.orderTitle}">
-      <label>הודעת "רישום סגור" (מוצגת גם כשאין תעריף פעיל, לא רק כשהרישום סגור ידנית)</label>
-      <input type="text" id="closedRegMsg" value="${s.closedRegistrationMessage}">
+      <input type="text" id="orderTitle" value="${esc(s.orderTitle)}">
+      <label>הודעת "רישום סגור" (מוצגת גם כשאין זמן חלוקה פתוח, לא רק כשהרישום סגור ידנית)</label>
+      <input type="text" id="closedRegMsg" value="${esc(s.closedRegistrationMessage)}">
       <label>הודעת "תשלום דחוי" (בסיום הרשמה)</label>
-      <input type="text" id="deferredNotice" value="${s.deferredPaymentNotice}">
+      <input type="text" id="deferredNotice" value="${esc(s.deferredPaymentNotice)}">
       <label>הודעת חסימה — לא שולם כלל</label>
-      <input type="text" id="unpaidMsg" value="${s.unpaidBlockMessage}">
+      <input type="text" id="unpaidMsg" value="${esc(s.unpaidBlockMessage)}">
       <label>הודעת תשלום חלקי</label>
-      <input type="text" id="partialMsg" value="${s.partialPaymentNotice}">
+      <input type="text" id="partialMsg" value="${esc(s.partialPaymentNotice)}">
       <label>תבנית הודעת SMS לקוד אימות (חייבת להכיל {code})</label>
-      <input type="text" id="otpTemplate" value="${s.smsOtpTemplate}">
+      <input type="text" id="otpTemplate" value="${esc(s.smsOtpTemplate)}">
       <div class="spacer"></div>
       <button class="primary" id="saveTexts">שמירת טקסטים</button>
     </div>
 
     <div class="card">
-      <h2>כניסת מנהל</h2>
+      <h2>חלונית הסבר במסך הראשי</h2>
+      <p class="hint">מוצגת ללקוח בכניסה למערכת. השאירו כותרת ריקה כדי לבטל את הצגתה.</p>
+      <label>כותרת</label>
+      <input type="text" id="welcomeTitle" value="${esc(s.welcomeNoticeTitle)}">
+      <label>תוכן</label>
+      <textarea id="welcomeBody">${esc(s.welcomeNoticeBody)}</textarea>
+      <div class="spacer"></div>
+      <button class="primary" id="saveWelcome">שמירת חלונית ההסבר</button>
+    </div>
+
+    <div class="card admin-card">
+      <h2>ניהול מנהלים</h2>
+      <p class="hint">כל מנהל נכנס עם הטלפון והסיסמה שלו, ורואה רק את הטאבים שסומנו לו כאן.</p>
+      <div id="adminsList"><div class="loading">טוען…</div></div>
+      <div class="spacer"></div>
       <fieldset>
-        <legend>סיסמה קבועה</legend>
-        <label>סיסמה נוכחית</label>
-        <input type="password" id="curPw">
-        <label>סיסמה חדשה</label>
-        <input type="password" id="newPw">
-        <div class="spacer"></div>
-        <button class="secondary" id="changePw">עדכון סיסמה</button>
-      </fieldset>
-      <fieldset>
-        <legend>קוד חד-פעמי בסמס</legend>
-        <label>מספר טלפון מנהל מורשה</label>
-        <input type="tel" id="adminPhone" value="${s.adminPhone || ''}">
-        <div class="spacer"></div>
-        <button class="secondary" id="saveAdminPhone">שמירה</button>
+        <legend>הוספת מנהל חדש</legend>
+        <label>שם</label>
+        <input type="text" id="newAdminName">
+        <label>טלפון</label>
+        <input type="tel" id="newAdminPhone" inputmode="numeric" placeholder="05XXXXXXXX">
+        <label>סיסמה (לפחות 6 תווים)</label>
+        <input type="password" id="newAdminPassword">
+        <div class="perm-checks">
+          <label><input type="checkbox" id="newPermSettings" checked> הגדרות</label>
+          <label><input type="checkbox" id="newPermOrders" checked> הזמנות ותשלומים</label>
+          <label><input type="checkbox" id="newPermDashboard" checked> דשבורד</label>
+          <label><input type="checkbox" id="newPermSlots" checked> זמני חלוקה</label>
+        </div>
+        <button class="secondary" id="addAdmin" style="width:100%">הוספת מנהל</button>
       </fieldset>
     </div>
 
@@ -219,8 +250,6 @@ async function renderSettingsTab() {
     await api('/admin/settings', { method: 'PUT', body: {
       registration_open: String(document.getElementById('regOpen').checked),
       distribution_open: String(document.getElementById('distOpen').checked),
-      active_day: document.getElementById('activeDay').value || null,
-      active_time_slot: document.getElementById('activeSlot').value || null,
     }});
     flash('נשמר.');
   };
@@ -235,18 +264,12 @@ async function renderSettingsTab() {
     }});
     flash('נשמר.');
   };
-  document.getElementById('changePw').onclick = async () => {
-    try {
-      await api('/admin/change-password', { method: 'POST', body: {
-        currentPassword: document.getElementById('curPw').value,
-        newPassword: document.getElementById('newPw').value,
-      }});
-      flash('הסיסמה עודכנה.');
-    } catch (err) { flash(err.message, true); }
-  };
-  document.getElementById('saveAdminPhone').onclick = async () => {
-    await api('/admin/admin-phone', { method: 'PUT', body: { phone: document.getElementById('adminPhone').value } });
-    flash('טלפון המנהל נשמר.');
+  document.getElementById('saveWelcome').onclick = async () => {
+    await api('/admin/settings', { method: 'PUT', body: {
+      welcome_notice_title: document.getElementById('welcomeTitle').value,
+      welcome_notice_body: document.getElementById('welcomeBody').value,
+    }});
+    flash('נשמר.');
   };
   document.getElementById('hardReset').onclick = async () => {
     const confirmText = document.getElementById('resetConfirm').value;
@@ -255,50 +278,210 @@ async function renderSettingsTab() {
       flash('המערכת אופסה.');
     } catch (err) { flash(err.message, true); }
   };
+  document.getElementById('addAdmin').onclick = async () => {
+    try {
+      await api('/admin/admins', { method: 'POST', body: {
+        name: document.getElementById('newAdminName').value,
+        phone: document.getElementById('newAdminPhone').value,
+        password: document.getElementById('newAdminPassword').value,
+        permissions: {
+          settings: document.getElementById('newPermSettings').checked,
+          orders: document.getElementById('newPermOrders').checked,
+          dashboard: document.getElementById('newPermDashboard').checked,
+          slots: document.getElementById('newPermSlots').checked,
+        },
+      }});
+      document.getElementById('newAdminName').value = '';
+      document.getElementById('newAdminPhone').value = '';
+      document.getElementById('newAdminPassword').value = '';
+      flash('המנהל נוסף.');
+      renderAdminsList();
+    } catch (err) { flash(err.message, true); }
+  };
+
+  renderAdminsList();
+}
+
+async function renderAdminsList() {
+  const box = document.getElementById('adminsList');
+  const admins = await api('/admin/admins');
+  box.innerHTML = admins.length ? admins.map((a) => `
+    <div class="card" style="margin-bottom:10px">
+      <div class="row">
+        <div>
+          <label>שם</label>
+          <input type="text" data-field="name" data-id="${a.id}" value="${esc(a.name)}">
+        </div>
+        <div>
+          <label>טלפון</label>
+          <input type="tel" data-field="phone" data-id="${a.id}" value="${esc(a.phone)}">
+        </div>
+      </div>
+      <label>סיסמה חדשה (השאירו ריק כדי לא לשנות)</label>
+      <input type="password" data-field="password" data-id="${a.id}" placeholder="••••••">
+      <div class="perm-checks">
+        <label><input type="checkbox" data-perm="settings" data-id="${a.id}" ${a.permissions.settings ? 'checked' : ''}> הגדרות</label>
+        <label><input type="checkbox" data-perm="orders" data-id="${a.id}" ${a.permissions.orders ? 'checked' : ''}> הזמנות ותשלומים</label>
+        <label><input type="checkbox" data-perm="dashboard" data-id="${a.id}" ${a.permissions.dashboard ? 'checked' : ''}> דשבורד</label>
+        <label><input type="checkbox" data-perm="slots" data-id="${a.id}" ${a.permissions.slots ? 'checked' : ''}> זמני חלוקה</label>
+      </div>
+      <div class="row">
+        <button class="secondary" data-save-admin="${a.id}">שמירה</button>
+        <button class="danger" data-delete-admin="${a.id}">מחיקה</button>
+      </div>
+    </div>
+  `).join('') : `<p class="hint">אין עדיין מנהלים רשומים.</p>`;
+
+  box.querySelectorAll('[data-save-admin]').forEach((b) => {
+    b.onclick = async () => {
+      const id = b.dataset.saveAdmin;
+      const name = box.querySelector(`[data-field="name"][data-id="${id}"]`).value;
+      const phone = box.querySelector(`[data-field="phone"][data-id="${id}"]`).value;
+      const password = box.querySelector(`[data-field="password"][data-id="${id}"]`).value;
+      const permissions = {
+        settings: box.querySelector(`[data-perm="settings"][data-id="${id}"]`).checked,
+        orders: box.querySelector(`[data-perm="orders"][data-id="${id}"]`).checked,
+        dashboard: box.querySelector(`[data-perm="dashboard"][data-id="${id}"]`).checked,
+        slots: box.querySelector(`[data-perm="slots"][data-id="${id}"]`).checked,
+      };
+      try {
+        await api(`/admin/admins/${id}`, { method: 'PUT', body: { name, phone, password, permissions } });
+        flash('המנהל עודכן.');
+        renderAdminsList();
+      } catch (err) { flash(err.message, true); }
+    };
+  });
+  box.querySelectorAll('[data-delete-admin]').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('למחוק את המנהל הזה?')) return;
+      await api(`/admin/admins/${b.dataset.deleteAdmin}`, { method: 'DELETE' });
+      renderAdminsList();
+    };
+  });
 }
 
 function flash(msg, isError) {
   document.getElementById('settingsMsg').innerHTML = `<div class="${isError ? 'error' : 'success'}">${msg}</div>`;
 }
 
-// ============== תעריפים ==============
+// ============== זמני חלוקה ==============
 
-async function renderPricesTab() {
-  const rules = await api('/admin/price-rules');
-  const days = ['thu', 'sun'], slots = ['morning', 'night'], genders = ['male', 'female'];
-  const find = (d, s, g) => rules.find((r) => r.day === d && r.timeSlot === s && r.gender === g);
-
-  let rowsHtml = '';
-  for (const d of days) for (const s of slots) for (const g of genders) {
-    const r = find(d, s, g);
-    rowsHtml += `
-      <tr>
-        <td>${DAY_LABEL[d]}</td><td>${SLOT_LABEL[s]}</td><td>${GENDER_LABEL[g]}</td>
-        <td><input type="number" min="0" step="1" style="width:90px" data-day="${d}" data-slot="${s}" data-gender="${g}" value="${r ? r.price : ''}"></td>
-      </tr>
-    `;
-  }
-
-  document.getElementById('tabContent').innerHTML = `
-    <div class="card">
-      <h2>תעריפים לפי יום · שעה · סוג</h2>
-      <p class="hint">שינוי כאן משפיע רק על הזמנות חדשות מרגע השמירה — הזמנות קיימות שומרות את המחיר שנקבע להן.</p>
-      <table><thead><tr><th>יום</th><th>שעה</th><th>סוג</th><th>מחיר (₪)</th></tr></thead><tbody>${rowsHtml}</tbody></table>
-      <div class="spacer"></div>
-      <button class="primary" id="savePrices">שמירת תעריפים</button>
-      <div id="pricesMsg"></div>
+function slotFormHtml(prefix, s) {
+  s = s || {};
+  return `
+    <label>שם הזמן</label>
+    <input type="text" id="${prefix}Name" placeholder="לדוגמה: חמישי בוקר" value="${esc(s.name)}">
+    <div class="cols2">
+      <div>
+        <label>תאריך אספקה</label>
+        <input type="date" id="${prefix}Date" value="${toDateInputValue(s.supplyDate)}">
+      </div>
+      <div>
+        <label>יום (בעברית)</label>
+        <div class="row">
+          <input type="text" id="${prefix}DayLabel" value="${esc(s.dayLabel)}">
+          <button type="button" class="ghost" id="${prefix}Suggest">הצעה אוטומטית</button>
+        </div>
+      </div>
     </div>
+    <label>שעות</label>
+    <input type="text" id="${prefix}Hours" placeholder="לדוגמה: 08:00–12:00" value="${esc(s.hoursLabel)}">
+    <div class="cols2">
+      <div>
+        <label>מחיר זכר (₪)</label>
+        <input type="number" min="0" step="1" id="${prefix}PriceMale" value="${s.priceMale ?? ''}">
+      </div>
+      <div>
+        <label>מחיר נקבה (₪)</label>
+        <input type="number" min="0" step="1" id="${prefix}PriceFemale" value="${s.priceFemale ?? ''}">
+      </div>
+    </div>
+    <label>צבע לזיהוי (כרטיס המימוש)</label>
+    <div class="colorpick">
+      <input type="color" id="${prefix}Color" value="${esc(s.color || '#a5741f')}">
+      <span class="inline-hint">מוצג במסך "מימוש והצגה למחלק העופות"</span>
+    </div>
+    <label>זמן סגירת הרשמה</label>
+    <input type="datetime-local" id="${prefix}CloseAt" value="${toLocalDatetimeInputValue(s.registrationCloseAt)}">
+    <div class="toggle-row"><span>פתוח ידנית להרשמה גם אחרי זמן הסגירה</span><input type="checkbox" id="${prefix}Override" ${s.manualOpenOverride ? 'checked' : ''}></div>
+    <div class="toggle-row"><span>פתוח כעת לאספקה (משיכת עופות)</span><input type="checkbox" id="${prefix}Pickup" ${s.openForPickup ? 'checked' : ''}></div>
+    <div class="toggle-row"><span>זמן פעיל (מוצג בכלל במערכת)</span><input type="checkbox" id="${prefix}Active" ${s.active !== false ? 'checked' : ''}></div>
   `;
-  document.getElementById('savePrices').onclick = async () => {
-    const inputs = document.querySelectorAll('#tabContent input[data-day]');
-    const list = [];
-    inputs.forEach((inp) => {
-      if (inp.value === '') return;
-      list.push({ day: inp.dataset.day, timeSlot: inp.dataset.slot, gender: inp.dataset.gender, price: Number(inp.value), active: true });
-    });
-    await api('/admin/price-rules', { method: 'PUT', body: { rules: list } });
-    document.getElementById('pricesMsg').innerHTML = `<div class="success">התעריפים נשמרו.</div>`;
+}
+
+function readSlotForm(prefix) {
+  return {
+    name: document.getElementById(`${prefix}Name`).value.trim(),
+    supplyDate: document.getElementById(`${prefix}Date`).value,
+    dayLabel: document.getElementById(`${prefix}DayLabel`).value.trim(),
+    hoursLabel: document.getElementById(`${prefix}Hours`).value.trim(),
+    priceMale: Number(document.getElementById(`${prefix}PriceMale`).value),
+    priceFemale: Number(document.getElementById(`${prefix}PriceFemale`).value),
+    color: document.getElementById(`${prefix}Color`).value,
+    registrationCloseAt: fromLocalDatetimeInputValue(document.getElementById(`${prefix}CloseAt`).value),
+    manualOpenOverride: document.getElementById(`${prefix}Override`).checked,
+    openForPickup: document.getElementById(`${prefix}Pickup`).checked,
+    active: document.getElementById(`${prefix}Active`).checked,
   };
+}
+
+async function renderSlotsTab() {
+  const slots = await api('/admin/slots');
+  const content = document.getElementById('tabContent');
+  content.innerHTML = `
+    <div class="card">
+      <h2>הוספת זמן חלוקה חדש</h2>
+      ${slotFormHtml('new', {})}
+      <div class="spacer"></div>
+      <button class="primary" id="addSlot" style="width:100%">הוספת זמן חלוקה</button>
+      <div id="newSlotMsg"></div>
+    </div>
+    <h2>זמני חלוקה קיימים</h2>
+    ${slots.length ? slots.map((s) => `
+      <div class="card slot-card" style="border-inline-start-color:${esc(s.color)}">
+        <div class="order-row-header"><b>${esc(s.name)}</b><span class="meta">${esc(s.hebrewDate)}</span></div>
+        ${slotFormHtml('s' + s.id, s)}
+        <div class="spacer"></div>
+        <button class="secondary" data-save-slot="${s.id}" style="width:100%">שמירת שינויים</button>
+        <div id="slotMsg${s.id}"></div>
+      </div>
+    `).join('') : `<div class="card"><p class="hint">אין עדיין זמני חלוקה. הוסיפו אחד למעלה.</p></div>`}
+  `;
+
+  document.getElementById('newSuggest').onclick = () => {
+    const date = document.getElementById('newDate').value;
+    if (!date) return;
+    api(`/admin/slots/suggest-day-label?date=${encodeURIComponent(date)}`).then((r) => {
+      document.getElementById('newDayLabel').value = r.dayLabel;
+    });
+  };
+  document.getElementById('addSlot').onclick = async () => {
+    try {
+      await api('/admin/slots', { method: 'POST', body: readSlotForm('new') });
+      renderSlotsTab();
+    } catch (err) {
+      document.getElementById('newSlotMsg').innerHTML = `<div class="error">${err.message}</div>`;
+    }
+  };
+
+  slots.forEach((s) => {
+    const prefix = 's' + s.id;
+    document.getElementById(`${prefix}Suggest`).onclick = () => {
+      const date = document.getElementById(`${prefix}Date`).value;
+      if (!date) return;
+      api(`/admin/slots/suggest-day-label?date=${encodeURIComponent(date)}`).then((r) => {
+        document.getElementById(`${prefix}DayLabel`).value = r.dayLabel;
+      });
+    };
+    document.querySelector(`[data-save-slot="${s.id}"]`).onclick = async () => {
+      try {
+        await api(`/admin/slots/${s.id}`, { method: 'PUT', body: readSlotForm(prefix) });
+        document.getElementById(`slotMsg${s.id}`).innerHTML = `<div class="success">נשמר.</div>`;
+      } catch (err) {
+        document.getElementById(`slotMsg${s.id}`).innerHTML = `<div class="error">${err.message}</div>`;
+      }
+    };
+  });
 }
 
 // ============== הזמנות ותשלומים ==============
@@ -313,13 +496,14 @@ async function renderOrdersTab() {
     ${orders.map((o) => `
       <div class="card">
         <div class="order-row-header">
-          <b>${o.customerName} · ${o.phone}</b>
+          <b>${esc(o.customerName)} · ${esc(o.phone)}</b>
           <span class="pill ${o.paymentStatus}">${STATUS_LABEL[o.paymentStatus]}</span>
         </div>
         <p class="hint">הזמנה מספר ${o.orderSequence} (מס' ${o.orderNumber}) · ${new Date(o.createdAt).toLocaleString('he-IL')}</p>
+        ${o.notes ? `<div class="notice">הערות: ${esc(o.notes)}</div>` : ''}
         ${o.items.map((it) => `
           <div class="item-row">
-            <span>${DAY_LABEL[it.day]} · ${SLOT_LABEL[it.timeSlot]} · ${GENDER_LABEL[it.gender]} × ${it.quantity}</span>
+            <span>${esc(it.slotName)} · ${GENDER_LABEL[it.gender]} × ${it.quantity}</span>
             <span class="meta">${it.quantityRedeemed}/${it.quantity} נמשך · ${money(it.lineTotal)}</span>
           </div>
         `).join('')}
@@ -364,10 +548,10 @@ async function renderDashboardTab() {
     <div class="card">
       <h2>מוזמן מול נמשך</h2>
       <table>
-        <thead><tr><th>יום</th><th>שעה</th><th>סוג</th><th>הוזמן</th><th>נמשך</th></tr></thead>
+        <thead><tr><th>זמן חלוקה</th><th>סוג</th><th>הוזמן</th><th>נמשך</th></tr></thead>
         <tbody>
           ${stats.bySlot.map((r) => `
-            <tr><td>${DAY_LABEL[r.day]}</td><td>${SLOT_LABEL[r.timeSlot]}</td><td>${GENDER_LABEL[r.gender]}</td><td>${r.ordered}</td><td>${r.redeemed}</td></tr>
+            <tr><td>${esc(r.slotName)}</td><td>${GENDER_LABEL[r.gender]}</td><td>${r.ordered}</td><td>${r.redeemed}</td></tr>
           `).join('')}
         </tbody>
       </table>
@@ -379,7 +563,7 @@ async function renderDashboardTab() {
 
 async function init() {
   const session = await api('/admin/session');
-  if (session.isAdmin) loadShell();
+  if (session.isAdmin) loadShell(session);
   else screenLogin();
 }
 init().catch((err) => render(`<div class="error">שגיאה בטעינת המערכת: ${err.message}</div>`));

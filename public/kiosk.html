@@ -17,9 +17,6 @@
 <div class="wrap" id="app"><div class="loading">טוען…</div></div>
 
 <script>
-const DAY_LABEL = { thu: 'יום חמישי', sun: 'יום ראשון' };
-const SLOT_LABEL = { morning: 'בוקר', night: 'לילה' };
-
 const state = { phone: '', normalizedPhone: '', publicSettings: null, otpCooldownUntil: 0 };
 
 async function api(path, options = {}) {
@@ -93,25 +90,46 @@ async function onOtpSubmit() {
   }
 }
 
+// ---- מימוש: מקובץ לפי זמן חלוקה, כפתור אחד לכל זמן ----
+
 async function screenRedeem() {
   render(`<div class="loading">טוען פריטים למשיכה…</div>`);
   const status = await api(`/redeem/status?phone=${encodeURIComponent(state.phone)}`);
-  const qty = {};
-  status.available.forEach((it) => { qty[it.orderItemId] = 1; });
 
-  function itemBlock(it) {
+  const groups = new Map();
+  status.available.forEach((it) => {
+    if (!groups.has(it.slotId)) {
+      groups.set(it.slotId, { slotId: it.slotId, slotName: it.slotName, slotColor: it.slotColor, male: 0, female: 0 });
+    }
+    groups.get(it.slotId)[it.gender] += it.remaining;
+  });
+  const chosen = {};
+  groups.forEach((g) => { chosen[g.slotId] = { male: 0, female: 0 }; });
+
+  function genderLineHtml(g, gender) {
+    if (g[gender] <= 0) return '';
+    const label = gender === 'male' ? 'זכרים' : 'נקבות';
     return `
-      <div class="card">
-        <div class="order-row-header"><b>${it.label}</b><span class="meta">הזמנה מס' ${it.orderNumber}</span></div>
-        <div class="item-row">
-          <div class="stepper">
-            <button data-rstep="-1" data-id="${it.orderItemId}">−</button>
-            <span id="qty-${it.orderItemId}">${qty[it.orderItemId]}</span>
-            <button data-rstep="1" data-id="${it.orderItemId}" data-max="${it.remaining}">+</button>
-          </div>
-          <span class="meta">נותרו ${it.remaining}</span>
+      <div class="gender-line">
+        <span>${label} · נותרו ${g[gender]}</span>
+        <div class="stepper">
+          <button data-gstep="-1" data-slot="${g.slotId}" data-gender="${gender}">−</button>
+          <span id="gqty-${g.slotId}-${gender}">0</span>
+          <button data-gstep="1" data-slot="${g.slotId}" data-gender="${gender}">+</button>
         </div>
-        <button class="primary" data-redeem="${it.orderItemId}">מימוש</button>
+        <button type="button" class="quick-all" data-gall data-slot="${g.slotId}" data-gender="${gender}">הכל</button>
+      </div>
+    `;
+  }
+
+  function groupCardHtml(g) {
+    return `
+      <div class="card slot-group-card" style="border-inline-start-color:${g.slotColor}">
+        <div class="order-row-header"><b>${g.slotName}</b></div>
+        ${genderLineHtml(g, 'male')}
+        ${genderLineHtml(g, 'female')}
+        <div class="spacer"></div>
+        <button class="primary" data-confirm-slot="${g.slotId}">מימוש והצגה למחלק העופות</button>
       </div>
     `;
   }
@@ -119,7 +137,7 @@ async function screenRedeem() {
   render(`
     <div class="card"><b>לקוח מזוהה:</b> ${state.normalizedPhone}</div>
     <h2>פריטים למשיכה</h2>
-    ${status.available.length ? status.available.map(itemBlock).join('') : `<div class="card"><p class="hint">אין פריטים זמינים למשיכה עבור המועד הפתוח כרגע.</p></div>`}
+    ${groups.size ? [...groups.values()].map(groupCardHtml).join('') : `<div class="card"><p class="hint">אין פריטים זמינים למשיכה עבור המועד הפתוח כרגע.</p></div>`}
     ${status.blocked.length ? `
       <h2>לא ניתן למשוך</h2>
       ${status.blocked.map((it) => `
@@ -132,30 +150,45 @@ async function screenRedeem() {
     <button class="secondary" id="endSession">סיום — לקוח הבא</button>
   `);
   document.getElementById('endSession').onclick = endSession;
-  document.querySelectorAll('[data-rstep]').forEach((b) => {
+
+  document.querySelectorAll('[data-gstep]').forEach((b) => {
     b.onclick = () => {
-      const id = b.dataset.id;
-      const max = Number(b.dataset.max || 999);
-      const delta = Number(b.dataset.rstep);
-      qty[id] = Math.max(1, Math.min(max || qty[id] + delta, qty[id] + delta));
-      document.getElementById('qty-' + id).textContent = qty[id];
+      const slotId = b.dataset.slot, gender = b.dataset.gender;
+      const g = groups.get(Number(slotId));
+      const delta = Number(b.dataset.gstep);
+      const cur = chosen[slotId][gender];
+      chosen[slotId][gender] = Math.max(0, Math.min(g[gender], cur + delta));
+      document.getElementById(`gqty-${slotId}-${gender}`).textContent = chosen[slotId][gender];
     };
   });
-  document.querySelectorAll('[data-redeem]').forEach((b) => {
+  document.querySelectorAll('[data-gall]').forEach((b) => {
     b.onclick = () => {
-      const id = Number(b.dataset.redeem);
-      const item = status.available.find((x) => x.orderItemId === id);
-      openRedeemConfirm(item, qty[id]);
+      const slotId = b.dataset.slot, gender = b.dataset.gender;
+      const g = groups.get(Number(slotId));
+      chosen[slotId][gender] = g[gender];
+      document.getElementById(`gqty-${slotId}-${gender}`).textContent = chosen[slotId][gender];
+    };
+  });
+  document.querySelectorAll('[data-confirm-slot]').forEach((b) => {
+    b.onclick = () => {
+      const slotId = Number(b.dataset.confirmSlot);
+      const g = groups.get(slotId);
+      const c = chosen[slotId];
+      if (c.male <= 0 && c.female <= 0) return;
+      openSlotRedeemConfirm(g, c);
     };
   });
 }
 
-function openRedeemConfirm(item, quantity) {
+function openSlotRedeemConfirm(group, chosenQty) {
+  const parts = [];
+  if (chosenQty.male > 0) parts.push(`${chosenQty.male} זכרים`);
+  if (chosenQty.female > 0) parts.push(`${chosenQty.female} נקבות`);
   const backdrop = el(`
     <div class="modal-backdrop">
       <div class="modal">
         <h2>אישור סופי</h2>
-        <p class="hint">האם אתה בטוח? אני מאשר שסיימתי ואני לוקח כעת <b>${quantity}</b> מתוך "${item.label}".<br>פעולה זו סופית ולא ניתנת לביטול.</p>
+        <p class="hint">האם אתה בטוח? אני מאשר שסיימתי ואני לוקח כעת <b>${parts.join(' + ')}</b> מתוך "${group.slotName}".<br>פעולה זו סופית ולא ניתנת לביטול.</p>
         <button class="danger" id="confirmYes" style="width:100%">כן, אני מאשר סופית</button>
         <div class="spacer"></div>
         <button class="secondary" id="confirmNo" style="width:100%">ביטול</button>
@@ -168,12 +201,12 @@ function openRedeemConfirm(item, quantity) {
     const btn = backdrop.querySelector('#confirmYes');
     btn.disabled = true; btn.textContent = 'מבצע…';
     try {
-      const result = await api('/redeem/confirm', {
+      const result = await api('/redeem/confirm-slot', {
         method: 'POST',
-        body: { phone: state.phone, orderItemId: item.orderItemId, quantity },
+        body: { phone: state.phone, slotId: group.slotId, maleQuantity: chosenQty.male, femaleQuantity: chosenQty.female },
       });
       backdrop.remove();
-      showTicket(result);
+      showBigTicket(result);
     } catch (err) {
       btn.disabled = false; btn.textContent = 'כן, אני מאשר סופית';
       backdrop.querySelector('.hint').insertAdjacentHTML('afterend', `<div class="error">${err.message}</div>`);
@@ -181,18 +214,18 @@ function openRedeemConfirm(item, quantity) {
   };
 }
 
-function showTicket(result) {
+function showBigTicket(result) {
   render(`
-    <div class="card">
-      <h2>אושר — יש להציג למחלק</h2>
-      <div class="ticket">
-        <div>${result.label}</div>
-        <div>כמות: ${result.quantity}</div>
-        <div class="code">${result.confirmationCode}</div>
+    <div class="big-ticket-screen" style="background:${result.slotColor}">
+      <div class="slot-name">${result.slotName}</div>
+      <div class="customer-name">${result.customerName || ''}</div>
+      <div class="gender-squares">
+        ${result.maleQuantity > 0 ? `<div class="gender-square male"><div class="num">${result.maleQuantity}</div><div class="lbl">זכרים</div></div>` : ''}
+        ${result.femaleQuantity > 0 ? `<div class="gender-square female"><div class="num">${result.femaleQuantity}</div><div class="lbl">נקבות</div></div>` : ''}
       </div>
-      <button class="primary" id="moreBtn">משיכת פריט נוסף לאותו לקוח</button>
-      <div class="spacer"></div>
-      <button class="secondary" id="endBtn">סיום — לקוח הבא</button>
+      <div class="code">${result.confirmationCode}</div>
+      <button class="secondary" id="moreBtn" style="background:rgba(255,255,255,.85)">משיכת פריט נוסף לאותו לקוח</button>
+      <button class="secondary" id="endBtn" style="background:rgba(255,255,255,.6)">סיום — לקוח הבא</button>
     </div>
   `);
   document.getElementById('moreBtn').onclick = screenRedeem;
@@ -207,10 +240,7 @@ async function endSession() {
 
 async function init() {
   state.publicSettings = await api('/public-settings');
-  const s = state.publicSettings;
-  document.getElementById('slotBadge').textContent = s.activeDay && s.activeTimeSlot
-    ? `פתוח כרגע: ${DAY_LABEL[s.activeDay]} · ${SLOT_LABEL[s.activeTimeSlot]}`
-    : 'לא נבחר מועד פעיל';
+  document.getElementById('slotBadge').textContent = state.publicSettings.distributionOpen ? 'החלוקה פתוחה' : 'החלוקה סגורה';
   await endSession(); // מבטיח שהעמדה מתחילה תמיד "נקייה" מבלי לקוח קודם מחובר
 }
 

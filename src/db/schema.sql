@@ -8,13 +8,9 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 INSERT INTO settings(key, value) VALUES
   ('registration_open', 'true'),
-  ('distribution_open', 'false'),
-  ('active_day', NULL),        -- 'thu' | 'sun' — היום שפתוח כרגע למשיכה
-  ('active_time_slot', NULL),  -- 'morning' | 'night'
+  ('distribution_open', 'false'),  -- מתג-על גלובלי: האם החלוקה בכלל פעילה היום (בנוסף לסימון פר-זמן)
   ('order_title', 'הרשמה לכפרות'),
-  ('admin_password_hash', NULL),
-  ('admin_phone', NULL),                 -- מספר טלפון יחיד המורשה לכניסת מנהל בקוד חד-פעמי
-  ('normalized_admin_phone', NULL),
+  ('admin_password_hash', NULL),  -- סיסמת "בוטסטרפ" ישנה — נבדקת רק כל עוד טבלת admins ריקה, ראו auth.js
   ('deferred_payment_notice',
    'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל בשעת ההזמנה.'),
   ('unpaid_block_message',
@@ -22,22 +18,50 @@ INSERT INTO settings(key, value) VALUES
   ('partial_payment_notice',
    'שולם באופן חלקי — ניתן למשוך רק את ההזמנות ששולמו. יתרת החוב טעונה תשלום במשרד או דרך כפתור התשלום באזור האישי.'),
   ('sms_otp_template', 'קוד האימות שלך: {code} (בתוקף ל-10 דקות)'),
-  ('closed_registration_message', 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.')
+  ('closed_registration_message', 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.'),
+  ('welcome_notice_title', ''),   -- כותרת חלונית הסבר במסך הראשי (ריק = לא מוצגת)
+  ('welcome_notice_body', '')     -- תוכן חלונית ההסבר
 ON CONFLICT (key) DO NOTHING;
+-- ניקוי מפתחות מהדגם הישן (יום/שעה קבועים, מנהל יחיד, "זמן פעיל" גלובלי יחיד) —
+-- הוחלפו ב-distribution_slots (עם open_for_pickup פר-שורה) ו-admins
+DELETE FROM settings WHERE key IN ('active_day', 'active_time_slot', 'admin_phone', 'normalized_admin_phone', 'active_slot_id');
 
--- ================= תעריפים: יום × שעה × מגדר, ערוך מפאנל הניהול =================
--- שינוי כאן משפיע רק על הזמנות *חדשות* מרגע השינוי — הזמנות קיימות שומרות
--- את unit_price שהוקפא ב-order_items בזמן ההזמנה (ראו למטה). זו בדיוק הדרישה
--- ש"שינוי מחיר משפיע רק על מי שעוד לא הזמין".
-CREATE TABLE IF NOT EXISTS price_rules (
-  id        SERIAL PRIMARY KEY,
-  day       TEXT NOT NULL CHECK (day IN ('thu','sun')),
-  time_slot TEXT NOT NULL CHECK (time_slot IN ('morning','night')),
-  gender    TEXT NOT NULL CHECK (gender IN ('male','female')),
-  price     NUMERIC(10,2) NOT NULL,
-  active    BOOLEAN NOT NULL DEFAULT TRUE,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(day, time_slot, gender)
+-- ================= זמני חלוקה: מנוהלים לגמרי ע"י המנהל =================
+-- מחליף גם את "יום קבוע" (חמישי/ראשון) וגם את טבלת price_rules הישנה —
+-- כל שורה היא "אירוע" עצמאי עם התאריך, השעות והמחירים שלו. שינוי מחיר כאן
+-- משפיע רק על הזמנות *חדשות* לאותו זמן — הזמנות קיימות שומרות את unit_price
+-- שהוקפא ב-order_items בזמן ההזמנה.
+CREATE TABLE IF NOT EXISTS distribution_slots (
+  id                    SERIAL PRIMARY KEY,
+  name                  TEXT NOT NULL,             -- שם חופשי, למשל "חמישי בוקר — ערב יום כיפור"
+  supply_date           DATE NOT NULL,              -- תאריך אספקת העופות (לועזי)
+  day_label             TEXT NOT NULL,              -- יום בשבוע, טקסט חופשי (מוצע אוטומטית מהתאריך, ניתן לעריכה)
+  hours_label           TEXT NOT NULL DEFAULT '',   -- טווח שעות, טקסט חופשי
+  color                 TEXT NOT NULL DEFAULT '#a5741f', -- צבע מזהה לזמן הזה (hex) — מוצג במסך "מימוש הכל" בקיוסק
+  price_male            NUMERIC(10,2) NOT NULL,
+  price_female          NUMERIC(10,2) NOT NULL,
+  registration_close_at TIMESTAMPTZ,                -- NULL = אין סגירה אוטומטית להרשמה
+  manual_open_override  BOOLEAN NOT NULL DEFAULT FALSE, -- מנהל מסמן "עדיין פתוח *להרשמה*" ידנית, גם אחרי זמן הסגירה
+  open_for_pickup       BOOLEAN NOT NULL DEFAULT FALSE, -- מסומן ע"י המנהל ביום האירוע — האם ניתן *למשוך* עבור זמן זה כרגע (ראו redemption.js)
+  active                BOOLEAN NOT NULL DEFAULT TRUE,  -- הסתרה רכה (לא מוחקים היסטוריה)
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+DROP TABLE IF EXISTS price_rules;
+
+-- ================= מנהלים: כל אחד עם טלפון+סיסמה+הרשאות משלו =================
+CREATE TABLE IF NOT EXISTS admins (
+  id                SERIAL PRIMARY KEY,
+  name              TEXT NOT NULL,
+  phone             TEXT NOT NULL,
+  normalized_phone  TEXT NOT NULL UNIQUE,
+  password_hash     TEXT NOT NULL,
+  can_settings      BOOLEAN NOT NULL DEFAULT TRUE,  -- טאב "הגדרות" (כולל ניהול מנהלים)
+  can_orders        BOOLEAN NOT NULL DEFAULT TRUE,  -- טאב "הזמנות ותשלומים"
+  can_dashboard     BOOLEAN NOT NULL DEFAULT TRUE,  -- טאב "דשבורד"
+  can_slots         BOOLEAN NOT NULL DEFAULT TRUE,  -- טאב "זמני חלוקה" (תאריכים ומחירים)
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ================= קודי אימות סמס (OTP) — לאזור אישי חוזר ולכניסת מנהל =================
@@ -63,6 +87,7 @@ CREATE TABLE IF NOT EXISTS orders (
   phone            TEXT NOT NULL,
   normalized_phone TEXT NOT NULL,
   customer_name    TEXT NOT NULL,
+  notes            TEXT,                               -- הערות חופשיות מהלקוח (בעיקר ב"הזמנה נוספת", שם לא מבקשים שוב שם)
   order_sequence   INTEGER NOT NULL DEFAULT 1,        -- "הזמנה מספר 1/2/3..." עבור טלפון זה
   access_token     TEXT NOT NULL UNIQUE,               -- מזהה לא-ניחוש, לשימוש עתידי (קבלה/לינק ישיר)
   total_amount     NUMERIC(10,2) NOT NULL DEFAULT 0,
@@ -74,22 +99,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_phone_sequence
   ON orders(normalized_phone, order_sequence) WHERE NOT is_deleted;
 CREATE INDEX IF NOT EXISTS idx_orders_phone ON orders(normalized_phone);
 
--- ================= שורות הזמנה: יום+שעה+מגדר+כמות =================
+-- ================= שורות הזמנה: זמן חלוקה + מגדר + כמות =================
 -- כל שורה נמשכת/נשלמת בנפרד — quantity_redeemed מתעדכן בעסקה נעולה (FOR UPDATE)
 -- בזמן משיכה בפועל, בלי לגעת בשאר שורות אותה הזמנה.
 CREATE TABLE IF NOT EXISTS order_items (
   id                SERIAL PRIMARY KEY,
   order_id          INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  day               TEXT NOT NULL CHECK (day IN ('thu','sun')),
-  time_slot         TEXT NOT NULL CHECK (time_slot IN ('morning','night')),
+  slot_id           INTEGER NOT NULL REFERENCES distribution_slots(id),
   gender            TEXT NOT NULL CHECK (gender IN ('male','female')),
   quantity          INTEGER NOT NULL CHECK (quantity > 0),
-  unit_price        NUMERIC(10,2) NOT NULL,            -- תמונת-מצב ממחיר ההזמנה, לא נגזר מחדש
+  unit_price        NUMERIC(10,2) NOT NULL,            -- תמונת-מצב ממחיר הזמן בזמן ההזמנה, לא נגזר מחדש
   line_total        NUMERIC(10,2) NOT NULL,
   quantity_redeemed INTEGER NOT NULL DEFAULT 0 CHECK (quantity_redeemed <= quantity)
 );
 CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);
-CREATE INDEX IF NOT EXISTS idx_items_slot ON order_items(day, time_slot);
+CREATE INDEX IF NOT EXISTS idx_items_slot ON order_items(slot_id);
 
 -- ================= תשלומים: יומן, לא שדה יחיד — מאפשר תשלום חלקי + ריבוי אמצעים =================
 CREATE TABLE IF NOT EXISTS payments (

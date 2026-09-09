@@ -12,6 +12,7 @@
     "migrate": "node src/db/migrate.js"
   },
   "dependencies": {
+    "@hebcal/core": "^6.9.2",
     "bcryptjs": "^2.4.3",
     "connect-pg-simple": "^9.0.1",
     "dotenv": "^16.4.5",

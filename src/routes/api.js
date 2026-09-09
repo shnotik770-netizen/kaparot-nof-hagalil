@@ -3,12 +3,12 @@ import { normalizePhone, isValidIsraeliPhone } from '../lib/normalize.js';
 import { getPublicSettings, getSettings, setSettings } from '../lib/settings.js';
 import { requestOtp, verifyOtp } from '../lib/otp.js';
 import {
-  verifyAdminPassword, changeAdminPassword, setAdminPhone,
-  requestAdminOtp, verifyAdminOtp, requireAdmin,
+  loginWithPassword, requestAdminOtp, verifyAdminOtp, requireAdmin, requirePermission,
 } from '../lib/auth.js';
-import { getActivePriceRules, getAllPriceRules, upsertPriceRules } from '../lib/priceRules.js';
+import { listAdmins, createAdmin, updateAdmin, deleteAdmin } from '../lib/admins.js';
+import { getOpenSlotsForRegistration, getAllSlots, createSlot, updateSlot, suggestDayLabel } from '../lib/slots.js';
 import { countOrdersForPhone, createOrder, listOrdersForPhone } from '../lib/orders.js';
-import { getRedemptionStatus, confirmRedemption } from '../lib/redemption.js';
+import { getRedemptionStatus, confirmSlotRedemption } from '../lib/redemption.js';
 import { recordManualPayment, listPaymentsForOrder, createPaymentSession } from '../lib/payments.js';
 import { listAllOrders, getDashboardStats, hardReset } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
@@ -17,6 +17,13 @@ const router = Router();
 
 function wrap(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+}
+
+function setAdminSession(req, admin) {
+  req.session.isAdmin = true;
+  req.session.adminId = admin.id;
+  req.session.adminName = admin.name;
+  req.session.adminPermissions = admin.permissions;
 }
 
 /** דורש שהטלפון הזה כבר עבר אימות OTP באותו session (ראו /otp/verify). */
@@ -35,8 +42,8 @@ router.get('/public-settings', wrap(async (req, res) => {
   res.json(await getPublicSettings());
 }));
 
-router.get('/price-rules', wrap(async (req, res) => {
-  res.json(await getActivePriceRules());
+router.get('/slots/open', wrap(async (req, res) => {
+  res.json(await getOpenSlotsForRegistration());
 }));
 
 // בודק אם זו הרשמה ראשונה (אין עדיין הזמנות לטלפון הזה -> לא נדרש OTP)
@@ -94,9 +101,14 @@ router.get('/redeem/status', requireVerifiedPhone, wrap(async (req, res) => {
   res.json({ ...(await getRedemptionStatus(normalized)), distributionOpen: settings.distributionOpen });
 }));
 
-router.post('/redeem/confirm', requireVerifiedPhone, wrap(async (req, res) => {
+// מימוש משולב (זכרים+נקבות יחד) לזמן חלוקה שלם — ראו confirmSlotRedemption ב-redemption.js.
+router.post('/redeem/confirm-slot', requireVerifiedPhone, wrap(async (req, res) => {
   const normalized = normalizePhone(req.body.phone);
-  const result = await confirmRedemption(normalized, req.body.orderItemId, req.body.quantity, normalized);
+  const result = await confirmSlotRedemption(
+    normalized, Number(req.body.slotId),
+    { maleQuantity: req.body.maleQuantity, femaleQuantity: req.body.femaleQuantity },
+    normalized
+  );
   res.json(result);
 }));
 
@@ -114,6 +126,9 @@ function publicBaseUrl() {
 // שיטה 3 מסלול ב' (עסקה שהוקמה בשרת) — ראו docs/nedarim-plus-integration.md.
 // מחשב את היתרה האמיתית ברגע הלחיצה (לא סומך על מה שהלקוח ראה קודם), פותח
 // payment_session (Param2), ומקים עסקה נעולה-סכום מול נדרים פלוס.
+// amount בגוף הבקשה הוא אופציונלי — מאפשר ללקוח לבחור לשלם רק חלק מהיתרה
+// (למשל חוב של 150, בוחר לשלם 100 כרגע). ברירת המחדל (בלי amount) היא כל
+// היתרה. תמיד נבדק מול היתרה האמיתית מה-DB, לא סומכים על מה שהלקוח שלח.
 router.post('/payment/create-session', requireVerifiedPhone, wrap(async (req, res) => {
   const normalized = normalizePhone(req.body.phone);
   const orders = await listOrdersForPhone(normalized);
@@ -121,17 +136,24 @@ router.post('/payment/create-session', requireVerifiedPhone, wrap(async (req, re
   if (balanceDue <= 0) {
     return res.status(400).json({ error: 'אין יתרת חוב פתוחה לתשלום.' });
   }
-  const session = await createPaymentSession(normalized, balanceDue);
+  let amount = balanceDue;
+  if (req.body.amount != null && req.body.amount !== '') {
+    amount = Number(req.body.amount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > balanceDue) {
+      return res.status(400).json({ error: `יש להזין סכום בין 1 ל-${balanceDue} ₪.` });
+    }
+  }
+  const session = await createPaymentSession(normalized, amount);
   const { transactionId, key } = await createTransaction({
-    amount: balanceDue,
+    amount,
     param2: session.token,
     callbackUrl: `${publicBaseUrl()}/webhooks/nedarim-plus`,
   });
-  res.json({ transactionId, key, amount: balanceDue });
+  res.json({ transactionId, key, amount });
 }));
 
-// מנקה את אימות הטלפון מה-session — קריטי בעמדת הקיוסק המשותפת, כדי שלקוח
-// אחד לא "יישאר מחובר" במכשיר עבור הלקוח הבא בתור.
+// מנקה את אימות הטלפון מה-session — קריטי בעמדת הקיוסק המשותפת (וגם כפתור
+// "יציאה מהאזור האישי" הרגיל), כדי שלקוח אחד לא "יישאר מחובר" עבור הבא בתור.
 router.post('/session/end', (req, res) => {
   req.session.verifiedPhone = null;
   res.json({ success: true });
@@ -140,9 +162,9 @@ router.post('/session/end', (req, res) => {
 // ============== מנהל ==============
 
 router.post('/admin/login-password', wrap(async (req, res) => {
-  await verifyAdminPassword(req.body?.password);
-  req.session.isAdmin = true;
-  res.json({ success: true });
+  const admin = await loginWithPassword(req.body?.phone, req.body?.password);
+  setAdminSession(req, admin);
+  res.json({ success: true, name: admin.name, permissions: admin.permissions });
 }));
 
 router.post('/admin/otp/request', wrap(async (req, res) => {
@@ -150,65 +172,94 @@ router.post('/admin/otp/request', wrap(async (req, res) => {
 }));
 
 router.post('/admin/otp/verify', wrap(async (req, res) => {
-  await verifyAdminOtp(req.body?.phone, req.body?.code);
-  req.session.isAdmin = true;
-  res.json({ success: true });
+  const admin = await verifyAdminOtp(req.body?.phone, req.body?.code);
+  setAdminSession(req, admin);
+  res.json({ success: true, name: admin.name, permissions: admin.permissions });
 }));
 
 router.post('/admin/logout', (req, res) => {
   req.session.isAdmin = false;
+  req.session.adminId = null;
+  req.session.adminPermissions = null;
   res.json({ success: true });
 });
 
 router.get('/admin/session', (req, res) => {
-  res.json({ isAdmin: !!req.session?.isAdmin });
+  if (!req.session?.isAdmin) return res.json({ isAdmin: false });
+  res.json({ isAdmin: true, name: req.session.adminName, permissions: req.session.adminPermissions });
 });
 
-router.get('/admin/settings', requireAdmin, wrap(async (req, res) => {
+router.get('/admin/settings', requireAdmin, requirePermission('settings'), wrap(async (req, res) => {
   res.json(await getSettings());
 }));
 
-router.put('/admin/settings', requireAdmin, wrap(async (req, res) => {
+router.put('/admin/settings', requireAdmin, requirePermission('settings'), wrap(async (req, res) => {
   await setSettings(req.body || {});
   res.json(await getSettings());
 }));
 
-router.post('/admin/change-password', requireAdmin, wrap(async (req, res) => {
-  res.json(await changeAdminPassword(req.body?.currentPassword, req.body?.newPassword));
+// ---- ניהול מנהלים (טאב הגדרות) ----
+
+router.get('/admin/admins', requireAdmin, requirePermission('settings'), wrap(async (req, res) => {
+  res.json(await listAdmins());
 }));
 
-router.put('/admin/admin-phone', requireAdmin, wrap(async (req, res) => {
-  res.json(await setAdminPhone(req.body?.phone));
+router.post('/admin/admins', requireAdmin, requirePermission('settings'), wrap(async (req, res) => {
+  res.json(await createAdmin(req.body || {}));
 }));
 
-router.get('/admin/price-rules', requireAdmin, wrap(async (req, res) => {
-  res.json(await getAllPriceRules());
+router.put('/admin/admins/:id', requireAdmin, requirePermission('settings'), wrap(async (req, res) => {
+  res.json(await updateAdmin(Number(req.params.id), req.body || {}));
 }));
 
-router.put('/admin/price-rules', requireAdmin, wrap(async (req, res) => {
-  res.json(await upsertPriceRules(req.body?.rules || []));
+router.delete('/admin/admins/:id', requireAdmin, requirePermission('settings'), wrap(async (req, res) => {
+  res.json(await deleteAdmin(Number(req.params.id)));
 }));
 
-router.get('/admin/orders', requireAdmin, wrap(async (req, res) => {
+// ---- זמני חלוקה (טאב זמני חלוקה) ----
+
+router.get('/admin/slots', requireAdmin, requirePermission('slots'), wrap(async (req, res) => {
+  res.json(await getAllSlots());
+}));
+
+router.get('/admin/slots/suggest-day-label', requireAdmin, requirePermission('slots'), wrap(async (req, res) => {
+  res.json({ dayLabel: suggestDayLabel(req.query.date) });
+}));
+
+router.post('/admin/slots', requireAdmin, requirePermission('slots'), wrap(async (req, res) => {
+  res.json(await createSlot(req.body || {}));
+}));
+
+router.put('/admin/slots/:id', requireAdmin, requirePermission('slots'), wrap(async (req, res) => {
+  res.json(await updateSlot(Number(req.params.id), req.body || {}));
+}));
+
+// ---- הזמנות ותשלומים ----
+
+router.get('/admin/orders', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   res.json(await listAllOrders());
 }));
 
-router.get('/admin/orders/:id/payments', requireAdmin, wrap(async (req, res) => {
+router.get('/admin/orders/:id/payments', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   res.json(await listPaymentsForOrder(Number(req.params.id)));
 }));
 
-router.post('/admin/orders/:id/payments', requireAdmin, wrap(async (req, res) => {
+router.post('/admin/orders/:id/payments', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   const payment = await recordManualPayment(
-    Number(req.params.id), req.body?.amount, req.body?.method, 'admin', req.body?.note
+    Number(req.params.id), req.body?.amount, req.body?.method, req.session.adminName || 'admin', req.body?.note
   );
   res.json(payment);
 }));
 
-router.get('/admin/dashboard', requireAdmin, wrap(async (req, res) => {
+// ---- דשבורד ----
+
+router.get('/admin/dashboard', requireAdmin, requirePermission('dashboard'), wrap(async (req, res) => {
   res.json(await getDashboardStats());
 }));
 
-router.post('/admin/hard-reset', requireAdmin, wrap(async (req, res) => {
+// ---- איפוס קשיח ----
+
+router.post('/admin/hard-reset', requireAdmin, requirePermission('settings'), wrap(async (req, res) => {
   if (req.body?.confirmText !== 'איפוס') {
     return res.status(400).json({ error: 'יש להקליד בדיוק את המילה "איפוס" כדי לאשר.' });
   }

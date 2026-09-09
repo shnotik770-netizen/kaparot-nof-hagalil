@@ -20,10 +20,11 @@ body{
 h2{font-size:19px;margin:0 0 6px}
 p.hint{color:var(--ink-dim);font-size:13.5px;line-height:1.6;margin:0 0 14px}
 label{display:block;font-size:13px;font-weight:700;color:var(--ink-dim);margin:12px 0 6px}
-input[type=text],input[type=tel],input[type=number],input[type=password],select{
+input[type=text],input[type=tel],input[type=number],input[type=password],select,textarea{
   width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:15px;
   font-family:inherit;background:var(--surface);color:var(--ink);
 }
+textarea{resize:vertical;min-height:70px}
 input:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
 button{
   font-family:inherit;font-size:15px;font-weight:700;border:none;border-radius:10px;padding:12px 18px;
@@ -69,3 +70,23 @@ button.danger{background:var(--wine);color:#fff}
 .ticket .code{font-size:30px;font-weight:900;letter-spacing:3px;color:var(--accent-ink);font-family:monospace;direction:ltr}
 .loading{text-align:center;color:var(--ink-dim);padding:30px 0}
 .spacer{height:8px}
+
+/* מסך "מימוש והצגה למחלק" — takeover בצבע זמן החלוקה, לעמדת החלוקה */
+.big-ticket-screen{
+  position:fixed; inset:0; z-index:80; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; padding:24px; text-align:center; color:#fff;
+}
+.big-ticket-screen .slot-name{ font-size:15px; opacity:.85; margin-bottom:8px; font-weight:600; }
+.big-ticket-screen .customer-name{ font-size:30px; font-weight:900; margin-bottom:26px; text-shadow:0 2px 10px rgba(0,0,0,.3); }
+.gender-squares{ display:flex; gap:16px; }
+.gender-square{ flex:1; max-width:150px; aspect-ratio:1; border-radius:22px; display:flex; flex-direction:column; align-items:center; justify-content:center; box-shadow:0 10px 26px rgba(0,0,0,.28); }
+.gender-square .num{ font-size:46px; font-weight:900; line-height:1; }
+.gender-square .lbl{ font-size:14px; font-weight:700; margin-top:8px; }
+.gender-square.male{ background:#2f6fed; color:#fff; }
+.gender-square.female{ background:#e0489a; color:#fff; }
+.big-ticket-screen .code{ margin-top:24px; font-family:monospace; direction:ltr; font-size:22px; font-weight:800; background:rgba(255,255,255,.2); padding:9px 22px; border-radius:10px; letter-spacing:3px; }
+.big-ticket-screen button{ margin-top:32px; max-width:280px; }
+
+.slot-group-card{ border-inline-start:4px solid var(--accent); }
+.gender-line{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; }
+.quick-all{ background:none; border:none; color:var(--accent-ink); text-decoration:underline; font-size:12px; font-weight:700; padding:2px 4px; cursor:pointer; width:auto; }

@@ -1,20 +1,14 @@
 // רישום הזמנות: "הזמנה מספר 1", "הזמנה מספר 2"... לכל טלפון (לא "שלב ב'").
-// מחיר כל שורה נלקח מהתעריף החי ברגע ההזמנה ו"מוקפא" ב-unit_price — שינוי
-// תעריף מאוחר יותר לא נוגע בהזמנות שכבר נוצרו.
+// מחיר כל שורה נלקח מהתעריף החי של זמן החלוקה ברגע ההזמנה ו"מוקפא" ב-unit_price —
+// שינוי תעריף מאוחר יותר לא נוגע בהזמנות שכבר נוצרו.
 
 import crypto from 'node:crypto';
 import { pool, withTransaction } from '../db/pool.js';
 import { normalizePhone, isValidIsraeliPhone } from './normalize.js';
 import { getSettings } from './settings.js';
-import { getActivePriceRules } from './priceRules.js';
+import { getAllSlots, priceForGender } from './slots.js';
 
-const VALID_DAYS = new Set(['thu', 'sun']);
-const VALID_SLOTS = new Set(['morning', 'night']);
 const VALID_GENDERS = new Set(['male', 'female']);
-
-function priceKey(day, timeSlot, gender) {
-  return `${day}|${timeSlot}|${gender}`;
-}
 
 function rowToOrder(row) {
   return {
@@ -23,6 +17,7 @@ function rowToOrder(row) {
     orderSequence: row.order_sequence,
     phone: row.phone,
     customerName: row.customer_name,
+    notes: row.notes,
     totalAmount: Number(row.total_amount),
     createdAt: row.created_at,
   };
@@ -46,7 +41,7 @@ export async function createOrder(payload, { changedBy = 'customer' } = {}) {
 
   const phone = String(payload?.phone || '').trim();
   const normalizedPhone = normalizePhone(phone);
-  const customerName = String(payload?.customerName || '').trim();
+  const notes = String(payload?.notes || '').trim() || null;
   const items = Array.isArray(payload?.items) ? payload.items : [];
 
   if (!isValidIsraeliPhone(normalizedPhone)) {
@@ -54,27 +49,47 @@ export async function createOrder(payload, { changedBy = 'customer' } = {}) {
     err.status = 400;
     throw err;
   }
+
+  // "הזמנה נוספת" (יש כבר הזמנה קודמת לטלפון זה) לא מבקשת שם שוב — משתמשים
+  // בשם שכבר נמסר בהזמנה הקודמת, בלי תלות במה שנשלח (אם בכלל) מהלקוח.
+  const { rows: previousOrder } = await pool.query(
+    `SELECT customer_name FROM orders WHERE normalized_phone = $1 AND NOT is_deleted ORDER BY order_sequence DESC LIMIT 1`,
+    [normalizedPhone]
+  );
+  const customerName = previousOrder.length
+    ? previousOrder[0].customer_name
+    : String(payload?.customerName || '').trim();
   if (!customerName) {
     const err = new Error('חסר שם מלא.');
     err.status = 400;
     throw err;
   }
   if (!items.length) {
-    const err = new Error('יש לבחור לפחות פריט אחד (יום, שעה, מגדר וכמות).');
+    const err = new Error('יש לבחור לפחות פריט אחד (זמן חלוקה, מגדר וכמות).');
     err.status = 400;
     throw err;
   }
 
-  const priceRules = await getActivePriceRules();
-  const priceMap = new Map(priceRules.map((r) => [priceKey(r.day, r.timeSlot, r.gender), r.price]));
+  const slots = await getAllSlots();
+  const slotsById = new Map(slots.map((s) => [s.id, s]));
 
   const cleanItems = items.map((raw) => {
-    const day = raw.day;
-    const timeSlot = raw.timeSlot;
+    const slotId = Number(raw.slotId);
     const gender = raw.gender;
     const quantity = Number(raw.quantity);
-    if (!VALID_DAYS.has(day) || !VALID_SLOTS.has(timeSlot) || !VALID_GENDERS.has(gender)) {
-      const err = new Error('יום/שעה/מגדר לא תקינים.');
+    const slot = slotsById.get(slotId);
+    if (!slot || !slot.active) {
+      const err = new Error('זמן חלוקה לא תקין.');
+      err.status = 400;
+      throw err;
+    }
+    if (changedBy !== 'admin' && !slot.isOpenForRegistration) {
+      const err = new Error(`ההרשמה ל"${slot.name}" סגורה כרגע.`);
+      err.status = 400;
+      throw err;
+    }
+    if (!VALID_GENDERS.has(gender)) {
+      const err = new Error('סוג (מגדר) לא תקין.');
       err.status = 400;
       throw err;
     }
@@ -83,13 +98,8 @@ export async function createOrder(payload, { changedBy = 'customer' } = {}) {
       err.status = 400;
       throw err;
     }
-    const unitPrice = priceMap.get(priceKey(day, timeSlot, gender));
-    if (unitPrice == null) {
-      const err = new Error('לא הוגדר תעריף לאחד מהפריטים שנבחרו. פנו למשרד.');
-      err.status = 400;
-      throw err;
-    }
-    return { day, timeSlot, gender, quantity, unitPrice, lineTotal: unitPrice * quantity };
+    const unitPrice = priceForGender(slot, gender);
+    return { slotId, gender, quantity, unitPrice, lineTotal: unitPrice * quantity, slotName: slot.name };
   });
 
   const totalAmount = cleanItems.reduce((sum, it) => sum + it.lineTotal, 0);
@@ -106,17 +116,17 @@ export async function createOrder(payload, { changedBy = 'customer' } = {}) {
     const orderNumber = numRows[0].n;
 
     const { rows: inserted } = await client.query(
-      `INSERT INTO orders(order_number, phone, normalized_phone, customer_name, order_sequence, access_token, total_amount)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [orderNumber, phone, normalizedPhone, customerName, orderSequence, accessToken, totalAmount]
+      `INSERT INTO orders(order_number, phone, normalized_phone, customer_name, notes, order_sequence, access_token, total_amount)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [orderNumber, phone, normalizedPhone, customerName, notes, orderSequence, accessToken, totalAmount]
     );
     const orderRow = inserted[0];
 
     for (const it of cleanItems) {
       await client.query(
-        `INSERT INTO order_items(order_id, day, time_slot, gender, quantity, unit_price, line_total)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [orderRow.id, it.day, it.timeSlot, it.gender, it.quantity, it.unitPrice, it.lineTotal]
+        `INSERT INTO order_items(order_id, slot_id, gender, quantity, unit_price, line_total)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [orderRow.id, it.slotId, it.gender, it.quantity, it.unitPrice, it.lineTotal]
       );
     }
 
@@ -139,7 +149,10 @@ export async function listOrdersForPhone(normalizedPhone) {
 
   const orderIds = orderRows.map((r) => r.id);
   const { rows: itemRows } = await pool.query(
-    `SELECT * FROM order_items WHERE order_id = ANY($1::int[]) ORDER BY id ASC`,
+    `SELECT oi.*, s.name AS slot_name, s.day_label, s.hours_label, s.supply_date
+       FROM order_items oi
+       JOIN distribution_slots s ON s.id = oi.slot_id
+      WHERE oi.order_id = ANY($1::int[]) ORDER BY oi.id ASC`,
     [orderIds]
   );
 
@@ -152,8 +165,11 @@ export async function listOrdersForPhone(normalizedPhone) {
       .filter((it) => it.order_id === o.id)
       .map((it) => ({
         id: it.id,
-        day: it.day,
-        timeSlot: it.time_slot,
+        slotId: it.slot_id,
+        slotName: it.slot_name,
+        dayLabel: it.day_label,
+        hoursLabel: it.hours_label,
+        supplyDate: it.supply_date,
         gender: it.gender,
         quantity: it.quantity,
         unitPrice: Number(it.unit_price),
