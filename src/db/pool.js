@@ -2,6 +2,9 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
+// אבחון זמני — לא מדפיס את הערך עצמו, רק אם הוא קיים ומאיפה host/port נגזרים.
+console.log(`[db] DATABASE_URL present: ${!!process.env.DATABASE_URL}, length: ${(process.env.DATABASE_URL || '').length}`);
+
 // זהה לדפוס ב-hazmanat-sfarim: SSL נשלט דרך PGSSL, לא מנוחש.
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
