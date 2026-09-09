@@ -63,6 +63,7 @@ const state = {
   slots: [],
   registerItems: [],
   otpCooldownUntil: 0,
+  pendingCustomerName: '', // שם שהוזן באזור האישי בכניסה ראשונה — נשלח בפועל רק בשליחת ההזמנה הראשונה
 };
 
 async function api(path, options = {}) {
@@ -290,10 +291,6 @@ function renderRegisterScreen(errorMsg) {
       <h2>${state.isFirstTime ? 'טופס הרשמה' : 'הזמנה נוספת'}</h2>
       ${!state.isFirstTime ? `<p class="hint">זו תירשם כ"הזמנה נוספת" בנפרד מההזמנות הקודמות שלכם באותו מספר טלפון.</p>` : ''}
       ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
-      ${state.isFirstTime ? `
-        <label for="nameInput">שם מלא</label>
-        <input type="text" id="nameInput" placeholder="שם פרטי ומשפחה">
-      ` : ''}
       <div class="spacer"></div>
       <label>פריטי הזמנה</label>
       <div id="itemsContainer"></div>
@@ -345,8 +342,12 @@ function renderItemsContainer() {
 }
 
 async function onRegisterSubmit() {
-  const customerName = state.isFirstTime ? document.getElementById('nameInput').value.trim() : undefined;
+  const customerName = state.isFirstTime ? (state.pendingCustomerName || '').trim() : undefined;
   const notes = document.getElementById('notesInput').value.trim() || undefined;
+  if (state.isFirstTime && !customerName) {
+    renderRegisterScreen('יש להזין שם מלא באזור האישי לפני ביצוע הזמנה — לחצו "חזרה" והזינו שם.');
+    return;
+  }
   const btn = document.getElementById('registerSubmit');
   btn.disabled = true; btn.textContent = 'שולח…';
   try {
@@ -403,7 +404,27 @@ function screenPersonalArea() {
     goToScreen('phone');
     screenPhone();
   };
-  if (!state.isFirstTime) loadCustomerNameSection();
+  if (state.isFirstTime) {
+    renderCustomerNameFirstTime();
+  } else {
+    loadCustomerNameSection();
+  }
+}
+
+/** משתמש חדש (אין עדיין הזמנות) — מבקשים שם מיד עם הכניסה, לא בתוך טופס ההזמנה הראשונה. */
+function renderCustomerNameFirstTime() {
+  const container = document.getElementById('customerNameSection');
+  if (!container) return;
+  container.innerHTML = `
+    <div class="notice" style="margin-top:8px">
+      <b>שלום! ניכר כי אתה משתמש חדש 👋</b><br>אנא הזן שם מלא לפני ביצוע הזמנה.
+    </div>
+    <label for="firstNameInput">שם מלא</label>
+    <input type="text" id="firstNameInput" placeholder="שם פרטי ומשפחה" value="${esc(state.pendingCustomerName)}">
+  `;
+  document.getElementById('firstNameInput').oninput = (e) => {
+    state.pendingCustomerName = e.target.value;
+  };
 }
 
 async function loadCustomerNameSection() {
