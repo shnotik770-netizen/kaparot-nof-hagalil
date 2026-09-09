@@ -3,6 +3,7 @@
 
 import crypto from 'node:crypto';
 import { pool, withTransaction } from '../db/pool.js';
+import { logAction } from './actionLog.js';
 
 export async function recordManualPayment(orderId, amount, method, recordedBy, note) {
   const amt = Number(amount);
@@ -21,6 +22,7 @@ export async function recordManualPayment(orderId, amount, method, recordedBy, n
      VALUES ($1,$2,$3,$4,$5) RETURNING *`,
     [orderId, amt, method, recordedBy, note || null]
   );
+  await logAction('payment_recorded_manual', { orderId, amount: amt, method, recordedBy, note: note || null });
   return rows[0];
 }
 
@@ -90,6 +92,11 @@ export async function allocateNedarimPayment({ token, transactionId, paidAmount 
       `UPDATE payment_sessions SET status='completed', nedarim_transaction_id=$2, completed_at=now() WHERE id=$1`,
       [session.id, transactionId]
     );
+
+    await logAction('payment_received_nedarim', {
+      phone: session.normalized_phone, transactionId, paidAmount: Number(paidAmount),
+      allocations, unallocatedSurplus: remaining,
+    }, client);
 
     return { allocated: true, allocations, unallocatedSurplus: remaining };
   });

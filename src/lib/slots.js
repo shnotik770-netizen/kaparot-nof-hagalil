@@ -3,6 +3,7 @@
 
 import { query } from '../db/pool.js';
 import { toHebrewDateString, hebrewWeekdayName } from './hebcal.js';
+import { logAction } from './actionLog.js';
 
 function rowToSlot(row) {
   const registrationCloseAt = row.registration_close_at;
@@ -46,6 +47,12 @@ export async function getOpenSlotsForRegistration() {
   return all.filter((s) => s.isOpenForRegistration);
 }
 
+/** רק זמנים פתוחים בפועל לאספקה (משיכה) כרגע — לתג "החלוקה פתוחה" ולכפתור "מימוש הזמנה". */
+export async function getOpenSlotsForPickup() {
+  const all = await getAllSlots();
+  return all.filter((s) => s.isOpenForPickup);
+}
+
 export async function getSlotById(id) {
   const { rows } = await query(`SELECT * FROM distribution_slots WHERE id = $1`, [id]);
   return rows.length ? rowToSlot(rows[0]) : null;
@@ -61,7 +68,9 @@ export async function createSlot(data) {
       !!data.manualOpenOverride, !!data.openForPickup, data.active !== false,
     ]
   );
-  return rowToSlot(rows[0]);
+  const slot = rowToSlot(rows[0]);
+  await logAction('slot_created', { slotId: slot.id, name: slot.name, supplyDate: slot.supplyDate });
+  return slot;
 }
 
 export async function updateSlot(id, data) {
@@ -83,7 +92,12 @@ export async function updateSlot(id, data) {
     err.status = 404;
     throw err;
   }
-  return rowToSlot(rows[0]);
+  const slot = rowToSlot(rows[0]);
+  await logAction('slot_updated', {
+    slotId: slot.id, name: slot.name, active: slot.active,
+    openForPickup: slot.openForPickup, manualOpenOverride: slot.manualOpenOverride,
+  });
+  return slot;
 }
 
 /** מחיר לפי מגדר, מתוך זמן ספציפי — לחישוב הזמנה. */

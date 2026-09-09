@@ -12,6 +12,7 @@ import { getSettings } from './settings.js';
 import { normalizePhone } from './normalize.js';
 import { requestOtp, verifyOtp } from './otp.js';
 import { countAdmins, getAdminByPhone, verifyAdminCredentials } from './admins.js';
+import { logAction } from './actionLog.js';
 
 const FULL_PERMISSIONS = { settings: true, orders: true, dashboard: true, slots: true };
 
@@ -36,10 +37,13 @@ export async function loginWithPassword(phone, password) {
       err.status = 401;
       throw err;
     }
+    await logAction('admin_login', { phone: normalized, method: 'password_bootstrap' });
     return { id: null, name: 'מנהל ראשי (זמני)', normalizedPhone: normalized, permissions: FULL_PERMISSIONS };
   }
 
-  return verifyAdminCredentials(normalized, password);
+  const admin = await verifyAdminCredentials(normalized, password);
+  await logAction('admin_login', { adminId: admin.id, phone: normalized, name: admin.name, method: 'password' });
+  return admin;
 }
 
 export async function requestAdminOtp(phone) {
@@ -68,6 +72,7 @@ export async function verifyAdminOtp(phone, code) {
     err.status = 401;
     throw err;
   }
+  await logAction('admin_login', { adminId: admin.id, phone: normalized, name: admin.name, method: 'otp' });
   return admin;
 }
 

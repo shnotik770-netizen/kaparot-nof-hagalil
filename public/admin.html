@@ -28,6 +28,16 @@
   .colorpick input[type=color]{width:44px;height:38px;padding:2px;border:1.5px solid var(--line);border-radius:8px;cursor:pointer}
   .inline-hint{font-size:12px;color:var(--ink-dim);margin:2px 0 0}
   .admin-card .row{margin-bottom:8px}
+  .big-action{font-size:16.5px;padding:15px 18px}
+  .compact-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .compact-row .swatch{width:16px;height:16px;border-radius:5px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+  .compact-row .compact-main{flex:1 1 160px;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .compact-row .compact-main b{font-size:14.5px}
+  .compact-row .pill{white-space:nowrap}
+  .edit-panel{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+  .compact-table{width:100%;border-collapse:collapse;font-size:13.5px}
+  .compact-table td{padding:9px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .compact-table tr:last-child td{border-bottom:none}
 </style>
 </head>
 <body>
@@ -37,7 +47,9 @@
 <script>
 const GENDER_LABEL = { male: 'זכרים', female: 'נקבות' };
 const STATUS_LABEL = { paid: 'שולם', partial: 'חלקי', unpaid: 'לא שולם' };
-const TAB_TITLES = { settings: 'הגדרות', slots: 'זמני חלוקה', orders: 'הזמנות ותשלומים', dashboard: 'דשבורד' };
+const TAB_TITLES = { settings: 'הגדרות', slots: 'זמני חלוקה', orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', actionLog: 'יומן פעולות' };
+// 'יומן פעולות' משתמש בהרשאת 'הגדרות' (אין לו הרשאה נפרדת משלו — כל מי שרואה הגדרות רואה גם את היומן)
+const TAB_PERMISSION = { actionLog: 'settings' };
 
 let currentTab = null;
 let myPermissions = {};
@@ -137,7 +149,7 @@ function screenLogin(errorMsg, mode = 'password') {
 function loadShell(session) {
   myPermissions = session.permissions || {};
   document.getElementById('whoBadge').innerHTML = `${esc(session.name || '')} · <button class="ghost" id="logoutBtn" style="color:#fff">יציאה</button>`;
-  const availableTabs = Object.keys(TAB_TITLES).filter((t) => myPermissions[t]);
+  const availableTabs = Object.keys(TAB_TITLES).filter((t) => myPermissions[TAB_PERMISSION[t] || t]);
   if (!availableTabs.length) {
     render(`<div class="card"><div class="error">לחשבון זה אין הרשאה לאף מסך ניהול. פנה למנהל אחר להוספת הרשאות.</div></div>`);
     return;
@@ -166,6 +178,7 @@ async function showTab(tab) {
   if (tab === 'slots') return renderSlotsTab();
   if (tab === 'orders') return renderOrdersTab();
   if (tab === 'dashboard') return renderDashboardTab();
+  if (tab === 'actionLog') return renderActionLogTab();
 }
 
 // ============== הגדרות ==============
@@ -174,15 +187,6 @@ async function renderSettingsTab() {
   const s = await api('/admin/settings');
   const content = document.getElementById('tabContent');
   content.innerHTML = `
-    <div class="card">
-      <h2>מצבי מערכת</h2>
-      <div class="toggle-row"><span>רישום פתוח</span><input type="checkbox" id="regOpen" ${s.registrationOpen ? 'checked' : ''}></div>
-      <div class="toggle-row"><span>חלוקה פתוחה</span><input type="checkbox" id="distOpen" ${s.distributionOpen ? 'checked' : ''}></div>
-      <p class="inline-hint">מי פתוח בפועל למשיכה נקבע לפי כל זמן חלוקה בנפרד, בטאב "זמני חלוקה".</p>
-      <div class="spacer"></div>
-      <button class="primary" id="saveStatus">שמירת מצבים</button>
-    </div>
-
     <div class="card">
       <h2>טקסטים ניתנים לעריכה</h2>
       <label>כותרת הטופס</label>
@@ -215,26 +219,30 @@ async function renderSettingsTab() {
     </div>
 
     <div class="card admin-card">
-      <h2>ניהול מנהלים</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <h2 style="margin:0">ניהול מנהלים</h2>
+        <button class="primary" id="toggleAddAdmin" style="width:auto">+ הוספת מנהל</button>
+      </div>
       <p class="hint">כל מנהל נכנס עם הטלפון והסיסמה שלו, ורואה רק את הטאבים שסומנו לו כאן.</p>
+      <div id="addAdminCard" hidden>
+        <fieldset>
+          <legend>הוספת מנהל חדש</legend>
+          <label>שם</label>
+          <input type="text" id="newAdminName">
+          <label>טלפון</label>
+          <input type="tel" id="newAdminPhone" inputmode="numeric" placeholder="05XXXXXXXX">
+          <label>סיסמה (לפחות 6 תווים)</label>
+          <input type="password" id="newAdminPassword">
+          <div class="perm-checks">
+            <label><input type="checkbox" id="newPermSettings" checked> הגדרות</label>
+            <label><input type="checkbox" id="newPermOrders" checked> הזמנות ותשלומים</label>
+            <label><input type="checkbox" id="newPermDashboard" checked> דשבורד</label>
+            <label><input type="checkbox" id="newPermSlots" checked> זמני חלוקה</label>
+          </div>
+          <button class="primary big-action" id="addAdmin" style="width:100%">הוספת מנהל</button>
+        </fieldset>
+      </div>
       <div id="adminsList"><div class="loading">טוען…</div></div>
-      <div class="spacer"></div>
-      <fieldset>
-        <legend>הוספת מנהל חדש</legend>
-        <label>שם</label>
-        <input type="text" id="newAdminName">
-        <label>טלפון</label>
-        <input type="tel" id="newAdminPhone" inputmode="numeric" placeholder="05XXXXXXXX">
-        <label>סיסמה (לפחות 6 תווים)</label>
-        <input type="password" id="newAdminPassword">
-        <div class="perm-checks">
-          <label><input type="checkbox" id="newPermSettings" checked> הגדרות</label>
-          <label><input type="checkbox" id="newPermOrders" checked> הזמנות ותשלומים</label>
-          <label><input type="checkbox" id="newPermDashboard" checked> דשבורד</label>
-          <label><input type="checkbox" id="newPermSlots" checked> זמני חלוקה</label>
-        </div>
-        <button class="secondary" id="addAdmin" style="width:100%">הוספת מנהל</button>
-      </fieldset>
     </div>
 
     <div class="card">
@@ -248,13 +256,6 @@ async function renderSettingsTab() {
     <div id="settingsMsg"></div>
   `;
 
-  document.getElementById('saveStatus').onclick = async () => {
-    await api('/admin/settings', { method: 'PUT', body: {
-      registration_open: String(document.getElementById('regOpen').checked),
-      distribution_open: String(document.getElementById('distOpen').checked),
-    }});
-    flash('נשמר.');
-  };
   document.getElementById('saveTexts').onclick = async () => {
     await api('/admin/settings', { method: 'PUT', body: {
       order_title: document.getElementById('orderTitle').value,
@@ -281,6 +282,10 @@ async function renderSettingsTab() {
       flash('המערכת אופסה.');
     } catch (err) { flash(err.message, true); }
   };
+  document.getElementById('toggleAddAdmin').onclick = () => {
+    const card = document.getElementById('addAdminCard');
+    card.hidden = !card.hidden;
+  };
   document.getElementById('addAdmin').onclick = async () => {
     try {
       await api('/admin/admins', { method: 'POST', body: {
@@ -297,6 +302,7 @@ async function renderSettingsTab() {
       document.getElementById('newAdminName').value = '';
       document.getElementById('newAdminPhone').value = '';
       document.getElementById('newAdminPassword').value = '';
+      document.getElementById('addAdminCard').hidden = true;
       flash('המנהל נוסף.');
       renderAdminsList();
     } catch (err) { flash(err.message, true); }
@@ -305,36 +311,59 @@ async function renderSettingsTab() {
   renderAdminsList();
 }
 
+const PERM_LABELS = { settings: 'הגדרות', orders: 'הזמנות', dashboard: 'דשבורד', slots: 'זמני חלוקה' };
+
 async function renderAdminsList() {
   const box = document.getElementById('adminsList');
   const admins = await api('/admin/admins');
-  box.innerHTML = admins.length ? admins.map((a) => `
-    <div class="card" style="margin-bottom:10px">
-      <div class="row">
-        <div>
-          <label>שם</label>
-          <input type="text" data-field="name" data-id="${a.id}" value="${esc(a.name)}">
+  if (!admins.length) {
+    box.innerHTML = `<p class="hint">אין עדיין מנהלים רשומים.</p>`;
+    return;
+  }
+  box.innerHTML = `
+    <table class="compact-table">
+      ${admins.map((a) => `
+        <tr>
+          <td><b>${esc(a.name)}</b><br><span class="meta">${esc(a.phone)}</span></td>
+          <td class="meta">${Object.keys(PERM_LABELS).filter((k) => a.permissions[k]).map((k) => PERM_LABELS[k]).join(', ') || 'ללא הרשאות'}</td>
+          <td style="text-align:left"><button class="ghost" data-toggle-admin="${a.id}">עריכה</button></td>
+        </tr>
+      `).join('')}
+    </table>
+    ${admins.map((a) => `
+      <div class="edit-panel" id="adminEdit${a.id}" hidden>
+        <div class="row">
+          <div>
+            <label>שם</label>
+            <input type="text" data-field="name" data-id="${a.id}" value="${esc(a.name)}">
+          </div>
+          <div>
+            <label>טלפון</label>
+            <input type="tel" data-field="phone" data-id="${a.id}" value="${esc(a.phone)}">
+          </div>
         </div>
-        <div>
-          <label>טלפון</label>
-          <input type="tel" data-field="phone" data-id="${a.id}" value="${esc(a.phone)}">
+        <label>סיסמה חדשה (השאירו ריק כדי לא לשנות)</label>
+        <input type="password" data-field="password" data-id="${a.id}" placeholder="••••••">
+        <div class="perm-checks">
+          <label><input type="checkbox" data-perm="settings" data-id="${a.id}" ${a.permissions.settings ? 'checked' : ''}> הגדרות</label>
+          <label><input type="checkbox" data-perm="orders" data-id="${a.id}" ${a.permissions.orders ? 'checked' : ''}> הזמנות ותשלומים</label>
+          <label><input type="checkbox" data-perm="dashboard" data-id="${a.id}" ${a.permissions.dashboard ? 'checked' : ''}> דשבורד</label>
+          <label><input type="checkbox" data-perm="slots" data-id="${a.id}" ${a.permissions.slots ? 'checked' : ''}> זמני חלוקה</label>
+        </div>
+        <div class="row">
+          <button class="primary big-action" data-save-admin="${a.id}">שמירה</button>
+          <button class="danger big-action" data-delete-admin="${a.id}">מחיקה</button>
         </div>
       </div>
-      <label>סיסמה חדשה (השאירו ריק כדי לא לשנות)</label>
-      <input type="password" data-field="password" data-id="${a.id}" placeholder="••••••">
-      <div class="perm-checks">
-        <label><input type="checkbox" data-perm="settings" data-id="${a.id}" ${a.permissions.settings ? 'checked' : ''}> הגדרות</label>
-        <label><input type="checkbox" data-perm="orders" data-id="${a.id}" ${a.permissions.orders ? 'checked' : ''}> הזמנות ותשלומים</label>
-        <label><input type="checkbox" data-perm="dashboard" data-id="${a.id}" ${a.permissions.dashboard ? 'checked' : ''}> דשבורד</label>
-        <label><input type="checkbox" data-perm="slots" data-id="${a.id}" ${a.permissions.slots ? 'checked' : ''}> זמני חלוקה</label>
-      </div>
-      <div class="row">
-        <button class="secondary" data-save-admin="${a.id}">שמירה</button>
-        <button class="danger" data-delete-admin="${a.id}">מחיקה</button>
-      </div>
-    </div>
-  `).join('') : `<p class="hint">אין עדיין מנהלים רשומים.</p>`;
+    `).join('')}
+  `;
 
+  box.querySelectorAll('[data-toggle-admin]').forEach((b) => {
+    b.onclick = () => {
+      const panel = document.getElementById(`adminEdit${b.dataset.toggleAdmin}`);
+      panel.hidden = !panel.hidden;
+    };
+  });
   box.querySelectorAll('[data-save-admin]').forEach((b) => {
     b.onclick = async () => {
       const id = b.dataset.saveAdmin;
@@ -428,29 +457,53 @@ function readSlotForm(prefix) {
   };
 }
 
+function slotCompactRowHtml(s) {
+  return `
+    <div class="compact-row">
+      <span class="swatch" style="background:${esc(s.color)}"></span>
+      <div class="compact-main">
+        <b>${esc(s.name)}</b>
+        <span class="meta">${esc(s.hebrewDate)}${s.hoursLabel ? ' · ' + esc(s.hoursLabel) : ''} · ${money(s.priceMale)}/${money(s.priceFemale)}</span>
+      </div>
+      <span class="pill ${s.isOpenForRegistration ? 'paid' : 'unpaid'}">${s.isOpenForRegistration ? 'פתוח להרשמה' : 'סגור להרשמה'}</span>
+      <span class="pill ${s.isOpenForPickup ? 'paid' : 'unpaid'}">${s.isOpenForPickup ? 'פתוח לאספקה' : 'סגור לאספקה'}</span>
+      <button class="ghost" data-toggle-slot="${s.id}">עריכה</button>
+    </div>
+  `;
+}
+
 async function renderSlotsTab() {
   const slots = await api('/admin/slots');
   const content = document.getElementById('tabContent');
   content.innerHTML = `
-    <div class="card">
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <h2 style="margin:0">זמני חלוקה קיימים</h2>
+      <button class="primary" id="toggleAddSlot" style="width:auto">+ הוספת זמן חלוקה</button>
+    </div>
+    <div class="card" id="addSlotCard" hidden>
       <h2>הוספת זמן חלוקה חדש</h2>
       ${slotFormHtml('new', {})}
       <div class="spacer"></div>
-      <button class="primary" id="addSlot" style="width:100%">הוספת זמן חלוקה</button>
+      <button class="primary big-action" id="addSlot" style="width:100%">הוספת זמן חלוקה</button>
       <div id="newSlotMsg"></div>
     </div>
-    <h2>זמני חלוקה קיימים</h2>
     ${slots.length ? slots.map((s) => `
       <div class="card slot-card" style="border-inline-start-color:${esc(s.color)}">
-        <div class="order-row-header"><b>${esc(s.name)}</b><span class="meta">${esc(s.hebrewDate)}</span></div>
-        ${slotFormHtml('s' + s.id, s)}
-        <div class="spacer"></div>
-        <button class="secondary" data-save-slot="${s.id}" style="width:100%">שמירת שינויים</button>
-        <div id="slotMsg${s.id}"></div>
+        ${slotCompactRowHtml(s)}
+        <div class="edit-panel" id="editPanel${s.id}" hidden>
+          ${slotFormHtml('s' + s.id, s)}
+          <div class="spacer"></div>
+          <button class="primary big-action" data-save-slot="${s.id}" style="width:100%">שמירת שינויים</button>
+          <div id="slotMsg${s.id}"></div>
+        </div>
       </div>
     `).join('') : `<div class="card"><p class="hint">אין עדיין זמני חלוקה. הוסיפו אחד למעלה.</p></div>`}
   `;
 
+  document.getElementById('toggleAddSlot').onclick = () => {
+    const card = document.getElementById('addSlotCard');
+    card.hidden = !card.hidden;
+  };
   document.getElementById('newSuggest').onclick = () => {
     const date = document.getElementById('newDate').value;
     if (!date) return;
@@ -469,6 +522,10 @@ async function renderSlotsTab() {
 
   slots.forEach((s) => {
     const prefix = 's' + s.id;
+    document.querySelector(`[data-toggle-slot="${s.id}"]`).onclick = () => {
+      const panel = document.getElementById(`editPanel${s.id}`);
+      panel.hidden = !panel.hidden;
+    };
     document.getElementById(`${prefix}Suggest`).onclick = () => {
       const date = document.getElementById(`${prefix}Date`).value;
       if (!date) return;
@@ -480,6 +537,7 @@ async function renderSlotsTab() {
       try {
         await api(`/admin/slots/${s.id}`, { method: 'PUT', body: readSlotForm(prefix) });
         document.getElementById(`slotMsg${s.id}`).innerHTML = `<div class="success">נשמר.</div>`;
+        renderSlotsTab();
       } catch (err) {
         document.getElementById(`slotMsg${s.id}`).innerHTML = `<div class="error">${err.message}</div>`;
       }
@@ -489,54 +547,74 @@ async function renderSlotsTab() {
 
 // ============== הזמנות ותשלומים ==============
 
+function orderCardHtml(o) {
+  return `
+    <div class="card">
+      <div class="order-row-header">
+        <b>${esc(o.customerName)} · ${esc(o.phone)}</b>
+        <span class="pill ${o.paymentStatus}">${STATUS_LABEL[o.paymentStatus]}</span>
+      </div>
+      <p class="hint">הזמנה מספר ${o.orderSequence} (מס' ${o.orderNumber}) · ${new Date(o.createdAt).toLocaleString('he-IL')}</p>
+      ${o.notes ? `<div class="notice">הערות: ${esc(o.notes)}</div>` : ''}
+      ${o.items.map((it) => `
+        <div class="item-row">
+          <span>${esc(it.slotName)} · ${GENDER_LABEL[it.gender]} × ${it.quantity}</span>
+          <span class="meta">${it.quantityRedeemed}/${it.quantity} נמשך · ${money(it.lineTotal)}</span>
+        </div>
+      `).join('')}
+      <div class="total-row"><span>סה"כ ${money(o.totalAmount)}</span><span class="meta" style="font-weight:400">שולם ${money(o.amountPaid)} · יתרה ${money(o.balanceDue)}</span></div>
+      <details>
+        <summary style="cursor:pointer;font-size:13px;color:var(--accent-ink);font-weight:700">רישום תשלום ידני</summary>
+        <div class="row" style="margin-top:10px">
+          <input type="number" min="0" placeholder="סכום" id="amt-${o.id}">
+          <select id="method-${o.id}">
+            <option value="manual_cash">מזומן</option>
+            <option value="manual_card">אשראי ידני</option>
+            <option value="manual_admin">אחר</option>
+          </select>
+          <button class="secondary" data-pay="${o.id}">רישום</button>
+        </div>
+      </details>
+    </div>
+  `;
+}
+
 async function renderOrdersTab() {
   const orders = await api('/admin/orders');
   document.getElementById('tabContent').innerHTML = `
     <div class="card">
       <h2>כל ההזמנות (${orders.length})</h2>
       <p class="hint">${orders.length} הזמנות · ${orders.filter((o) => o.paymentStatus === 'paid').length} שולמו במלואן</p>
+      <label for="orderSearch">חיפוש לפי שם או טלפון</label>
+      <input type="text" id="orderSearch" placeholder="הקלידו שם או מספר טלפון...">
     </div>
-    ${orders.map((o) => `
-      <div class="card">
-        <div class="order-row-header">
-          <b>${esc(o.customerName)} · ${esc(o.phone)}</b>
-          <span class="pill ${o.paymentStatus}">${STATUS_LABEL[o.paymentStatus]}</span>
-        </div>
-        <p class="hint">הזמנה מספר ${o.orderSequence} (מס' ${o.orderNumber}) · ${new Date(o.createdAt).toLocaleString('he-IL')}</p>
-        ${o.notes ? `<div class="notice">הערות: ${esc(o.notes)}</div>` : ''}
-        ${o.items.map((it) => `
-          <div class="item-row">
-            <span>${esc(it.slotName)} · ${GENDER_LABEL[it.gender]} × ${it.quantity}</span>
-            <span class="meta">${it.quantityRedeemed}/${it.quantity} נמשך · ${money(it.lineTotal)}</span>
-          </div>
-        `).join('')}
-        <div class="total-row"><span>סה"כ ${money(o.totalAmount)}</span><span class="meta" style="font-weight:400">שולם ${money(o.amountPaid)} · יתרה ${money(o.balanceDue)}</span></div>
-        <details>
-          <summary style="cursor:pointer;font-size:13px;color:var(--accent-ink);font-weight:700">רישום תשלום ידני</summary>
-          <div class="row" style="margin-top:10px">
-            <input type="number" min="0" placeholder="סכום" id="amt-${o.id}">
-            <select id="method-${o.id}">
-              <option value="manual_cash">מזומן</option>
-              <option value="manual_card">אשראי ידני</option>
-              <option value="manual_admin">אחר</option>
-            </select>
-            <button class="secondary" data-pay="${o.id}">רישום</button>
-          </div>
-        </details>
-      </div>
-    `).join('')}
+    <div id="ordersListWrap"></div>
   `;
-  document.querySelectorAll('[data-pay]').forEach((b) => {
-    b.onclick = async () => {
-      const id = b.dataset.pay;
-      const amount = Number(document.getElementById(`amt-${id}`).value);
-      const method = document.getElementById(`method-${id}`).value;
-      try {
-        await api(`/admin/orders/${id}/payments`, { method: 'POST', body: { amount, method } });
-        renderOrdersTab();
-      } catch (err) { alert(err.message); }
-    };
-  });
+
+  function renderList(list) {
+    const wrap = document.getElementById('ordersListWrap');
+    wrap.innerHTML = list.length
+      ? list.map(orderCardHtml).join('')
+      : `<div class="card"><p class="hint">לא נמצאו הזמנות תואמות לחיפוש.</p></div>`;
+    wrap.querySelectorAll('[data-pay]').forEach((b) => {
+      b.onclick = async () => {
+        const id = b.dataset.pay;
+        const amount = Number(document.getElementById(`amt-${id}`).value);
+        const method = document.getElementById(`method-${id}`).value;
+        try {
+          await api(`/admin/orders/${id}/payments`, { method: 'POST', body: { amount, method } });
+          renderOrdersTab();
+        } catch (err) { alert(err.message); }
+      };
+    });
+  }
+
+  renderList(orders);
+  document.getElementById('orderSearch').oninput = (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    if (!q) { renderList(orders); return; }
+    renderList(orders.filter((o) => o.customerName.toLowerCase().includes(q) || o.phone.includes(q)));
+  };
 }
 
 // ============== דשבורד ==============
@@ -557,6 +635,73 @@ async function renderDashboardTab() {
             <tr><td>${esc(r.slotName)}</td><td>${GENDER_LABEL[r.gender]}</td><td>${r.ordered}</td><td>${r.redeemed}</td></tr>
           `).join('')}
         </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ============== יומן פעולות ==============
+
+const ACTION_LABELS = {
+  order_created: 'הזמנה נוצרה',
+  payment_recorded_manual: 'תשלום ידני נרשם',
+  payment_received_nedarim: 'תשלום התקבל (נדרים פלוס)',
+  redemption_confirmed: 'מימוש עופות',
+  settings_updated: 'הגדרות עודכנו',
+  slot_created: 'זמן חלוקה נוסף',
+  slot_updated: 'זמן חלוקה עודכן',
+  admin_created: 'מנהל נוסף',
+  admin_updated: 'מנהל עודכן',
+  admin_deleted: 'מנהל נמחק',
+  admin_login: 'כניסת מנהל',
+  hard_reset: 'איפוס קשיח',
+};
+
+function actionSummaryHtml(a) {
+  const d = a.details || {};
+  switch (a.actionType) {
+    case 'order_created':
+      return `${esc(d.customerName || '')} · ${esc(d.phone || '')} · הזמנה מס' ${d.orderNumber ?? ''} · ${money(d.totalAmount || 0)}`;
+    case 'payment_recorded_manual':
+      return `הזמנה #${d.orderId ?? ''} · ${money(d.amount || 0)} · ${esc(d.method || '')} · ע"י ${esc(d.recordedBy || '')}`;
+    case 'payment_received_nedarim':
+      return `${esc(d.phone || '')} · ${money(d.paidAmount || 0)} · עסקה ${esc(d.transactionId || '')}`;
+    case 'redemption_confirmed':
+      return `${esc(d.customerName || '')} · ${esc(d.slotName || '')} · ${d.maleQuantity || 0} זכרים + ${d.femaleQuantity || 0} נקבות · קוד ${esc(d.confirmationCode || '')}`;
+    case 'settings_updated':
+      return `שדות: ${esc((d.changedKeys || []).join(', '))}`;
+    case 'slot_created':
+    case 'slot_updated':
+      return `${esc(d.name || '')}${d.active === false ? ' (לא פעיל)' : ''}`;
+    case 'admin_created':
+    case 'admin_updated':
+      return `${esc(d.name || '')} · ${esc(d.phone || '')}`;
+    case 'admin_deleted':
+      return `${esc(d.name || '')} · ${esc(d.phone || '')}`;
+    case 'admin_login':
+      return `${esc(d.name || d.phone || '')} · ${d.method === 'otp' ? 'קוד סמס' : d.method === 'password_bootstrap' ? 'סיסמת בוטסטרפ' : 'סיסמה'}`;
+    case 'hard_reset':
+      return `בוצע ע"י ${esc(d.performedBy || '')}`;
+    default:
+      return esc(JSON.stringify(d));
+  }
+}
+
+async function renderActionLogTab() {
+  const actions = await api('/admin/action-log?limit=200');
+  document.getElementById('tabContent').innerHTML = `
+    <div class="card">
+      <h2>יומן פעולות</h2>
+      <p class="hint">200 הפעולות האחרונות במערכת, מהחדשה לישנה.</p>
+    </div>
+    <div class="card">
+      <table class="compact-table">
+        ${actions.length ? actions.map((a) => `
+          <tr>
+            <td style="white-space:nowrap;color:var(--ink-dim);font-size:12px">${new Date(a.createdAt).toLocaleString('he-IL')}</td>
+            <td><b>${esc(ACTION_LABELS[a.actionType] || a.actionType)}</b><br><span class="meta">${actionSummaryHtml(a)}</span></td>
+          </tr>
+        `).join('') : `<tr><td class="hint">אין עדיין פעולות רשומות.</td></tr>`}
       </table>
     </div>
   `;

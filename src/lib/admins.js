@@ -5,6 +5,7 @@
 import bcrypt from 'bcryptjs';
 import { query } from '../db/pool.js';
 import { normalizePhone } from './normalize.js';
+import { logAction } from './actionLog.js';
 
 function rowToAdmin(row) {
   return {
@@ -66,13 +67,17 @@ export async function createAdmin({ name, phone, password, permissions = {} }) {
       permissions.dashboard !== false, permissions.slots !== false,
     ]
   );
-  return rowToAdmin(rows[0]);
+  const admin = rowToAdmin(rows[0]);
+  await logAction('admin_created', { adminId: admin.id, name: admin.name, phone: admin.normalizedPhone, permissions: admin.permissions });
+  return admin;
 }
 
 /** password ריק/לא נשלח = לא משנים את הסיסמה הקיימת. */
 export async function updateAdmin(id, { name, phone, password, permissions = {} }) {
   const normalized = normalizePhone(phone);
-  if (password && String(password).length >= 6) {
+  const passwordChanged = !!(password && String(password).length >= 6);
+  let admin;
+  if (passwordChanged) {
     const hash = await bcrypt.hash(String(password), 12);
     const { rows } = await query(
       `UPDATE admins SET name=$2, phone=$3, normalized_phone=$4, password_hash=$5,
@@ -81,20 +86,27 @@ export async function updateAdmin(id, { name, phone, password, permissions = {} 
       [id, name, phone, normalized, hash, permissions.settings !== false, permissions.orders !== false, permissions.dashboard !== false, permissions.slots !== false]
     );
     if (!rows.length) throw Object.assign(new Error('מנהל לא נמצא.'), { status: 404 });
-    return rowToAdmin(rows[0]);
+    admin = rowToAdmin(rows[0]);
+  } else {
+    const { rows } = await query(
+      `UPDATE admins SET name=$2, phone=$3, normalized_phone=$4,
+         can_settings=$5, can_orders=$6, can_dashboard=$7, can_slots=$8
+       WHERE id=$1 RETURNING *`,
+      [id, name, phone, normalized, permissions.settings !== false, permissions.orders !== false, permissions.dashboard !== false, permissions.slots !== false]
+    );
+    if (!rows.length) throw Object.assign(new Error('מנהל לא נמצא.'), { status: 404 });
+    admin = rowToAdmin(rows[0]);
   }
-  const { rows } = await query(
-    `UPDATE admins SET name=$2, phone=$3, normalized_phone=$4,
-       can_settings=$5, can_orders=$6, can_dashboard=$7, can_slots=$8
-     WHERE id=$1 RETURNING *`,
-    [id, name, phone, normalized, permissions.settings !== false, permissions.orders !== false, permissions.dashboard !== false, permissions.slots !== false]
-  );
-  if (!rows.length) throw Object.assign(new Error('מנהל לא נמצא.'), { status: 404 });
-  return rowToAdmin(rows[0]);
+  await logAction('admin_updated', { adminId: admin.id, name: admin.name, phone: admin.normalizedPhone, permissions: admin.permissions, passwordChanged });
+  return admin;
 }
 
 export async function deleteAdmin(id) {
+  const { rows } = await query(`SELECT name, normalized_phone FROM admins WHERE id = $1`, [id]);
   await query(`DELETE FROM admins WHERE id = $1`, [id]);
+  if (rows.length) {
+    await logAction('admin_deleted', { adminId: id, name: rows[0].name, phone: rows[0].normalized_phone });
+  }
   return { success: true };
 }
 

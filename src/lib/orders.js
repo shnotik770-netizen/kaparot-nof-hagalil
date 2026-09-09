@@ -5,8 +5,8 @@
 import crypto from 'node:crypto';
 import { pool, withTransaction } from '../db/pool.js';
 import { normalizePhone, isValidIsraeliPhone } from './normalize.js';
-import { getSettings } from './settings.js';
 import { getAllSlots, priceForGender } from './slots.js';
+import { logAction } from './actionLog.js';
 
 const VALID_GENDERS = new Set(['male', 'female']);
 
@@ -32,13 +32,8 @@ export async function countOrdersForPhone(normalizedPhone) {
 }
 
 export async function createOrder(payload, { changedBy = 'customer' } = {}) {
-  const settings = await getSettings();
-  if (!settings.registrationOpen && changedBy !== 'admin') {
-    const err = new Error('הרישום סגור כרגע.');
-    err.status = 403;
-    throw err;
-  }
-
+  // אין יותר מתג-על גלובלי — כל בדיקת "האם ההרשמה פתוחה" נעשית פר-זמן-חלוקה,
+  // ראו הבדיקה על slot.isOpenForRegistration בכל שורת פריט למטה.
   const phone = String(payload?.phone || '').trim();
   const normalizedPhone = normalizePhone(phone);
   const notes = String(payload?.notes || '').trim() || null;
@@ -130,6 +125,11 @@ export async function createOrder(payload, { changedBy = 'customer' } = {}) {
       );
     }
 
+    await logAction('order_created', {
+      orderId: orderRow.id, orderNumber, orderSequence, phone: normalizedPhone,
+      customerName, totalAmount, itemCount: cleanItems.length, changedBy,
+    }, client);
+
     return orderRow;
   });
 
@@ -149,7 +149,7 @@ export async function listOrdersForPhone(normalizedPhone) {
 
   const orderIds = orderRows.map((r) => r.id);
   const { rows: itemRows } = await pool.query(
-    `SELECT oi.*, s.name AS slot_name, s.day_label, s.hours_label, s.supply_date
+    `SELECT oi.*, s.name AS slot_name, s.day_label, s.hours_label, s.supply_date, s.color AS slot_color
        FROM order_items oi
        JOIN distribution_slots s ON s.id = oi.slot_id
       WHERE oi.order_id = ANY($1::int[]) ORDER BY oi.id ASC`,
@@ -167,6 +167,7 @@ export async function listOrdersForPhone(normalizedPhone) {
         id: it.id,
         slotId: it.slot_id,
         slotName: it.slot_name,
+        slotColor: it.slot_color,
         dayLabel: it.day_label,
         hoursLabel: it.hours_label,
         supplyDate: it.supply_date,

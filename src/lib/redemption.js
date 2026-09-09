@@ -1,10 +1,9 @@
 // יום האירוע: "Gatekeeper" (מה מותר למשוך עכשיו) + "שריפת כרטיס" (משיכה בפועל).
 //
 // כל התנאים הבאים חייבים להתקיים יחד לכל שורת הזמנה (order_item):
-//  1. מתג-העל הגלובלי distribution_open פעיל.
-//  2. זמן החלוקה שהפריט שייך אליו מסומן ע"י המנהל כ-open_for_pickup (פר-שורה, ראו distribution_slots).
-//  3. ההזמנה שאליה הפריט שייך מסומנת 'paid' (לא 'partial' ולא 'unpaid').
-//  4. quantity_redeemed < quantity (עוד לא נמשך במלואו).
+//  1. זמן החלוקה שהפריט שייך אליו מסומן ע"י המנהל כ-open_for_pickup (פר-שורה, ראו distribution_slots).
+//  2. ההזמנה שאליה הפריט שייך מסומנת 'paid' (לא 'partial' ולא 'unpaid').
+//  3. quantity_redeemed < quantity (עוד לא נמשך במלואו).
 //
 // כך תשלום חלקי (הזמנה א' שולמה, הזמנה ב' לא) פותר את עצמו אוטומטית: רק
 // הפריטים ששייכים להזמנה ששולמה נפתחים למשיכה, בלי קוד מיוחד לכל מקרה.
@@ -17,6 +16,7 @@
 import crypto from 'node:crypto';
 import { pool, withTransaction } from '../db/pool.js';
 import { getSettings } from './settings.js';
+import { logAction } from './actionLog.js';
 
 function itemLabel(row) {
   const genderLabel = row.gender === 'male' ? 'זכרים' : 'נקבות';
@@ -91,12 +91,8 @@ export async function getRedemptionStatus(normalizedPhone) {
  * קוד אישור אחד, למסך "הצגה למחלק העופות".
  */
 export async function confirmSlotRedemption(normalizedPhone, slotId, { maleQuantity, femaleQuantity }, redeemedBy) {
-  const settings = await getSettings();
-  if (!settings.distributionOpen) {
-    const err = new Error('החלוקה סגורה כרגע.');
-    err.status = 403;
-    throw err;
-  }
+  // אין יותר מתג-על גלובלי — הבדיקה שהזמן הזה פתוח לאספקה היא פר-זמן-חלוקה
+  // בלבד (slot.active && slot.open_for_pickup), נבדקת מיד אחרי טעינת השורה למטה.
   const wanted = {
     male: Number(maleQuantity) || 0,
     female: Number(femaleQuantity) || 0,
@@ -135,7 +131,7 @@ export async function confirmSlotRedemption(normalizedPhone, slotId, { maleQuant
            JOIN orders o ON o.id = oi.order_id
            JOIN order_balances b ON b.order_id = o.id
           WHERE o.normalized_phone = $1 AND oi.slot_id = $2 AND oi.gender = $3 AND NOT o.is_deleted
-          ORDER BY o.order_id ASC, oi.id ASC
+          ORDER BY oi.order_id ASC, oi.id ASC
           FOR UPDATE OF oi`,
         [normalizedPhone, slotId, gender]
       );
@@ -165,6 +161,12 @@ export async function confirmSlotRedemption(normalizedPhone, slotId, { maleQuant
         throw err;
       }
     }
+
+    await logAction('redemption_confirmed', {
+      slotId, slotName: slot.name, phone: normalizedPhone, customerName,
+      maleQuantity: redeemedTotals.male, femaleQuantity: redeemedTotals.female,
+      confirmationCode, redeemedBy,
+    }, client);
 
     return {
       confirmationCode,

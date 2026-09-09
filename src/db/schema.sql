@@ -7,8 +7,6 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT
 );
 INSERT INTO settings(key, value) VALUES
-  ('registration_open', 'true'),
-  ('distribution_open', 'false'),  -- מתג-על גלובלי: האם החלוקה בכלל פעילה היום (בנוסף לסימון פר-זמן)
   ('order_title', 'הרשמה לכפרות'),
   ('order_subtitle', 'מוסדות חסדי מנחם נוף הגליל'),
   ('admin_password_hash', NULL),  -- סיסמת "בוטסטרפ" ישנה — נבדקת רק כל עוד טבלת admins ריקה, ראו auth.js
@@ -23,9 +21,10 @@ INSERT INTO settings(key, value) VALUES
   ('welcome_notice_title', ''),   -- כותרת חלונית הסבר במסך הראשי (ריק = לא מוצגת)
   ('welcome_notice_body', '')     -- תוכן חלונית ההסבר
 ON CONFLICT (key) DO NOTHING;
--- ניקוי מפתחות מהדגם הישן (יום/שעה קבועים, מנהל יחיד, "זמן פעיל" גלובלי יחיד) —
--- הוחלפו ב-distribution_slots (עם open_for_pickup פר-שורה) ו-admins
-DELETE FROM settings WHERE key IN ('active_day', 'active_time_slot', 'admin_phone', 'normalized_admin_phone', 'active_slot_id');
+-- ניקוי מפתחות מהדגם הישן (יום/שעה קבועים, מנהל יחיד, "זמן פעיל" גלובלי יחיד,
+-- ומתגי-העל הגלובליים registration_open/distribution_open) — כולם הוחלפו
+-- בשליטה פר-זמן-חלוקה (distribution_slots) ו-admins
+DELETE FROM settings WHERE key IN ('active_day', 'active_time_slot', 'admin_phone', 'normalized_admin_phone', 'active_slot_id', 'registration_open', 'distribution_open');
 
 -- ================= זמני חלוקה: מנוהלים לגמרי ע"י המנהל =================
 -- מחליף גם את "יום קבוע" (חמישי/ראשון) וגם את טבלת price_rules הישנה —

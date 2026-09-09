@@ -131,11 +131,14 @@ async function onPhoneSubmit() {
     state.isFirstTime = res.isFirstTime;
     if (res.isFirstTime) {
       state.registerItems = [];
+      goToScreen('register');
       screenRegister();
     } else if (res.alreadyVerified) {
+      goToScreen('personalArea');
       screenPersonalArea();
     } else {
       await requestOtp();
+      goToScreen('otp');
       screenOtp();
     }
   } catch (err) {
@@ -166,7 +169,7 @@ function screenOtp(errorMsg) {
     </div>
   `);
   document.getElementById('otpSubmit').onclick = onOtpSubmit;
-  document.getElementById('otpBack').onclick = () => screenPhone();
+  document.getElementById('otpBack').onclick = () => goBack();
   document.getElementById('otpResend').onclick = onOtpResend;
   document.getElementById('otpInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') onOtpSubmit(); });
 }
@@ -188,6 +191,7 @@ async function onOtpSubmit() {
   btn.disabled = true; btn.textContent = 'מאמת…';
   try {
     await api('/otp/verify', { method: 'POST', body: { phone: state.phone, code } });
+    goToScreen('personalArea');
     screenPersonalArea();
   } catch (err) {
     screenOtp(err.message);
@@ -276,9 +280,7 @@ function renderRegisterScreen(errorMsg) {
         <button class="ghost" id="registerBack">${state.isFirstTime ? 'חזרה' : 'חזרה לאזור האישי'}</button>
       </div>
     `);
-    document.getElementById('registerBack').onclick = () => {
-      state.isFirstTime ? screenPhone() : screenPersonalArea();
-    };
+    document.getElementById('registerBack').onclick = () => goBack();
     return;
   }
   render(`
@@ -289,15 +291,15 @@ function renderRegisterScreen(errorMsg) {
       ${state.isFirstTime ? `
         <label for="nameInput">שם מלא</label>
         <input type="text" id="nameInput" placeholder="שם פרטי ומשפחה">
-      ` : `
-        <label for="notesInput">הערות (אופציונלי)</label>
-        <textarea id="notesInput" placeholder="למשל: בקשה מיוחדת, עדכון פרטים..."></textarea>
-      `}
+      ` : ''}
       <div class="spacer"></div>
       <label>פריטי הזמנה</label>
       <div id="itemsContainer"></div>
       <button class="secondary" id="addItemBtn" type="button">+ הוספת פריט נוסף</button>
       <div class="total-row"><span>סה"כ לתשלום</span><span id="totalDisplay">${money(computeTotal())}</span></div>
+      <label for="notesInput">הערות (אופציונלי)</label>
+      <textarea id="notesInput" placeholder="למשל: בקשה מיוחדת, עדכון פרטים..."></textarea>
+      <div class="spacer"></div>
       <button class="primary" id="registerSubmit">שליחת ההזמנה</button>
       <div class="spacer"></div>
       <button class="ghost" id="registerBack">${state.isFirstTime ? 'חזרה' : 'ביטול, חזרה לאזור האישי'}</button>
@@ -309,9 +311,7 @@ function renderRegisterScreen(errorMsg) {
     renderItemsContainer();
   };
   document.getElementById('registerSubmit').onclick = onRegisterSubmit;
-  document.getElementById('registerBack').onclick = () => {
-    state.isFirstTime ? screenPhone() : screenPersonalArea();
-  };
+  document.getElementById('registerBack').onclick = () => goBack();
 }
 
 function renderItemsContainer() {
@@ -344,7 +344,7 @@ function renderItemsContainer() {
 
 async function onRegisterSubmit() {
   const customerName = state.isFirstTime ? document.getElementById('nameInput').value.trim() : undefined;
-  const notes = !state.isFirstTime ? document.getElementById('notesInput').value.trim() : undefined;
+  const notes = document.getElementById('notesInput').value.trim() || undefined;
   const btn = document.getElementById('registerSubmit');
   btn.disabled = true; btn.textContent = 'שולח…';
   try {
@@ -354,12 +354,15 @@ async function onRegisterSubmit() {
     });
     state.isFirstTime = false;
     // מיד עם קליטת ההזמנה נפתחת חלונית התשלום (עם אפשרות לדלג ולשלם אח"כ) —
-    // לא מסך "הצלחה" נפרד שדורש עוד לחיצה.
+    // לא מסך "הצלחה" נפרד שדורש עוד לחיצה. מחליפים (לא מוסיפים) את שכבת
+    // ה-history של הטופס — אחרי הזמנה שהוגשה בהצלחה, "חזרה" לא אמור להחזיר לטופס עצמו.
+    replaceScreenState('payment');
     openPaymentAfterRegistration(order);
   } catch (err) {
     btn.disabled = false; btn.textContent = 'שליחת ההזמנה';
     if (err.data?.requiresOtp) {
       await requestOtp();
+      goToScreen('otp');
       screenOtp(err.message);
     } else {
       renderRegisterScreen(err.message);
@@ -387,13 +390,14 @@ function screenPersonalArea() {
     <div class="spacer"></div>
     <button class="ghost" id="btnLogout">יציאה מהאזור האישי</button>
   `);
-  document.getElementById('btnShow').onclick = screenMyOrders;
-  document.getElementById('btnMore').onclick = () => { state.registerItems = []; screenRegister(); };
-  document.getElementById('btnRedeem').onclick = screenRedeem;
-  document.getElementById('btnPay').onclick = () => screenPayment();
+  document.getElementById('btnShow').onclick = () => { goToScreen('myOrders'); screenMyOrders(); };
+  document.getElementById('btnMore').onclick = () => { state.registerItems = []; goToScreen('register'); screenRegister(); };
+  document.getElementById('btnRedeem').onclick = () => { goToScreen('redeem'); screenRedeem(); };
+  document.getElementById('btnPay').onclick = () => { goToScreen('payment'); screenPayment(); };
   document.getElementById('btnLogout').onclick = async () => {
     await api('/session/end', { method: 'POST' }).catch(() => {});
     state.phone = ''; state.normalizedPhone = '';
+    goToScreen('phone');
     screenPhone();
   };
 }
@@ -413,7 +417,7 @@ async function screenMyOrders() {
           <span class="pill ${o.paymentStatus}">${STATUS_LABEL[o.paymentStatus]}</span>
         </div>
         ${o.items.map((it) => `
-          <div class="item-row">
+          <div class="item-row" style="border-inline-start:4px solid ${it.slotColor || 'var(--accent)'};padding-inline-start:10px">
             <span>${it.dayLabel}${it.hoursLabel ? ' ' + it.hoursLabel : ''} · ${it.quantity} ${GENDER_LABEL[it.gender]}</span>
             <span class="meta">${redemptionStatusText(it.quantity, it.quantityRedeemed)}</span>
           </div>
@@ -423,7 +427,7 @@ async function screenMyOrders() {
       </div>
     `).join('') || `<div class="card"><p class="hint">אין הזמנות עדיין.</p></div>`}
   `);
-  document.getElementById('back').onclick = screenPersonalArea;
+  document.getElementById('back').onclick = () => goBack();
 }
 
 // ---- מימוש הזמנה: מקובץ לפי זמן חלוקה, כפתור אחד לכל הזמן ----
@@ -485,7 +489,7 @@ async function screenRedeem() {
       `).join('')}
     ` : ''}
   `);
-  document.getElementById('back').onclick = screenPersonalArea;
+  document.getElementById('back').onclick = () => goBack();
 
   document.querySelectorAll('[data-gstep]').forEach((b) => {
     b.onclick = () => {
@@ -525,6 +529,7 @@ function openSlotRedeemConfirm(group, chosenQty) {
       <div class="modal">
         <h2>אישור סופי</h2>
         <p class="hint">האם אתה בטוח? אני מאשר שסיימתי ואני לוקח כעת <b>${parts.join(' + ')}</b> מתוך "${group.slotName}".<br>פעולה זו סופית ולא ניתנת לביטול.</p>
+        <p class="must-show-notice">יש להציג את האישור למחלק העופות</p>
         <button class="danger" id="confirmYes" style="width:100%">כן, אני מאשר סופית</button>
         <div class="spacer"></div>
         <button class="secondary" id="confirmNo" style="width:100%">ביטול</button>
@@ -560,6 +565,7 @@ function showBigTicket(result) {
         ${result.femaleQuantity > 0 ? `<div class="gender-square female"><div class="num">${result.femaleQuantity}</div><div class="lbl">נקבות</div></div>` : ''}
       </div>
       <div class="code">${result.confirmationCode}</div>
+      <div class="must-show-notice on-color">יש להציג את האישור למחלק העופות<br>לא ניתן לחזור לדף זה שנית</div>
       <button class="secondary" id="ticketDoneBtn">חזרה</button>
     </div>
   `);
@@ -590,7 +596,7 @@ function hidePaymentScreen() {
   document.getElementById('app').style.display = '';
 }
 
-document.getElementById('paymentBack').onclick = () => { hidePaymentScreen(); screenPersonalArea(); };
+document.getElementById('paymentBack').onclick = () => { goBack(); };
 document.getElementById('paymentContinueBtn').onclick = onPaymentContinue;
 document.getElementById('paymentSkipLink').onclick = onPaymentSkip;
 
@@ -660,7 +666,7 @@ function onPaymentSkip() {
   document.getElementById('paymentSkipNotice').textContent = state.publicSettings?.deferredPaymentNotice || '';
   document.getElementById('paymentSkipNotice').style.display = '';
   document.getElementById('paymentSkipContinueBtn').style.display = '';
-  document.getElementById('paymentSkipContinueBtn').onclick = () => { hidePaymentScreen(); screenPersonalArea(); };
+  document.getElementById('paymentSkipContinueBtn').onclick = () => { goBack(); };
 }
 
 function onNedarimTransactionResponse(value) {
@@ -670,7 +676,7 @@ function onNedarimTransactionResponse(value) {
     successEl.textContent = 'התשלום התקבל בהצלחה! מרעננים את הסטטוס…';
     successEl.style.display = '';
     // אישור סופי מגיע מה-Webhook לשרת, לא מכאן — רק מרעננים תצוגה אחרי רגע.
-    setTimeout(() => { hidePaymentScreen(); screenPersonalArea(); }, 1800);
+    setTimeout(() => { goBack(); }, 1800);
   } else {
     document.getElementById('paymentContinueBtn').style.display = '';
     document.getElementById('paymentContinueBtn').disabled = false;
@@ -698,10 +704,40 @@ function maybeShowWelcomeNotice() {
   backdrop.querySelector('#welcomeCloseBtn').onclick = () => backdrop.remove();
 }
 
+// ============== ניווט: History API — כדי שכפתור "חזרה" בנייד/בדפדפן יעבור
+// בין המסכים באפליקציה במקום לצאת מהאתר (אין כאן URL-ים אמיתיים, רק state
+// פנימי שנשמר בהיסטוריית הדפדפן) ==============
+const SCREEN_RENDERERS = {
+  phone: () => screenPhone(),
+  otp: () => screenOtp(),
+  personalArea: () => screenPersonalArea(),
+  register: () => screenRegister(),
+  myOrders: () => screenMyOrders(),
+  redeem: () => screenRedeem(),
+  payment: () => screenPersonalArea(), // 'payment' תמיד מוחלף/עוקף — אין אמור לחזור אליו כיעד
+};
+function goToScreen(screenId) {
+  history.pushState({ screenId }, '', location.href);
+}
+function replaceScreenState(screenId) {
+  history.replaceState({ screenId }, '', location.href);
+}
+function goBack() {
+  history.back();
+}
+window.addEventListener('popstate', (event) => {
+  // ניקוי כל חלונית פתוחה (הסבר/אישור מימוש) — מונע חלונית "תקועה" מעל מסך חדש
+  document.querySelectorAll('.modal-backdrop').forEach((b) => b.remove());
+  hidePaymentScreen();
+  const screenId = event.state?.screenId || 'phone';
+  (SCREEN_RENDERERS[screenId] || SCREEN_RENDERERS.phone)();
+});
+
 async function init() {
   state.publicSettings = await api('/public-settings');
   document.getElementById('pageTitle').textContent = '🐔 ' + (state.publicSettings.orderTitle || 'הרשמה לכפרות');
   document.getElementById('pageSubtitle').textContent = state.publicSettings.orderSubtitle || '';
+  replaceScreenState('phone');
   screenPhone();
   maybeShowWelcomeNotice();
 }

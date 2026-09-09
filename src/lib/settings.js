@@ -1,11 +1,10 @@
 // מקביל ל-settings.js של מערכת הספרים — קורא/כותב לטבלת settings (key/value).
 
 import { query } from '../db/pool.js';
-import { getOpenSlotsForRegistration } from './slots.js';
+import { getOpenSlotsForRegistration, getOpenSlotsForPickup } from './slots.js';
+import { logAction } from './actionLog.js';
 
 const DEFAULTS = {
-  registrationOpen: true,
-  distributionOpen: false,
   orderTitle: 'הרשמה לכפרות',
   orderSubtitle: 'מוסדות חסדי מנחם נוף הגליל',
   deferredPaymentNotice: 'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל בשעת ההזמנה.',
@@ -23,8 +22,6 @@ export async function getSettings() {
   rows.forEach((r) => { map[r.key] = r.value; });
 
   return {
-    registrationOpen: map.registration_open === 'true',
-    distributionOpen: map.distribution_open === 'true',
     orderTitle: (map.order_title || '').trim() || DEFAULTS.orderTitle,
     orderSubtitle: (map.order_subtitle || '').trim() || DEFAULTS.orderSubtitle,
     adminPasswordHash: map.admin_password_hash || null,
@@ -40,17 +37,18 @@ export async function getSettings() {
 }
 
 /**
- * "פתוח בפועל" = המנהל אישר (registrationOpen) *וגם* יש לפחות זמן חלוקה
- * אחד שפתוח כרגע להרשמה. בלי זמן פתוח הטופס לא שמיש בכל מקרה — עדיף
- * להראות ללקוח הודעת "סגור, ייפתח בקרוב" ברורה במקום טופס בלי אף אפשרות בחירה.
+ * אין יותר מתגי-על גלובליים (registration_open / distribution_open) — כל
+ * זה מנוהל לגמרי פר-זמן-חלוקה בטאב "זמני חלוקה". "פתוח בפועל" נגזר ישירות
+ * מזה: יש הרשמה כל עוד יש לפחות זמן חלוקה אחד שפתוח כרגע להרשמה, ויש חלוקה
+ * כל עוד יש לפחות זמן חלוקה אחד שסומן "פתוח לאספקה".
  */
 export async function getPublicSettings() {
   const s = await getSettings();
-  const openSlots = await getOpenSlotsForRegistration();
-  const registrationEffectivelyOpen = s.registrationOpen && openSlots.length > 0;
+  const openRegSlots = await getOpenSlotsForRegistration();
+  const openPickupSlots = await getOpenSlotsForPickup();
   return {
-    registrationOpen: registrationEffectivelyOpen,
-    distributionOpen: s.distributionOpen,
+    registrationOpen: openRegSlots.length > 0,
+    distributionOpen: openPickupSlots.length > 0,
     orderTitle: s.orderTitle,
     orderSubtitle: s.orderSubtitle,
     deferredPaymentNotice: s.deferredPaymentNotice,
@@ -73,4 +71,5 @@ export async function setSettings(map) {
   for (const [key, value] of Object.entries(map)) {
     await setSetting(key, value == null ? null : String(value));
   }
+  await logAction('settings_updated', { changedKeys: Object.keys(map), values: map });
 }

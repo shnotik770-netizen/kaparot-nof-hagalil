@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { logAction } from './actionLog.js';
 
 export async function listAllOrders() {
   const { rows: orderRows } = await pool.query(
@@ -64,12 +65,10 @@ export async function getDashboardStats() {
   };
 }
 
-/** איפוס קשיח — מוחק את כל נתוני ההזמנות/תשלומים/משיכות. משמר settings, admins וזמני חלוקה. */
-export async function hardReset() {
+/** איפוס קשיח — מוחק את כל נתוני ההזמנות/תשלומים/משיכות. משמר settings, admins, זמני חלוקה ויומן הפעולות. */
+export async function hardReset(performedBy) {
   await pool.query('TRUNCATE redemptions, webhook_events, payments, payment_sessions, order_items, orders, otp_codes RESTART IDENTITY');
   await pool.query(`ALTER SEQUENCE order_number_seq RESTART WITH 1001`);
-  await pool.query(
-    `INSERT INTO admin_actions(action_type, details) VALUES ('hard_reset', '{}'::jsonb)`
-  );
+  await logAction('hard_reset', { performedBy: performedBy || null });
   return { success: true };
 }

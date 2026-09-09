@@ -12,6 +12,7 @@ import { getRedemptionStatus, confirmSlotRedemption } from '../lib/redemption.js
 import { recordManualPayment, listPaymentsForOrder, createPaymentSession } from '../lib/payments.js';
 import { listAllOrders, getDashboardStats, hardReset } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
+import { listActions } from '../lib/actionLog.js';
 
 const router = Router();
 
@@ -263,7 +264,13 @@ router.post('/admin/hard-reset', requireAdmin, requirePermission('settings'), wr
   if (req.body?.confirmText !== 'איפוס') {
     return res.status(400).json({ error: 'יש להקליד בדיוק את המילה "איפוס" כדי לאשר.' });
   }
-  res.json(await hardReset());
+  res.json(await hardReset(req.session.adminName || 'admin'));
+}));
+
+// ---- יומן פעולות ----
+
+router.get('/admin/action-log', requireAdmin, requirePermission('settings'), wrap(async (req, res) => {
+  res.json(await listActions({ limit: req.query.limit }));
 }));
 
 export default router;
