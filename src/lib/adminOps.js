@@ -23,6 +23,7 @@ export async function listAllOrders() {
     orderSequence: o.order_sequence,
     phone: o.phone,
     customerName: o.customer_name,
+    normalizedPhone: o.normalized_phone,
     notes: o.notes,
     totalAmount: Number(o.total_amount),
     amountPaid: Number(o.amount_paid),
@@ -49,10 +50,23 @@ export async function listCustomersSummary() {
   const orders = await listAllOrders();
   if (!orders.length) return [];
 
+  // "ייתכן שיש תשלום שלא אושר" — session שנפתח מזמן ולא הושלם לא ע"י אישור
+  // הלקוח (confirmClientReportedPayment) ולא ע"י Webhook (allocateNedarimPayment).
+  const { rows: staleRows } = await pool.query(
+    `SELECT normalized_phone, token, requested_amount, created_at FROM payment_sessions
+      WHERE status = 'pending' AND created_at < now() - interval '10 minutes'
+      ORDER BY created_at DESC`
+  );
+  const staleByPhone = new Map();
+  for (const r of staleRows) {
+    if (!staleByPhone.has(r.normalized_phone)) staleByPhone.set(r.normalized_phone, []);
+    staleByPhone.get(r.normalized_phone).push({ token: r.token, amount: Number(r.requested_amount), createdAt: r.created_at });
+  }
+
   const byPhone = new Map();
   for (const o of orders) {
     if (!byPhone.has(o.phone)) {
-      byPhone.set(o.phone, { phone: o.phone, customerName: o.customerName, orders: [] });
+      byPhone.set(o.phone, { phone: o.phone, normalizedPhone: o.normalizedPhone, customerName: o.customerName, orders: [] });
     }
     const c = byPhone.get(o.phone);
     c.orders.push(o);
@@ -92,6 +106,7 @@ export async function listCustomersSummary() {
       fullyRedeemed: hasAnyItem && fullyRedeemed,
       bySlot: [...bySlot.values()],
       orders: c.orders,
+      pendingUnconfirmedPayments: staleByPhone.get(c.normalizedPhone) || [],
     };
   }).sort((a, b) => (b.orders[0]?.createdAt || '').localeCompare(a.orders[0]?.createdAt || ''));
 }

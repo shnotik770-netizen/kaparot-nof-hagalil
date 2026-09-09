@@ -565,12 +565,16 @@ function customerSummaryRowsHtml(c) {
 }
 
 function customerCardHtml(c) {
+  const pending = c.pendingUnconfirmedPayments || [];
   return `
     <div class="card">
       <div class="order-row-header">
         <b>${esc(c.customerName)} · ${esc(c.phone)}</b>
         <span class="pill ${c.paymentStatus}">${STATUS_LABEL[c.paymentStatus]}</span>
       </div>
+      ${pending.length ? `
+        <div class="notice">⚠️ ייתכן שיש תשלום באשראי שלא אושר במערכת (${pending.map((p) => `${money(p.amount)} מ-${new Date(p.createdAt).toLocaleString('he-IL')}`).join(', ')}) — כדאי לבדוק ידנית מול נדרים פלוס, ולרשום תשלום ידני אם התשלום כן עבר.</div>
+      ` : ''}
       ${customerSummaryRowsHtml(c)}
       <div class="row" style="margin-top:10px">
         <button class="secondary" data-cust-action data-phone="${esc(c.phone)}">תשלום</button>
@@ -967,8 +971,14 @@ async function renderDashboardTab() {
 const ACTION_LABELS = {
   order_created: 'הזמנה נוצרה',
   payment_recorded_manual: 'תשלום ידני נרשם',
-  payment_received_nedarim: 'תשלום התקבל (נדרים פלוס)',
+  payment_received_nedarim: 'תשלום התקבל (נדרים פלוס, Webhook)',
+  payment_client_confirmed: 'תשלום אושר לפי הדפדפן (טרם אומת Webhook)',
   redemption_confirmed: 'מימוש עופות',
+  redemption_manual_override: 'מימוש עודכן ידנית ע"י מנהל',
+  order_item_edited: 'שורת הזמנה עודכנה',
+  order_item_deleted: 'שורת הזמנה נמחקה',
+  order_deleted: 'הזמנה נמחקה',
+  sms_bulk_sent: 'סמס קבוצתי נשלח',
   settings_updated: 'הגדרות עודכנו',
   slot_created: 'זמן חלוקה נוסף',
   slot_updated: 'זמן חלוקה עודכן',
@@ -985,9 +995,23 @@ function actionSummaryHtml(a) {
     case 'order_created':
       return `${esc(d.customerName || '')} · ${esc(d.phone || '')} · הזמנה מס' ${d.orderNumber ?? ''} · ${money(d.totalAmount || 0)}`;
     case 'payment_recorded_manual':
-      return `הזמנה #${d.orderId ?? ''} · ${money(d.amount || 0)} · ${esc(d.method || '')} · ע"י ${esc(d.recordedBy || '')}`;
+      return d.orderId != null
+        ? `הזמנה #${d.orderId} · ${money(d.amount || 0)} · ${esc(d.method || '')} · ע"י ${esc(d.recordedBy || '')}`
+        : `${esc(d.phone || '')} · ${money(d.amount || 0)} · ${esc(d.method || '')} · ע"י ${esc(d.recordedBy || '')}`;
     case 'payment_received_nedarim':
       return `${esc(d.phone || '')} · ${money(d.paidAmount || 0)} · עסקה ${esc(d.transactionId || '')}`;
+    case 'payment_client_confirmed':
+      return `${esc(d.phone || '')} · ${money(d.amount || 0)} · עסקה ${esc(d.transactionId || '')}`;
+    case 'redemption_manual_override':
+      return `שורה #${d.itemId ?? ''} · ${d.oldQuantityRedeemed ?? 0} → ${d.newQuantityRedeemed ?? 0} · ע"י ${esc(d.adminName || '')}`;
+    case 'order_item_edited':
+      return `הזמנה #${d.orderId ?? ''} · כמות ${d.oldQuantity ?? ''} → ${d.newQuantity ?? ''} · ע"י ${esc(d.adminName || '')}`;
+    case 'order_item_deleted':
+      return `הזמנה #${d.orderId ?? ''} · ${esc(d.gender === 'female' ? 'נקבות' : 'זכרים')} × ${d.quantity ?? ''} · ע"י ${esc(d.adminName || '')}`;
+    case 'order_deleted':
+      return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ע"י ${esc(d.adminName || '')}`;
+    case 'sms_bulk_sent':
+      return `${d.recipientCount ?? 0} נמענים · ע"י ${esc(d.sentBy || '')}`;
     case 'redemption_confirmed':
       return `${esc(d.customerName || '')} · ${esc(d.slotName || '')} · ${d.maleQuantity || 0} זכרים + ${d.femaleQuantity || 0} נקבות · קוד ${esc(d.confirmationCode || '')}`;
     case 'settings_updated':

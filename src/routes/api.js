@@ -9,7 +9,10 @@ import { listAdmins, createAdmin, updateAdmin, deleteAdmin } from '../lib/admins
 import { getOpenSlotsForRegistration, getAllSlots, createSlot, updateSlot, suggestDayLabel } from '../lib/slots.js';
 import { countOrdersForPhone, createOrder, listOrdersForPhone } from '../lib/orders.js';
 import { getRedemptionStatus, confirmSlotRedemption } from '../lib/redemption.js';
-import { recordManualPayment, recordManualPaymentForCustomer, listPaymentsForOrder, listAllPayments, createPaymentSession } from '../lib/payments.js';
+import {
+  recordManualPayment, recordManualPaymentForCustomer, listPaymentsForOrder, listAllPayments,
+  createPaymentSession, confirmClientReportedPayment,
+} from '../lib/payments.js';
 import {
   listAllOrders, listCustomersSummary, getDashboardStats, hardReset,
   updateOrderItemQuantity, deleteOrderItem, deleteOrder, setItemRedeemedQuantity,
@@ -154,7 +157,16 @@ router.post('/payment/create-session', requireVerifiedPhone, wrap(async (req, re
     param2: session.token,
     callbackUrl: `${publicBaseUrl()}/webhooks/nedarim-plus`,
   });
-  res.json({ transactionId, key, amount });
+  res.json({ transactionId, key, amount, token: session.token });
+}));
+
+// אישור אופטימי מהדפדפן (Status:'OK' מהאייפרם) — ראו confirmClientReportedPayment
+// ב-payments.js. לא מחכה ל-Webhook; לא סומך על שום סכום מהלקוח, רק על מה
+// שכבר ננעל בשרת ב-payment_sessions.requested_amount.
+router.post('/payment/confirm-client', requireVerifiedPhone, wrap(async (req, res) => {
+  const normalized = normalizePhone(req.body.phone);
+  const result = await confirmClientReportedPayment(req.body?.token, normalized, req.body?.transactionId);
+  res.json(result);
 }));
 
 // מנקה את אימות הטלפון מה-session — קריטי בעמדת הקיוסק המשותפת (וגם כפתור

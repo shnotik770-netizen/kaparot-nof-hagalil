@@ -640,6 +640,8 @@ async function loadPaymentBalance() {
   document.getElementById('paymentContinueBtn').disabled = false;
 }
 
+let currentPaymentSession = null; // { token, transactionId } — לאישור אופטימי מיד כשהאייפרם מדווח הצלחה
+
 async function onPaymentContinue() {
   const btn = document.getElementById('paymentContinueBtn');
   const amount = Number(document.getElementById('paymentAmountInput').value);
@@ -647,6 +649,7 @@ async function onPaymentContinue() {
   document.getElementById('paymentError').style.display = 'none';
   try {
     const session = await api('/payment/create-session', { method: 'POST', body: { phone: state.phone, amount } });
+    currentPaymentSession = { token: session.token, transactionId: session.transactionId };
     document.getElementById('paymentFrameWrap').style.display = '';
     document.getElementById('paymentSkipSection').style.display = 'none';
     btn.style.display = 'none';
@@ -667,13 +670,27 @@ function onPaymentSkip() {
   document.getElementById('paymentSkipContinueBtn').onclick = () => { goBack(); };
 }
 
-function onNedarimTransactionResponse(value) {
+async function onNedarimTransactionResponse(value) {
   document.getElementById('paymentFrameWrap').style.display = 'none';
   const successEl = document.getElementById('paymentSuccess');
   if (value.Status === 'OK') {
     successEl.textContent = 'התשלום התקבל בהצלחה! מרעננים את הסטטוס…';
     successEl.style.display = '';
-    // אישור סופי מגיע מה-Webhook לשרת, לא מכאן — רק מרעננים תצוגה אחרי רגע.
+    // מאשרים מיידית לפי תגובת הדפדפן (לא מחכים ל-Webhook) — ראו
+    // confirmClientReportedPayment ב-payments.js להסבר המלא. אם הקריאה
+    // נכשלת (למשל בעיית רשת), לא מציגים שגיאה מבהילה ללקוח — התשלום
+    // בפועל כן עבר מול נדרים פלוס; זה יתגלה בפאנל הניהול כ"תשלום שלא אושר".
+    if (currentPaymentSession?.token) {
+      try {
+        await api('/payment/confirm-client', {
+          method: 'POST',
+          body: { phone: state.phone, token: currentPaymentSession.token, transactionId: currentPaymentSession.transactionId },
+        });
+      } catch (err) {
+        console.error('אישור תשלום אופטימי נכשל (ה-Webhook עדיין יכול להשלים את זה):', err);
+      }
+      currentPaymentSession = null;
+    }
     setTimeout(() => { goBack(); }, 1800);
   } else {
     document.getElementById('paymentContinueBtn').style.display = '';
