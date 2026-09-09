@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ניהול — כפרות נוף הגליל</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  .wrap{max-width:760px}
+  .tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:16px;padding-bottom:2px}
+  .tabs button{white-space:nowrap;background:var(--surface);border:1.5px solid var(--line);color:var(--ink-dim)}
+  .tabs button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{padding:8px 6px;text-align:right;border-bottom:1px solid var(--line)}
+  th{color:var(--ink-dim);font-size:12px}
+  .row{display:flex;gap:10px;align-items:center}
+  .row > *{flex:1}
+  .toggle-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+  .toggle-row:first-child{border-top:none}
+  fieldset{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 14px}
+  legend{font-size:12.5px;font-weight:700;color:var(--ink-dim);padding:0 6px}
+</style>
+</head>
+<body>
+<div class="topbar"><h1>🐔 ניהול כפרות</h1><span class="badge" id="whoBadge"></span></div>
+<div class="wrap" id="app"><div class="loading">טוען…</div></div>
+
+<script>
+const DAY_LABEL = { thu: 'חמישי', sun: 'ראשון' };
+const SLOT_LABEL = { morning: 'בוקר', night: 'לילה' };
+const GENDER_LABEL = { male: 'זכרים', female: 'נקבות' };
+const STATUS_LABEL = { paid: 'שולם', partial: 'חלקי', unpaid: 'לא שולם' };
+const METHOD_LABEL = { nedarim_plus: 'נדרים פלוס', manual_cash: 'מזומן', manual_card: 'אשראי ידני', manual_admin: 'ידני (מנהל)' };
+
+let currentTab = 'settings';
+
+async function api(path, options = {}) {
+  const res = await fetch('/api' + path, {
+    method: options.method || 'GET',
+    headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+    credentials: 'same-origin',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const err = new Error(data.error || 'שגיאה לא צפויה.'); err.data = data; throw err; }
+  return data;
+}
+function el(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; }
+function render(html) { document.getElementById('app').innerHTML = html; }
+function money(n) { return `₪${Number(n).toLocaleString('he-IL', { maximumFractionDigits: 0 })}`; }
+
+// ============== כניסה ==============
+
+function screenLogin(errorMsg, mode = 'password') {
+  render(`
+    <div class="card">
+      <h2>כניסת מנהל</h2>
+      ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
+      <div class="tabs">
+        <button class="${mode === 'password' ? 'active' : ''}" id="tabPassword">סיסמה קבועה</button>
+        <button class="${mode === 'otp' ? 'active' : ''}" id="tabOtp">קוד חד-פעמי בסמס</button>
+      </div>
+      ${mode === 'password' ? `
+        <label for="pwInput">סיסמה</label>
+        <input type="password" id="pwInput">
+        <div class="spacer"></div>
+        <button class="primary" id="pwSubmit">כניסה</button>
+      ` : `
+        <label for="phoneInput">מספר טלפון מנהל</label>
+        <input type="tel" id="phoneInput" inputmode="numeric">
+        <div class="spacer"></div>
+        <button class="primary" id="otpRequest">שליחת קוד</button>
+        <div id="otpVerifyBlock" style="display:none">
+          <label for="codeInput">קוד</label>
+          <input type="text" id="codeInput" inputmode="numeric" maxlength="6">
+          <div class="spacer"></div>
+          <button class="primary" id="otpVerify">כניסה</button>
+        </div>
+      `}
+    </div>
+  `);
+  document.getElementById('tabPassword').onclick = () => screenLogin(null, 'password');
+  document.getElementById('tabOtp').onclick = () => screenLogin(null, 'otp');
+  if (mode === 'password') {
+    document.getElementById('pwSubmit').onclick = async () => {
+      try {
+        await api('/admin/login-password', { method: 'POST', body: { password: document.getElementById('pwInput').value } });
+        loadShell();
+      } catch (err) { screenLogin(err.message, 'password'); }
+    };
+  } else {
+    document.getElementById('otpRequest').onclick = async () => {
+      const phone = document.getElementById('phoneInput').value.trim();
+      try {
+        await api('/admin/otp/request', { method: 'POST', body: { phone } });
+        document.getElementById('otpVerifyBlock').style.display = 'block';
+      } catch (err) { screenLogin(err.message, 'otp'); }
+    };
+    document.getElementById('otpVerify').onclick = async () => {
+      const phone = document.getElementById('phoneInput').value.trim();
+      const code = document.getElementById('codeInput').value.trim();
+      try {
+        await api('/admin/otp/verify', { method: 'POST', body: { phone, code } });
+        loadShell();
+      } catch (err) { screenLogin(err.message, 'otp'); }
+    };
+  }
+}
+
+// ============== מעטפת + טאבים ==============
+
+async function loadShell() {
+  document.getElementById('whoBadge').innerHTML = `<button class="ghost" id="logoutBtn" style="color:#fff">יציאה</button>`;
+  render(`
+    <div class="tabs">
+      <button data-tab="settings">הגדרות</button>
+      <button data-tab="prices">תעריפים</button>
+      <button data-tab="orders">הזמנות ותשלומים</button>
+      <button data-tab="dashboard">דשבורד</button>
+    </div>
+    <div id="tabContent"><div class="loading">טוען…</div></div>
+  `);
+  document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
+  document.getElementById('logoutBtn').onclick = async () => { await api('/admin/logout', { method: 'POST' }); screenLogin(); };
+  showTab(currentTab);
+}
+
+function markActiveTab(tab) {
+  document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+}
+
+async function showTab(tab) {
+  currentTab = tab;
+  markActiveTab(tab);
+  const content = document.getElementById('tabContent');
+  content.innerHTML = '<div class="loading">טוען…</div>';
+  if (tab === 'settings') return renderSettingsTab();
+  if (tab === 'prices') return renderPricesTab();
+  if (tab === 'orders') return renderOrdersTab();
+  if (tab === 'dashboard') return renderDashboardTab();
+}
+
+// ============== הגדרות ==============
+
+async function renderSettingsTab() {
+  const s = await api('/admin/settings');
+  const content = document.getElementById('tabContent');
+  content.innerHTML = `
+    <div class="card">
+      <h2>מצבי מערכת</h2>
+      <div class="toggle-row"><span>רישום פתוח</span><input type="checkbox" id="regOpen" ${s.registrationOpen ? 'checked' : ''}></div>
+      <div class="toggle-row"><span>חלוקה פתוחה</span><input type="checkbox" id="distOpen" ${s.distributionOpen ? 'checked' : ''}></div>
+      <label>יום פעיל למשיכה</label>
+      <select id="activeDay">
+        <option value="">— לא נבחר —</option>
+        <option value="thu" ${s.activeDay === 'thu' ? 'selected' : ''}>חמישי</option>
+        <option value="sun" ${s.activeDay === 'sun' ? 'selected' : ''}>ראשון</option>
+      </select>
+      <label>שעה פעילה למשיכה</label>
+      <select id="activeSlot">
+        <option value="">— לא נבחר —</option>
+        <option value="morning" ${s.activeTimeSlot === 'morning' ? 'selected' : ''}>בוקר</option>
+        <option value="night" ${s.activeTimeSlot === 'night' ? 'selected' : ''}>לילה</option>
+      </select>
+      <div class="spacer"></div>
+      <button class="primary" id="saveStatus">שמירת מצבים</button>
+    </div>
+
+    <div class="card">
+      <h2>טקסטים ניתנים לעריכה</h2>
+      <label>כותרת הטופס</label>
+      <input type="text" id="orderTitle" value="${s.orderTitle}">
+      <label>הודעת "תשלום דחוי" (בסיום הרשמה)</label>
+      <input type="text" id="deferredNotice" value="${s.deferredPaymentNotice}">
+      <label>הודעת חסימה — לא שולם כלל</label>
+      <input type="text" id="unpaidMsg" value="${s.unpaidBlockMessage}">
+      <label>הודעת תשלום חלקי</label>
+      <input type="text" id="partialMsg" value="${s.partialPaymentNotice}">
+      <label>תבנית הודעת SMS לקוד אימות (חייבת להכיל {code})</label>
+      <input type="text" id="otpTemplate" value="${s.smsOtpTemplate}">
+      <div class="spacer"></div>
+      <button class="primary" id="saveTexts">שמירת טקסטים</button>
+    </div>
+
+    <div class="card">
+      <h2>כניסת מנהל</h2>
+      <fieldset>
+        <legend>סיסמה קבועה</legend>
+        <label>סיסמה נוכחית</label>
+        <input type="password" id="curPw">
+        <label>סיסמה חדשה</label>
+        <input type="password" id="newPw">
+        <div class="spacer"></div>
+        <button class="secondary" id="changePw">עדכון סיסמה</button>
+      </fieldset>
+      <fieldset>
+        <legend>קוד חד-פעמי בסמס</legend>
+        <label>מספר טלפון מנהל מורשה</label>
+        <input type="tel" id="adminPhone" value="${s.adminPhone || ''}">
+        <div class="spacer"></div>
+        <button class="secondary" id="saveAdminPhone">שמירה</button>
+      </fieldset>
+    </div>
+
+    <div class="card">
+      <h2>איפוס קשיח</h2>
+      <p class="hint">מוחק את כל ההזמנות, התשלומים והמשיכות. לא ניתן לשחזר. משתמשים בזה בסוף העונה או לניקוי בדיקות.</p>
+      <label>הקלידו "איפוס" לאישור</label>
+      <input type="text" id="resetConfirm">
+      <div class="spacer"></div>
+      <button class="danger" id="hardReset" style="width:100%">איפוס קשיח של כל הנתונים</button>
+    </div>
+    <div id="settingsMsg"></div>
+  `;
+
+  document.getElementById('saveStatus').onclick = async () => {
+    await api('/admin/settings', { method: 'PUT', body: {
+      registration_open: String(document.getElementById('regOpen').checked),
+      distribution_open: String(document.getElementById('distOpen').checked),
+      active_day: document.getElementById('activeDay').value || null,
+      active_time_slot: document.getElementById('activeSlot').value || null,
+    }});
+    flash('נשמר.');
+  };
+  document.getElementById('saveTexts').onclick = async () => {
+    await api('/admin/settings', { method: 'PUT', body: {
+      order_title: document.getElementById('orderTitle').value,
+      deferred_payment_notice: document.getElementById('deferredNotice').value,
+      unpaid_block_message: document.getElementById('unpaidMsg').value,
+      partial_payment_notice: document.getElementById('partialMsg').value,
+      sms_otp_template: document.getElementById('otpTemplate').value,
+    }});
+    flash('נשמר.');
+  };
+  document.getElementById('changePw').onclick = async () => {
+    try {
+      await api('/admin/change-password', { method: 'POST', body: {
+        currentPassword: document.getElementById('curPw').value,
+        newPassword: document.getElementById('newPw').value,
+      }});
+      flash('הסיסמה עודכנה.');
+    } catch (err) { flash(err.message, true); }
+  };
+  document.getElementById('saveAdminPhone').onclick = async () => {
+    await api('/admin/admin-phone', { method: 'PUT', body: { phone: document.getElementById('adminPhone').value } });
+    flash('טלפון המנהל נשמר.');
+  };
+  document.getElementById('hardReset').onclick = async () => {
+    const confirmText = document.getElementById('resetConfirm').value;
+    try {
+      await api('/admin/hard-reset', { method: 'POST', body: { confirmText } });
+      flash('המערכת אופסה.');
+    } catch (err) { flash(err.message, true); }
+  };
+}
+
+function flash(msg, isError) {
+  document.getElementById('settingsMsg').innerHTML = `<div class="${isError ? 'error' : 'success'}">${msg}</div>`;
+}
+
+// ============== תעריפים ==============
+
+async function renderPricesTab() {
+  const rules = await api('/admin/price-rules');
+  const days = ['thu', 'sun'], slots = ['morning', 'night'], genders = ['male', 'female'];
+  const find = (d, s, g) => rules.find((r) => r.day === d && r.timeSlot === s && r.gender === g);
+
+  let rowsHtml = '';
+  for (const d of days) for (const s of slots) for (const g of genders) {
+    const r = find(d, s, g);
+    rowsHtml += `
+      <tr>
+        <td>${DAY_LABEL[d]}</td><td>${SLOT_LABEL[s]}</td><td>${GENDER_LABEL[g]}</td>
+        <td><input type="number" min="0" step="1" style="width:90px" data-day="${d}" data-slot="${s}" data-gender="${g}" value="${r ? r.price : ''}"></td>
+      </tr>
+    `;
+  }
+
+  document.getElementById('tabContent').innerHTML = `
+    <div class="card">
+      <h2>תעריפים לפי יום · שעה · סוג</h2>
+      <p class="hint">שינוי כאן משפיע רק על הזמנות חדשות מרגע השמירה — הזמנות קיימות שומרות את המחיר שנקבע להן.</p>
+      <table><thead><tr><th>יום</th><th>שעה</th><th>סוג</th><th>מחיר (₪)</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+      <div class="spacer"></div>
+      <button class="primary" id="savePrices">שמירת תעריפים</button>
+      <div id="pricesMsg"></div>
+    </div>
+  `;
+  document.getElementById('savePrices').onclick = async () => {
+    const inputs = document.querySelectorAll('#tabContent input[data-day]');
+    const list = [];
+    inputs.forEach((inp) => {
+      if (inp.value === '') return;
+      list.push({ day: inp.dataset.day, timeSlot: inp.dataset.slot, gender: inp.dataset.gender, price: Number(inp.value), active: true });
+    });
+    await api('/admin/price-rules', { method: 'PUT', body: { rules: list } });
+    document.getElementById('pricesMsg').innerHTML = `<div class="success">התעריפים נשמרו.</div>`;
+  };
+}
+
+// ============== הזמנות ותשלומים ==============
+
+async function renderOrdersTab() {
+  const orders = await api('/admin/orders');
+  document.getElementById('tabContent').innerHTML = `
+    <div class="card">
+      <h2>כל ההזמנות (${orders.length})</h2>
+      <p class="hint">${orders.length} הזמנות · ${orders.filter((o) => o.paymentStatus === 'paid').length} שולמו במלואן</p>
+    </div>
+    ${orders.map((o) => `
+      <div class="card">
+        <div class="order-row-header">
+          <b>${o.customerName} · ${o.phone}</b>
+          <span class="pill ${o.paymentStatus}">${STATUS_LABEL[o.paymentStatus]}</span>
+        </div>
+        <p class="hint">הזמנה מספר ${o.orderSequence} (מס' ${o.orderNumber}) · ${new Date(o.createdAt).toLocaleString('he-IL')}</p>
+        ${o.items.map((it) => `
+          <div class="item-row">
+            <span>${DAY_LABEL[it.day]} · ${SLOT_LABEL[it.timeSlot]} · ${GENDER_LABEL[it.gender]} × ${it.quantity}</span>
+            <span class="meta">${it.quantityRedeemed}/${it.quantity} נמשך · ${money(it.lineTotal)}</span>
+          </div>
+        `).join('')}
+        <div class="total-row"><span>סה"כ ${money(o.totalAmount)}</span><span class="meta" style="font-weight:400">שולם ${money(o.amountPaid)} · יתרה ${money(o.balanceDue)}</span></div>
+        <details>
+          <summary style="cursor:pointer;font-size:13px;color:var(--accent-ink);font-weight:700">רישום תשלום ידני</summary>
+          <div class="row" style="margin-top:10px">
+            <input type="number" min="0" placeholder="סכום" id="amt-${o.id}">
+            <select id="method-${o.id}">
+              <option value="manual_cash">מזומן</option>
+              <option value="manual_card">אשראי ידני</option>
+              <option value="manual_admin">אחר</option>
+            </select>
+            <button class="secondary" data-pay="${o.id}">רישום</button>
+          </div>
+        </details>
+      </div>
+    `).join('')}
+  `;
+  document.querySelectorAll('[data-pay]').forEach((b) => {
+    b.onclick = async () => {
+      const id = b.dataset.pay;
+      const amount = Number(document.getElementById(`amt-${id}`).value);
+      const method = document.getElementById(`method-${id}`).value;
+      try {
+        await api(`/admin/orders/${id}/payments`, { method: 'POST', body: { amount, method } });
+        renderOrdersTab();
+      } catch (err) { alert(err.message); }
+    };
+  });
+}
+
+// ============== דשבורד ==============
+
+async function renderDashboardTab() {
+  const stats = await api('/admin/dashboard');
+  document.getElementById('tabContent').innerHTML = `
+    <div class="card">
+      <h2>סה"כ שולם בפועל</h2>
+      <div class="total-row"><span>סכום</span><span>${money(stats.totalPaid)}</span></div>
+    </div>
+    <div class="card">
+      <h2>מוזמן מול נמשך</h2>
+      <table>
+        <thead><tr><th>יום</th><th>שעה</th><th>סוג</th><th>הוזמן</th><th>נמשך</th></tr></thead>
+        <tbody>
+          ${stats.bySlot.map((r) => `
+            <tr><td>${DAY_LABEL[r.day]}</td><td>${SLOT_LABEL[r.timeSlot]}</td><td>${GENDER_LABEL[r.gender]}</td><td>${r.ordered}</td><td>${r.redeemed}</td></tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ============== אתחול ==============
+
+async function init() {
+  const session = await api('/admin/session');
+  if (session.isAdmin) loadShell();
+  else screenLogin();
+}
+init().catch((err) => render(`<div class="error">שגיאה בטעינת המערכת: ${err.message}</div>`));
+</script>
+</body>
+</html>

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>עמדת חלוקה — כפרות נוף הגליל</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+  body{background:var(--surface-2)}
+  .topbar{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .topbar h1{color:#fff}
+  .topbar .badge{color:#cfd2e6}
+</style>
+</head>
+<body>
+<div class="topbar"><h1>🎟️ עמדת חלוקה</h1><span class="badge" id="slotBadge"></span></div>
+<div class="wrap" id="app"><div class="loading">טוען…</div></div>
+
+<script>
+const DAY_LABEL = { thu: 'יום חמישי', sun: 'יום ראשון' };
+const SLOT_LABEL = { morning: 'בוקר', night: 'לילה' };
+
+const state = { phone: '', normalizedPhone: '', publicSettings: null, otpCooldownUntil: 0 };
+
+async function api(path, options = {}) {
+  const res = await fetch('/api' + path, {
+    method: options.method || 'GET',
+    headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+    credentials: 'same-origin',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const err = new Error(data.error || 'שגיאה לא צפויה.'); err.data = data; throw err; }
+  return data;
+}
+function el(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; }
+function render(html) { document.getElementById('app').innerHTML = html; }
+
+function screenPhone(errorMsg) {
+  render(`
+    <div class="card">
+      <h2>זיהוי לקוח</h2>
+      <p class="hint">מוסרים ללקוח להזין את מספר הטלפון שלו, ולאחר מכן את קוד האימות שיישלח בסמס.</p>
+      ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
+      ${!state.publicSettings?.distributionOpen ? `<div class="error">החלוקה סגורה כרגע במערכת.</div>` : ''}
+      <label for="phoneInput">מספר טלפון</label>
+      <input type="tel" id="phoneInput" placeholder="05XXXXXXXX" inputmode="numeric">
+      <div class="spacer"></div>
+      <button class="primary" id="phoneSubmit">שליחת קוד אימות</button>
+    </div>
+  `);
+  document.getElementById('phoneSubmit').onclick = onPhoneSubmit;
+}
+
+async function onPhoneSubmit() {
+  const phone = document.getElementById('phoneInput').value.trim();
+  state.phone = phone;
+  try {
+    const check = await api('/check-phone', { method: 'POST', body: { phone } });
+    state.normalizedPhone = check.normalizedPhone;
+    await api('/otp/request', { method: 'POST', body: { phone } });
+    state.otpCooldownUntil = Date.now() + 30000;
+    screenOtp();
+  } catch (err) {
+    screenPhone(err.message);
+  }
+}
+
+function screenOtp(errorMsg) {
+  render(`
+    <div class="card">
+      <h2>קוד אימות</h2>
+      <p class="hint">נשלח קוד ל-${state.normalizedPhone}. מוסרים ללקוח להזין אותו.</p>
+      ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
+      <label for="otpInput">קוד בן 6 ספרות</label>
+      <input type="text" id="otpInput" inputmode="numeric" maxlength="6">
+      <div class="spacer"></div>
+      <button class="primary" id="otpSubmit">אמת</button>
+      <button class="ghost" id="otpBack">חזרה</button>
+    </div>
+  `);
+  document.getElementById('otpSubmit').onclick = onOtpSubmit;
+  document.getElementById('otpBack').onclick = () => screenPhone();
+}
+
+async function onOtpSubmit() {
+  const code = document.getElementById('otpInput').value.trim();
+  try {
+    await api('/otp/verify', { method: 'POST', body: { phone: state.phone, code } });
+    screenRedeem();
+  } catch (err) {
+    screenOtp(err.message);
+  }
+}
+
+async function screenRedeem() {
+  render(`<div class="loading">טוען פריטים למשיכה…</div>`);
+  const status = await api(`/redeem/status?phone=${encodeURIComponent(state.phone)}`);
+  const qty = {};
+  status.available.forEach((it) => { qty[it.orderItemId] = 1; });
+
+  function itemBlock(it) {
+    return `
+      <div class="card">
+        <div class="order-row-header"><b>${it.label}</b><span class="meta">הזמנה מס' ${it.orderNumber}</span></div>
+        <div class="item-row">
+          <div class="stepper">
+            <button data-rstep="-1" data-id="${it.orderItemId}">−</button>
+            <span id="qty-${it.orderItemId}">${qty[it.orderItemId]}</span>
+            <button data-rstep="1" data-id="${it.orderItemId}" data-max="${it.remaining}">+</button>
+          </div>
+          <span class="meta">נותרו ${it.remaining}</span>
+        </div>
+        <button class="primary" data-redeem="${it.orderItemId}">מימוש</button>
+      </div>
+    `;
+  }
+
+  render(`
+    <div class="card"><b>לקוח מזוהה:</b> ${state.normalizedPhone}</div>
+    <h2>פריטים למשיכה</h2>
+    ${status.available.length ? status.available.map(itemBlock).join('') : `<div class="card"><p class="hint">אין פריטים זמינים למשיכה עבור המועד הפתוח כרגע.</p></div>`}
+    ${status.blocked.length ? `
+      <h2>לא ניתן למשוך</h2>
+      ${status.blocked.map((it) => `
+        <div class="card">
+          <div class="order-row-header"><b>${it.label}</b><span class="meta">הזמנה מס' ${it.orderNumber}</span></div>
+          <div class="notice">${it.message}</div>
+        </div>
+      `).join('')}
+    ` : ''}
+    <button class="secondary" id="endSession">סיום — לקוח הבא</button>
+  `);
+  document.getElementById('endSession').onclick = endSession;
+  document.querySelectorAll('[data-rstep]').forEach((b) => {
+    b.onclick = () => {
+      const id = b.dataset.id;
+      const max = Number(b.dataset.max || 999);
+      const delta = Number(b.dataset.rstep);
+      qty[id] = Math.max(1, Math.min(max || qty[id] + delta, qty[id] + delta));
+      document.getElementById('qty-' + id).textContent = qty[id];
+    };
+  });
+  document.querySelectorAll('[data-redeem]').forEach((b) => {
+    b.onclick = () => {
+      const id = Number(b.dataset.redeem);
+      const item = status.available.find((x) => x.orderItemId === id);
+      openRedeemConfirm(item, qty[id]);
+    };
+  });
+}
+
+function openRedeemConfirm(item, quantity) {
+  const backdrop = el(`
+    <div class="modal-backdrop">
+      <div class="modal">
+        <h2>אישור סופי</h2>
+        <p class="hint">האם אתה בטוח? אני מאשר שסיימתי ואני לוקח כעת <b>${quantity}</b> מתוך "${item.label}".<br>פעולה זו סופית ולא ניתנת לביטול.</p>
+        <button class="danger" id="confirmYes" style="width:100%">כן, אני מאשר סופית</button>
+        <div class="spacer"></div>
+        <button class="secondary" id="confirmNo" style="width:100%">ביטול</button>
+      </div>
+    </div>
+  `);
+  document.body.appendChild(backdrop);
+  backdrop.querySelector('#confirmNo').onclick = () => backdrop.remove();
+  backdrop.querySelector('#confirmYes').onclick = async () => {
+    const btn = backdrop.querySelector('#confirmYes');
+    btn.disabled = true; btn.textContent = 'מבצע…';
+    try {
+      const result = await api('/redeem/confirm', {
+        method: 'POST',
+        body: { phone: state.phone, orderItemId: item.orderItemId, quantity },
+      });
+      backdrop.remove();
+      showTicket(result);
+    } catch (err) {
+      btn.disabled = false; btn.textContent = 'כן, אני מאשר סופית';
+      backdrop.querySelector('.hint').insertAdjacentHTML('afterend', `<div class="error">${err.message}</div>`);
+    }
+  };
+}
+
+function showTicket(result) {
+  render(`
+    <div class="card">
+      <h2>אושר — יש להציג למחלק</h2>
+      <div class="ticket">
+        <div>${result.label}</div>
+        <div>כמות: ${result.quantity}</div>
+        <div class="code">${result.confirmationCode}</div>
+      </div>
+      <button class="primary" id="moreBtn">משיכת פריט נוסף לאותו לקוח</button>
+      <div class="spacer"></div>
+      <button class="secondary" id="endBtn">סיום — לקוח הבא</button>
+    </div>
+  `);
+  document.getElementById('moreBtn').onclick = screenRedeem;
+  document.getElementById('endBtn').onclick = endSession;
+}
+
+async function endSession() {
+  await api('/session/end', { method: 'POST' }).catch(() => {});
+  state.phone = ''; state.normalizedPhone = '';
+  screenPhone();
+}
+
+async function init() {
+  state.publicSettings = await api('/public-settings');
+  const s = state.publicSettings;
+  document.getElementById('slotBadge').textContent = s.activeDay && s.activeTimeSlot
+    ? `פתוח כרגע: ${DAY_LABEL[s.activeDay]} · ${SLOT_LABEL[s.activeTimeSlot]}`
+    : 'לא נבחר מועד פעיל';
+  await endSession(); // מבטיח שהעמדה מתחילה תמיד "נקייה" מבלי לקוח קודם מחובר
+}
+
+init().catch((err) => render(`<div class="error">שגיאה בטעינת המערכת: ${err.message}</div>`));
+</script>
+</body>
+</html>
