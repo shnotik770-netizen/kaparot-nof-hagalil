@@ -6,7 +6,9 @@ import {
   loginWithPassword, requestAdminOtp, verifyAdminOtp, requireAdmin, requirePermission, requireAnyPermission,
 } from '../lib/auth.js';
 import { listAdmins, createAdmin, updateAdmin, deleteAdmin } from '../lib/admins.js';
-import { getOpenSlotsForRegistration, getAllSlots, createSlot, updateSlot, suggestDayLabel } from '../lib/slots.js';
+import {
+  getOpenSlotsForRegistration, getAllSlots, createSlot, updateSlot, deleteSlot, suggestDayLabel,
+} from '../lib/slots.js';
 import {
   countOrdersForPhone, createOrder, listOrdersForPhone, getCustomerName, updateCustomerName,
 } from '../lib/orders.js';
@@ -274,6 +276,10 @@ router.put('/admin/slots/:id', requireAdmin, requirePermission('slots'), wrap(as
   res.json(await updateSlot(Number(req.params.id), req.body || {}));
 }));
 
+router.delete('/admin/slots/:id', requireAdmin, requirePermission('slots'), wrap(async (req, res) => {
+  res.json(await deleteSlot(Number(req.params.id)));
+}));
+
 // ---- הזמנות ותשלומים ----
 
 router.get('/admin/orders', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
@@ -336,6 +342,26 @@ router.delete('/admin/orders/:orderId/items/:itemId', requireAdmin, requirePermi
 
 router.put('/admin/order-items/:id/redeemed', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   res.json(await setItemRedeemedQuantity(Number(req.params.id), req.body?.quantityRedeemed, req.session.adminName || 'admin'));
+}));
+
+// "מצב מימוש" — כלי חיפוש+מימוש מהיר למנהל (לא לתשלומים), ראו admin.html.
+// זהה לזרימת הלקוח/קיוסק (redeem/status + redeem/confirm-slot), אבל מאומת
+// כמנהל (לא OTP), ומאפשר allowUnpaid (עם אזהרה בצד הלקוח) כי מנהל רשאי
+// לעקוף את חסימת "לא שולם" בעוד שלקוח בעצמו לא.
+router.get('/admin/redeem/status', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  const normalized = normalizePhone(req.query.phone);
+  res.json(await getRedemptionStatus(normalized));
+}));
+
+router.post('/admin/redeem/confirm-slot', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  const normalized = normalizePhone(req.body.phone);
+  const result = await confirmSlotRedemption(
+    normalized, Number(req.body.slotId),
+    { maleQuantity: req.body.maleQuantity, femaleQuantity: req.body.femaleQuantity },
+    req.session.adminName || 'admin',
+    { allowUnpaid: !!req.body.allowUnpaid }
+  );
+  res.json(result);
 }));
 
 // שליחת אותה הודעת סמס לרשימת טלפונים (למשל כל מי שסונן בטבלה) בבת אחת.

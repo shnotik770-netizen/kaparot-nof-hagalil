@@ -44,6 +44,10 @@
   .compact-table tr:last-child td{border-bottom:none}
   .pending-payment-line{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px}
   .pending-payment-line .ghost{color:inherit;text-decoration:underline;font-size:12px;padding:2px 4px;width:auto}
+  #redeemModeBtn{color:#fff;text-decoration:none;border:1.5px solid rgba(255,255,255,.5);border-radius:20px;padding:5px 12px;font-size:13px;font-weight:700}
+  #redeemModeBtn.on{background:var(--sage);border-color:var(--sage)}
+  .redeem-group-card{border-inline-start:5px solid var(--accent)}
+  .redeem-group-card .warn-pill{background:var(--wine-soft);color:var(--wine);font-size:11.5px;font-weight:800;padding:3px 9px;border-radius:999px}
 </style>
 </head>
 <body>
@@ -155,7 +159,10 @@ function screenLogin(errorMsg, mode = 'password') {
 
 function loadShell(session) {
   myPermissions = session.permissions || {};
-  document.getElementById('whoBadge').innerHTML = `${esc(session.name || '')} · <button class="ghost" id="logoutBtn" style="color:#fff">יציאה</button>`;
+  document.getElementById('whoBadge').innerHTML = `
+    ${myPermissions.orders ? '<button class="ghost" id="redeemModeBtn">🎟️ מצב מימוש</button>' : ''}
+    ${esc(session.name || '')} · <button class="ghost" id="logoutBtn" style="color:#fff">יציאה</button>
+  `;
   const availableTabs = Object.keys(TAB_TITLES).filter((t) => myPermissions[TAB_PERMISSION[t] || t]);
   if (!availableTabs.length) {
     render(`<div class="card"><div class="error">לחשבון זה אין הרשאה לאף מסך ניהול. פנה למנהל אחר להוספת הרשאות.</div></div>`);
@@ -167,9 +174,160 @@ function loadShell(session) {
     </div>
     <div id="tabContent"><div class="loading">טוען…</div></div>
   `);
-  document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
+  document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { redeemModeOn = false; document.getElementById('redeemModeBtn')?.classList.remove('on'); showTab(b.dataset.tab); }; });
   document.getElementById('logoutBtn').onclick = async () => { await api('/admin/logout', { method: 'POST' }); screenLogin(); };
+  if (document.getElementById('redeemModeBtn')) document.getElementById('redeemModeBtn').onclick = toggleRedeemMode;
   showTab(currentTab && availableTabs.includes(currentTab) ? currentTab : availableTabs[0]);
+}
+
+// ============== מצב מימוש — חיפוש+מימוש מהיר, נגיש מכל טאב, לא לתשלומים ==============
+
+let redeemModeOn = false;
+
+function toggleRedeemMode() {
+  redeemModeOn = !redeemModeOn;
+  document.getElementById('redeemModeBtn').classList.toggle('on', redeemModeOn);
+  const tabsEl = document.querySelector('.tabs');
+  if (redeemModeOn) {
+    if (tabsEl) tabsEl.style.display = 'none';
+    renderRedeemModeScreen();
+  } else {
+    if (tabsEl) tabsEl.style.display = '';
+    showTab(currentTab);
+  }
+}
+
+function renderRedeemModeScreen() {
+  const content = document.getElementById('tabContent');
+  content.innerHTML = `
+    <div class="card" style="background:var(--sage-soft);border-color:var(--sage)">
+      <h2 style="margin:0 0 6px">🎟️ מצב מימוש מהיר</h2>
+      <p class="hint" style="margin:0">חיפוש לפי טלפון ומימוש עופות בלבד — לא לתשלומים. לחזרה לניהול הרגיל: לחצו שוב על "מצב מימוש" למעלה.</p>
+    </div>
+    <label for="redeemSearchPhone">מספר טלפון</label>
+    <input type="tel" id="redeemSearchPhone" inputmode="numeric" placeholder="05XXXXXXXX">
+    <div id="redeemModeResult"></div>
+  `;
+  const input = document.getElementById('redeemSearchPhone');
+  input.focus();
+  let debounceTimer;
+  const trigger = () => { clearTimeout(debounceTimer); loadRedeemModeCustomer(input.value.trim()); };
+  input.oninput = () => { clearTimeout(debounceTimer); debounceTimer = setTimeout(trigger, 450); };
+  input.onkeydown = (e) => { if (e.key === 'Enter') trigger(); };
+}
+
+async function loadRedeemModeCustomer(phone) {
+  const box = document.getElementById('redeemModeResult');
+  if (!box) return;
+  if (phone.replace(/\D/g, '').length < 9) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="loading">טוען…</div>`;
+  let status;
+  try {
+    status = await api(`/admin/redeem/status?phone=${encodeURIComponent(phone)}`);
+  } catch (err) {
+    box.innerHTML = `<div class="error">${err.message}</div>`;
+    return;
+  }
+
+  const groups = new Map();
+  const addToGroup = (it, hasPaymentIssue) => {
+    if (!groups.has(it.slotId)) {
+      groups.set(it.slotId, { slotId: it.slotId, slotName: it.slotName, slotColor: it.slotColor, customerName: it.customerName, male: 0, female: 0, hasPaymentIssue: false });
+    }
+    const g = groups.get(it.slotId);
+    g[it.gender] += it.remaining;
+    if (hasPaymentIssue) g.hasPaymentIssue = true;
+  };
+  status.available.forEach((it) => addToGroup(it, false));
+  status.blocked.filter((it) => it.reason === 'unpaid' || it.reason === 'partial').forEach((it) => addToGroup(it, true));
+
+  if (!groups.size) {
+    box.innerHTML = `<div class="card"><p class="hint">אין פריטים זמינים למימוש עבור מספר הטלפון הזה.</p></div>`;
+    return;
+  }
+
+  const chosen = {};
+  groups.forEach((g) => { chosen[g.slotId] = { male: 0, female: 0 }; });
+
+  function genderLineHtml(g, gender) {
+    if (g[gender] <= 0) return '';
+    const label = gender === 'male' ? 'זכרים' : 'נקבות';
+    return `
+      <div class="gender-line">
+        <span>${label} · נותרו ${g[gender]}</span>
+        <div class="stepper">
+          <button data-rmstep="-1" data-slot="${g.slotId}" data-gender="${gender}">−</button>
+          <span id="rmqty-${g.slotId}-${gender}">0</span>
+          <button data-rmstep="1" data-slot="${g.slotId}" data-gender="${gender}">+</button>
+        </div>
+        <button type="button" class="quick-all" data-rmall data-slot="${g.slotId}" data-gender="${gender}">הכל</button>
+      </div>
+    `;
+  }
+
+  box.innerHTML = `
+    ${[...groups.values()].map((g) => `
+      <div class="card redeem-group-card" style="border-inline-start-color:${esc(g.slotColor)}">
+        <div class="order-row-header">
+          <b>${esc(g.customerName || '')} · ${esc(g.slotName)}</b>
+          ${g.hasPaymentIssue ? '<span class="warn-pill">⚠️ יש חוב</span>' : ''}
+        </div>
+        ${genderLineHtml(g, 'male')}
+        ${genderLineHtml(g, 'female')}
+        <div class="spacer"></div>
+        <div id="rmmsg-${g.slotId}"></div>
+        <button class="primary" data-rmconfirm="${g.slotId}">מימוש</button>
+      </div>
+    `).join('')}
+  `;
+
+  box.querySelectorAll('[data-rmstep]').forEach((b) => {
+    b.onclick = () => {
+      const slotId = b.dataset.slot, gender = b.dataset.gender;
+      const g = groups.get(Number(slotId));
+      const delta = Number(b.dataset.rmstep);
+      const cur = chosen[slotId][gender];
+      chosen[slotId][gender] = Math.max(0, Math.min(g[gender], cur + delta));
+      document.getElementById(`rmqty-${slotId}-${gender}`).textContent = chosen[slotId][gender];
+    };
+  });
+  box.querySelectorAll('[data-rmall]').forEach((b) => {
+    b.onclick = () => {
+      const slotId = b.dataset.slot, gender = b.dataset.gender;
+      const g = groups.get(Number(slotId));
+      chosen[slotId][gender] = g[gender];
+      document.getElementById(`rmqty-${slotId}-${gender}`).textContent = chosen[slotId][gender];
+    };
+  });
+  box.querySelectorAll('[data-rmconfirm]').forEach((b) => {
+    b.onclick = () => {
+      const slotId = Number(b.dataset.rmconfirm);
+      const c = chosen[slotId];
+      if (c.male <= 0 && c.female <= 0) return;
+      attemptQuickRedeem(phone, slotId, c.male, c.female, false, () => loadRedeemModeCustomer(phone));
+    };
+  });
+}
+
+async function attemptQuickRedeem(phone, slotId, maleQuantity, femaleQuantity, allowUnpaid, onDone) {
+  const msgBox = document.getElementById(`rmmsg-${slotId}`);
+  try {
+    const result = await api('/admin/redeem/confirm-slot', {
+      method: 'POST',
+      body: { phone, slotId, maleQuantity, femaleQuantity, allowUnpaid },
+    });
+    if (msgBox) msgBox.innerHTML = `<div class="success">מומש בהצלחה: ${result.maleQuantity} זכרים + ${result.femaleQuantity} נקבות מ"${esc(result.slotName)}".</div>`;
+    onDone();
+  } catch (err) {
+    if (err.data?.paymentBlocked) {
+      if (confirm(`${err.message}\nההזמנה לא שולמה (או שולמה חלקית). האם אתה בטוח שברצונך לממש בכל זאת?`)) {
+        return attemptQuickRedeem(phone, slotId, maleQuantity, femaleQuantity, true, onDone);
+      }
+      return;
+    }
+    if (msgBox) msgBox.innerHTML = `<div class="error">${err.message}</div>`;
+    else alert(err.message);
+  }
 }
 
 function markActiveTab(tab) {
@@ -444,7 +602,6 @@ function slotFormHtml(prefix, s) {
     <input type="datetime-local" id="${prefix}CloseAt" value="${toLocalDatetimeInputValue(s.registrationCloseAt)}">
     <div class="toggle-row"><span>פתוח ידנית להרשמה גם אחרי זמן הסגירה</span><input type="checkbox" id="${prefix}Override" ${s.manualOpenOverride ? 'checked' : ''}></div>
     <div class="toggle-row"><span>פתוח כעת לאספקה (משיכת עופות)</span><input type="checkbox" id="${prefix}Pickup" ${s.openForPickup ? 'checked' : ''}></div>
-    <div class="toggle-row"><span>זמן פעיל (מוצג בכלל במערכת)</span><input type="checkbox" id="${prefix}Active" ${s.active !== false ? 'checked' : ''}></div>
   `;
 }
 
@@ -460,7 +617,6 @@ function readSlotForm(prefix) {
     registrationCloseAt: fromLocalDatetimeInputValue(document.getElementById(`${prefix}CloseAt`).value),
     manualOpenOverride: document.getElementById(`${prefix}Override`).checked,
     openForPickup: document.getElementById(`${prefix}Pickup`).checked,
-    active: document.getElementById(`${prefix}Active`).checked,
   };
 }
 
@@ -501,6 +657,8 @@ async function renderSlotsTab() {
           ${slotFormHtml('s' + s.id, s)}
           <div class="spacer"></div>
           <button class="primary big-action" data-save-slot="${s.id}" style="width:100%">שמירת שינויים</button>
+          <div class="spacer"></div>
+          <button class="ghost" data-delete-slot="${s.id}" style="color:var(--wine);width:100%">מחיקת זמן חלוקה (רק אם אין לו הזמנות)</button>
           <div id="slotMsg${s.id}"></div>
         </div>
       </div>
@@ -544,6 +702,15 @@ async function renderSlotsTab() {
       try {
         await api(`/admin/slots/${s.id}`, { method: 'PUT', body: readSlotForm(prefix) });
         document.getElementById(`slotMsg${s.id}`).innerHTML = `<div class="success">נשמר.</div>`;
+        renderSlotsTab();
+      } catch (err) {
+        document.getElementById(`slotMsg${s.id}`).innerHTML = `<div class="error">${err.message}</div>`;
+      }
+    };
+    document.querySelector(`[data-delete-slot="${s.id}"]`).onclick = async () => {
+      if (!confirm(`למחוק לגמרי את זמן החלוקה "${s.name}"? פעולה זו סופית.`)) return;
+      try {
+        await api(`/admin/slots/${s.id}`, { method: 'DELETE' });
         renderSlotsTab();
       } catch (err) {
         document.getElementById(`slotMsg${s.id}`).innerHTML = `<div class="error">${err.message}</div>`;
@@ -685,6 +852,9 @@ async function wireCustomerPanel(c, refetch) {
     b.onclick = async () => {
       const itemId = b.dataset.saveRed;
       const quantityRedeemed = Number(document.getElementById(`red-${itemId}`).value);
+      if (c.balanceDue > 0 && !confirm(`ללקוח הזה יש חוב פתוח של ${money(c.balanceDue)} — ההזמנה לא שולמה במלואה. האם אתה בטוח שברצונך לממש בכל זאת?`)) {
+        return;
+      }
       try {
         await api(`/admin/order-items/${itemId}/redeemed`, { method: 'PUT', body: { quantityRedeemed } });
         renderOrdersTab();
@@ -1008,6 +1178,7 @@ const ACTION_LABELS = {
   settings_updated: 'הגדרות עודכנו',
   slot_created: 'זמן חלוקה נוסף',
   slot_updated: 'זמן חלוקה עודכן',
+  slot_deleted: 'זמן חלוקה נמחק',
   admin_created: 'מנהל נוסף',
   admin_updated: 'מנהל עודכן',
   admin_deleted: 'מנהל נמחק',
@@ -1046,7 +1217,9 @@ function actionSummaryHtml(a) {
       return `שדות: ${esc((d.changedKeys || []).join(', '))}`;
     case 'slot_created':
     case 'slot_updated':
-      return `${esc(d.name || '')}${d.active === false ? ' (לא פעיל)' : ''}`;
+      return esc(d.name || '');
+    case 'slot_deleted':
+      return `${esc(d.name || '')} (נמחק לגמרי)`;
     case 'admin_created':
     case 'admin_updated':
       return `${esc(d.name || '')} · ${esc(d.phone || '')}`;

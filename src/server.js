@@ -47,7 +47,9 @@ app.get('*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'in
 app.use((err, req, res, next) => {
   console.error(err);
   const status = err.status || 400;
-  res.status(status).json({ error: err.message || 'שגיאה לא צפויה.' });
+  const body = { error: err.message || 'שגיאה לא צפויה.' };
+  if (err.paymentBlocked) body.paymentBlocked = true;
+  res.status(status).json(body);
 });
 
 const port = process.env.PORT || 3000;

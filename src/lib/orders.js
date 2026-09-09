@@ -102,7 +102,7 @@ export async function createOrder(payload, { changedBy = 'customer' } = {}) {
     const gender = raw.gender;
     const quantity = Number(raw.quantity);
     const slot = slotsById.get(slotId);
-    if (!slot || !slot.active) {
+    if (!slot) {
       const err = new Error('זמן חלוקה לא תקין.');
       err.status = 400;
       throw err;

@@ -7,9 +7,11 @@ import { logAction } from './actionLog.js';
 
 function rowToSlot(row) {
   const registrationCloseAt = row.registration_close_at;
+  // "פתוח להרשמה" נגזר רק מזמן הסגירה + הדריסה הידנית — אין יותר מתג-על
+  // נפרד ("זמן פעיל"); מי שרוצה להסתיר זמן חלוקה שאין לו הזמנות, מוחק אותו.
   const isOpenForRegistration =
-    row.active && (row.manual_open_override || !registrationCloseAt || new Date(registrationCloseAt) > new Date());
-  const isOpenForPickup = row.active && row.open_for_pickup;
+    row.manual_open_override || !registrationCloseAt || new Date(registrationCloseAt) > new Date();
+  const isOpenForPickup = row.open_for_pickup;
 
   return {
     id: row.id,
@@ -24,7 +26,6 @@ function rowToSlot(row) {
     registrationCloseAt: row.registration_close_at,
     manualOpenOverride: row.manual_open_override,
     openForPickup: row.open_for_pickup,
-    active: row.active,
     isOpenForRegistration,
     isOpenForPickup,
   };
@@ -94,7 +95,7 @@ export async function updateSlot(id, data) {
   }
   const slot = rowToSlot(rows[0]);
   await logAction('slot_updated', {
-    slotId: slot.id, name: slot.name, active: slot.active,
+    slotId: slot.id, name: slot.name,
     openForPickup: slot.openForPickup, manualOpenOverride: slot.manualOpenOverride,
   });
   return slot;
@@ -103,4 +104,22 @@ export async function updateSlot(id, data) {
 /** מחיר לפי מגדר, מתוך זמן ספציפי — לחישוב הזמנה. */
 export function priceForGender(slot, gender) {
   return gender === 'female' ? slot.priceFemale : slot.priceMale;
+}
+
+/** מוחק זמן חלוקה לגמרי — רק אם אין לו אף שורת הזמנה משויכת (למשל זמן שנוצר לניסוי). */
+export async function deleteSlot(id) {
+  const { rows: usage } = await query(`SELECT COUNT(*)::int AS n FROM order_items WHERE slot_id = $1`, [id]);
+  if (usage[0].n > 0) {
+    const err = new Error('לא ניתן למחוק — יש כבר הזמנות המשויכות לזמן חלוקה זה. אפשר להשבית אותו במקום (בטל את "זמן פעיל").');
+    err.status = 400;
+    throw err;
+  }
+  const { rows } = await query(`DELETE FROM distribution_slots WHERE id = $1 RETURNING id, name`, [id]);
+  if (!rows.length) {
+    const err = new Error('זמן החלוקה לא נמצא.');
+    err.status = 404;
+    throw err;
+  }
+  await logAction('slot_deleted', { slotId: rows[0].id, name: rows[0].name });
+  return { success: true };
 }

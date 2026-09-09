@@ -35,7 +35,7 @@ export async function getRedemptionStatus(normalizedPhone) {
   const settings = await getSettings();
   const { rows } = await pool.query(
     `SELECT oi.*, o.order_number, o.order_sequence, o.customer_name, b.payment_status,
-            s.name AS slot_name, s.color AS slot_color, s.active AS slot_active, s.open_for_pickup
+            s.name AS slot_name, s.color AS slot_color, s.open_for_pickup
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        JOIN order_balances b ON b.order_id = o.id
@@ -66,7 +66,7 @@ export async function getRedemptionStatus(normalizedPhone) {
       paymentStatus: r.payment_status,
     };
 
-    if (!r.slot_active || !r.open_for_pickup) {
+    if (!r.open_for_pickup) {
       blocked.push({ ...base, reason: 'wrong_slot', message: 'לא ניתן למשוך כרגע — הזמן הזה עדיין לא נפתח לחלוקה.' });
       continue;
     }
@@ -90,9 +90,9 @@ export async function getRedemptionStatus(normalizedPhone) {
  * ואותו זמן חלוקה, מהישנה לחדשה, עד שהכמות המבוקשת מתמלאת. פעולה אחת,
  * קוד אישור אחד, למסך "הצגה למחלק העופות".
  */
-export async function confirmSlotRedemption(normalizedPhone, slotId, { maleQuantity, femaleQuantity }, redeemedBy) {
-  // אין יותר מתג-על גלובלי — הבדיקה שהזמן הזה פתוח לאספקה היא פר-זמן-חלוקה
-  // בלבד (slot.active && slot.open_for_pickup), נבדקת מיד אחרי טעינת השורה למטה.
+export async function confirmSlotRedemption(normalizedPhone, slotId, { maleQuantity, femaleQuantity }, redeemedBy, { allowUnpaid = false } = {}) {
+  // הבדיקה שהזמן הזה פתוח לאספקה נעשית פר-זמן-חלוקה (slot.open_for_pickup),
+  // נבדקת מיד אחרי טעינת השורה למטה.
   const wanted = {
     male: Number(maleQuantity) || 0,
     female: Number(femaleQuantity) || 0,
@@ -111,7 +111,7 @@ export async function confirmSlotRedemption(normalizedPhone, slotId, { maleQuant
       err.status = 404;
       throw err;
     }
-    if (!slot.active || !slot.open_for_pickup) {
+    if (!slot.open_for_pickup) {
       const err = new Error('לא ניתן למשוך כרגע — הזמן הזה עדיין לא נפתח לחלוקה.');
       err.status = 409;
       throw err;
@@ -136,9 +136,10 @@ export async function confirmSlotRedemption(normalizedPhone, slotId, { maleQuant
         [normalizedPhone, slotId, gender]
       );
 
+      let blockedByPayment = false;
       for (const item of items) {
         if (toTake <= 0) break;
-        if (item.payment_status !== 'paid') continue;
+        if (!allowUnpaid && item.payment_status !== 'paid') { blockedByPayment = true; continue; }
         const itemRemaining = item.quantity - item.quantity_redeemed;
         if (itemRemaining <= 0) continue;
         const take = Math.min(itemRemaining, toTake);
@@ -158,6 +159,10 @@ export async function confirmSlotRedemption(normalizedPhone, slotId, { maleQuant
         const genderLabel = gender === 'male' ? 'זכרים' : 'נקבות';
         const err = new Error(`אין מספיק ${genderLabel} זמינים למשיכה בכמות שביקשת.`);
         err.status = 409;
+        if (blockedByPayment) {
+          err.message = `חלק מהכמות המבוקשת (${genderLabel}) שייכת להזמנה שלא שולמה, או שולמה חלקית.`;
+          err.paymentBlocked = true;
+        }
         throw err;
       }
     }
