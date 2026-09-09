@@ -89,7 +89,7 @@ button.danger{background:var(--wine);color:#fff}
 .big-ticket-screen button{ margin-top:32px; max-width:280px; }
 
 .must-show-notice{ font-size:16px; font-weight:900; text-align:center; margin:12px 0; line-height:1.5; }
-.must-show-notice.on-color{ color:#fff; text-shadow:0 2px 8px rgba(0,0,0,.35); }
+.must-show-notice.on-color{ color:#000; background:rgba(255,255,255,.92); padding:12px 16px; border-radius:12px; box-shadow:0 4px 14px rgba(0,0,0,.18); }
 
 .slot-group-card{ border-inline-start:4px solid var(--accent); }
 .gender-line{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; }

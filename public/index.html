@@ -107,7 +107,7 @@ function screenPhone(errorMsg) {
   render(`
     <div class="card">
       <h2>${state.publicSettings?.orderTitle || 'הרשמה לכפרות'}</h2>
-      <p class="hint">הזינו מספר טלפון כדי להירשם, או כדי להיכנס לאזור האישי אם כבר נרשמתם.</p>
+      <p class="hint">הזינו מספר טלפון כדי להיכנס למערכת.</p>
       ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
       ${!state.publicSettings?.registrationOpen ? `<div class="notice">${state.publicSettings?.closedRegistrationMessage || 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.'} ניתן עדיין לצפות בהזמנה קיימת.</div>` : ''}
       <label for="phoneInput">מספר טלפון</label>
@@ -130,9 +130,8 @@ async function onPhoneSubmit() {
     state.normalizedPhone = res.normalizedPhone;
     state.isFirstTime = res.isFirstTime;
     if (res.isFirstTime) {
-      state.registerItems = [];
-      goToScreen('register');
-      screenRegister();
+      goToScreen('personalArea');
+      screenPersonalArea();
     } else if (res.alreadyVerified) {
       goToScreen('personalArea');
       screenPersonalArea();
@@ -381,7 +380,7 @@ function screenPersonalArea() {
     </div>
     <div class="grid4">
       <button class="big-btn" id="btnShow"><span class="ico">📋</span>הצג הזמנה שלי</button>
-      <button class="big-btn" id="btnMore" ${!s.registrationOpen ? 'disabled' : ''}><span class="ico">➕</span>ביצוע הזמנה נוספת</button>
+      <button class="big-btn" id="btnMore" ${!s.registrationOpen ? 'disabled' : ''}><span class="ico">➕</span>${state.isFirstTime ? 'ביצוע הזמנה' : 'ביצוע הזמנה נוספת'}</button>
       <button class="big-btn" id="btnRedeem" ${!s.distributionOpen ? 'disabled' : ''}><span class="ico">🎟️</span>מימוש הזמנה</button>
       <button class="big-btn" id="btnPay"><span class="ico">💳</span>תשלום על הזמנה</button>
     </div>
@@ -564,7 +563,6 @@ function showBigTicket(result) {
         ${result.maleQuantity > 0 ? `<div class="gender-square male"><div class="num">${result.maleQuantity}</div><div class="lbl">זכרים</div></div>` : ''}
         ${result.femaleQuantity > 0 ? `<div class="gender-square female"><div class="num">${result.femaleQuantity}</div><div class="lbl">נקבות</div></div>` : ''}
       </div>
-      <div class="code">${result.confirmationCode}</div>
       <div class="must-show-notice on-color">יש להציג את האישור למחלק העופות<br>לא ניתן לחזור לדף זה שנית</div>
       <button class="secondary" id="ticketDoneBtn">חזרה</button>
     </div>

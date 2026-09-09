@@ -3,16 +3,20 @@ import { normalizePhone, isValidIsraeliPhone } from '../lib/normalize.js';
 import { getPublicSettings, getSettings, setSettings } from '../lib/settings.js';
 import { requestOtp, verifyOtp } from '../lib/otp.js';
 import {
-  loginWithPassword, requestAdminOtp, verifyAdminOtp, requireAdmin, requirePermission,
+  loginWithPassword, requestAdminOtp, verifyAdminOtp, requireAdmin, requirePermission, requireAnyPermission,
 } from '../lib/auth.js';
 import { listAdmins, createAdmin, updateAdmin, deleteAdmin } from '../lib/admins.js';
 import { getOpenSlotsForRegistration, getAllSlots, createSlot, updateSlot, suggestDayLabel } from '../lib/slots.js';
 import { countOrdersForPhone, createOrder, listOrdersForPhone } from '../lib/orders.js';
 import { getRedemptionStatus, confirmSlotRedemption } from '../lib/redemption.js';
-import { recordManualPayment, listPaymentsForOrder, createPaymentSession } from '../lib/payments.js';
-import { listAllOrders, getDashboardStats, hardReset } from '../lib/adminOps.js';
+import { recordManualPayment, recordManualPaymentForCustomer, listPaymentsForOrder, listAllPayments, createPaymentSession } from '../lib/payments.js';
+import {
+  listAllOrders, listCustomersSummary, getDashboardStats, hardReset,
+  updateOrderItemQuantity, deleteOrderItem, deleteOrder, setItemRedeemedQuantity,
+} from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
-import { listActions } from '../lib/actionLog.js';
+import { listActions, logAction } from '../lib/actionLog.js';
+import { sendBulkSms } from '../lib/sms.js';
 
 const router = Router();
 
@@ -219,7 +223,8 @@ router.delete('/admin/admins/:id', requireAdmin, requirePermission('settings'), 
 
 // ---- זמני חלוקה (טאב זמני חלוקה) ----
 
-router.get('/admin/slots', requireAdmin, requirePermission('slots'), wrap(async (req, res) => {
+// גם הרשאת 'orders' יכולה לקרוא (לא לערוך) — נדרש למסך "הזמנות ותשלומים" (פילטר זמן חלוקה, הוספת הזמנה ידנית).
+router.get('/admin/slots', requireAdmin, requireAnyPermission('slots', 'orders'), wrap(async (req, res) => {
   res.json(await getAllSlots());
 }));
 
@@ -241,6 +246,22 @@ router.get('/admin/orders', requireAdmin, requirePermission('orders'), wrap(asyn
   res.json(await listAllOrders());
 }));
 
+router.get('/admin/customers', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await listCustomersSummary());
+}));
+
+router.get('/admin/payments', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await listAllPayments());
+}));
+
+router.post('/admin/customers/:phone/payments', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  const normalized = normalizePhone(req.params.phone);
+  const result = await recordManualPaymentForCustomer(
+    normalized, req.body?.amount, req.body?.method, req.session.adminName || 'admin', req.body?.note
+  );
+  res.json(result);
+}));
+
 router.get('/admin/orders/:id/payments', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   res.json(await listPaymentsForOrder(Number(req.params.id)));
 }));
@@ -250,6 +271,45 @@ router.post('/admin/orders/:id/payments', requireAdmin, requirePermission('order
     Number(req.params.id), req.body?.amount, req.body?.method, req.session.adminName || 'admin', req.body?.note
   );
   res.json(payment);
+}));
+
+// הזמנה ידנית ע"י מנהל — אותה createOrder בדיוק (כולל בדיקת כפילות זמן+מגדר
+// ואיחוד שם ללקוח קיים), רק שעוקפת את שער "הרישום פתוח" הפומבי ואת סגירת ההרשמה
+// הפר-זמן (changedBy:'admin'), כדי שאפשר יהיה להוסיף הזמנה גם כשההרשמה סגורה.
+router.post('/admin/orders', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  const order = await createOrder(req.body || {}, { changedBy: 'admin' });
+  res.json(order);
+}));
+
+router.delete('/admin/orders/:id', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await deleteOrder(Number(req.params.id), req.session.adminName || 'admin'));
+}));
+
+router.put('/admin/orders/:orderId/items/:itemId', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await updateOrderItemQuantity(
+    Number(req.params.orderId), Number(req.params.itemId), req.body?.quantity, req.session.adminName || 'admin'
+  ));
+}));
+
+router.delete('/admin/orders/:orderId/items/:itemId', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await deleteOrderItem(Number(req.params.orderId), Number(req.params.itemId), req.session.adminName || 'admin'));
+}));
+
+router.put('/admin/order-items/:id/redeemed', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await setItemRedeemedQuantity(Number(req.params.id), req.body?.quantityRedeemed, req.session.adminName || 'admin'));
+}));
+
+// שליחת אותה הודעת סמס לרשימת טלפונים (למשל כל מי שסונן בטבלה) בבת אחת.
+router.post('/admin/sms/bulk', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  const phones = Array.isArray(req.body?.phones) ? req.body.phones : [];
+  const message = String(req.body?.message || '').trim();
+  if (!message) {
+    return res.status(400).json({ error: 'חסר תוכן הודעה.' });
+  }
+  const normalized = [...new Set(phones.map((p) => normalizePhone(p)).filter(Boolean))];
+  const result = await sendBulkSms(normalized, message);
+  await logAction('sms_bulk_sent', { recipientCount: normalized.length, message, sentBy: req.session.adminName || 'admin' });
+  res.json(result);
 }));
 
 // ---- דשבורד ----

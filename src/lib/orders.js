@@ -97,6 +97,18 @@ export async function createOrder(payload, { changedBy = 'customer' } = {}) {
     return { slotId, gender, quantity, unitPrice, lineTotal: unitPrice * quantity, slotName: slot.name };
   });
 
+  // לא מאפשרים שתי שורות לאותו זמן חלוקה+מגדר באותה הזמנה — צריך לאחד לכמות אחת.
+  const seenCombos = new Set();
+  for (const it of cleanItems) {
+    const key = `${it.slotId}:${it.gender}`;
+    if (seenCombos.has(key)) {
+      const err = new Error(`יש כפילות: "${it.slotName}" (${it.gender === 'female' ? 'נקבות' : 'זכרים'}) מופיע יותר מפעם אחת. יש לאחד לשורה אחת עם הכמות הכוללת.`);
+      err.status = 400;
+      throw err;
+    }
+    seenCombos.add(key);
+  }
+
   const totalAmount = cleanItems.reduce((sum, it) => sum + it.lineTotal, 0);
   const accessToken = crypto.randomBytes(24).toString('base64url');
 

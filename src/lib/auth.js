@@ -88,3 +88,11 @@ export function requirePermission(permission) {
     return res.status(403).json({ error: 'אין לך הרשאה לפעולה זו.' });
   };
 }
+
+/** כמו requirePermission, אבל מספיקה אחת מכמה הרשאות — למשל מסך שקריאה ממנו נדרשת גם לטאב אחר. */
+export function requireAnyPermission(...permissions) {
+  return (req, res, next) => {
+    if (permissions.some((p) => req.session?.adminPermissions?.[p])) return next();
+    return res.status(403).json({ error: 'אין לך הרשאה לפעולה זו.' });
+  };
+}

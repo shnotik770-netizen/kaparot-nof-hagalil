@@ -26,6 +26,71 @@ export async function recordManualPayment(orderId, amount, method, recordedBy, n
   return rows[0];
 }
 
+/** כל התשלומים במערכת, עם פרטי ההזמנה/לקוח — לדוח תשלומים בפאנל הניהול. */
+export async function listAllPayments() {
+  const { rows } = await pool.query(
+    `SELECT p.*, o.order_number, o.order_sequence, o.customer_name, o.phone
+       FROM payments p
+       JOIN orders o ON o.id = p.order_id
+      ORDER BY p.created_at DESC`
+  );
+  return rows.map((p) => ({
+    id: p.id, orderId: p.order_id, orderNumber: p.order_number, orderSequence: p.order_sequence,
+    customerName: p.customer_name, phone: p.phone,
+    amount: Number(p.amount), method: p.method, recordedBy: p.recorded_by, note: p.note, createdAt: p.created_at,
+  }));
+}
+
+/**
+ * תשלום ידני מהפאנל, ברמת הלקוח (לא הזמנה בודדת) — "מפל" בדיוק כמו נדרים
+ * פלוס: מקצה את הסכום שהמנהל הקליד על ההזמנות הפתוחות של הטלפון, הישנה
+ * ביותר קודם, ורושם שורת payments לכל הזמנה שנפרעה/נפרעה חלקית.
+ */
+export async function recordManualPaymentForCustomer(normalizedPhone, amount, method, recordedBy, note) {
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || amt <= 0) {
+    const err = new Error('סכום לא תקין.');
+    err.status = 400;
+    throw err;
+  }
+  if (!['manual_cash', 'manual_card', 'manual_admin'].includes(method)) {
+    const err = new Error('אמצעי תשלום לא תקין.');
+    err.status = 400;
+    throw err;
+  }
+  return withTransaction(async (client) => {
+    const { rows: orders } = await client.query(
+      `SELECT o.id, b.balance_due
+         FROM orders o
+         JOIN order_balances b ON b.order_id = o.id
+        WHERE o.normalized_phone = $1 AND NOT o.is_deleted AND b.balance_due > 0
+        ORDER BY o.order_sequence ASC
+        FOR UPDATE OF o`,
+      [normalizedPhone]
+    );
+    let remaining = amt;
+    const allocations = [];
+    for (const order of orders) {
+      if (remaining <= 0) break;
+      const take = Math.min(remaining, Number(order.balance_due));
+      if (take <= 0) continue;
+      await client.query(
+        `INSERT INTO payments(order_id, amount, method, recorded_by, note) VALUES ($1,$2,$3,$4,$5)`,
+        [order.id, take, method, recordedBy, note || null]
+      );
+      allocations.push({ orderId: order.id, amount: take });
+      remaining -= take;
+    }
+    if (!allocations.length) {
+      const err = new Error('אין יתרת חוב פתוחה ללקוח זה.');
+      err.status = 400;
+      throw err;
+    }
+    await logAction('payment_recorded_manual', { phone: normalizedPhone, amount: amt, method, recordedBy, note: note || null, allocations, unallocatedSurplus: remaining }, client);
+    return { allocations, unallocatedSurplus: remaining };
+  });
+}
+
 export async function listPaymentsForOrder(orderId) {
   const { rows } = await pool.query(
     `SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at DESC`,

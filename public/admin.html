@@ -47,6 +47,7 @@
 <script>
 const GENDER_LABEL = { male: 'זכרים', female: 'נקבות' };
 const STATUS_LABEL = { paid: 'שולם', partial: 'חלקי', unpaid: 'לא שולם' };
+const METHOD_LABEL = { nedarim_plus: 'נדרים פלוס', manual_cash: 'מזומן', manual_card: 'אשראי ידני', manual_admin: 'אחר' };
 const TAB_TITLES = { settings: 'הגדרות', slots: 'זמני חלוקה', orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', actionLog: 'יומן פעולות' };
 // 'יומן פעולות' משתמש בהרשאת 'הגדרות' (אין לו הרשאה נפרדת משלו — כל מי שרואה הגדרות רואה גם את היומן)
 const TAB_PERMISSION = { actionLog: 'settings' };
@@ -545,76 +546,397 @@ async function renderSlotsTab() {
   });
 }
 
-// ============== הזמנות ותשלומים ==============
+// ============== הזמנות ותשלומים (תצוגה מקובצת לפי לקוח) ==============
 
-function orderCardHtml(o) {
+function panelSafeId(phone) { return 'p' + phone.replace(/\D/g, ''); }
+
+function customerSummaryRowsHtml(c) {
+  return c.bySlot.map((s) => {
+    const parts = [];
+    if (s.male > 0) parts.push(`${s.male} זכרים (${s.maleRedeemed}/${s.male} נמשך)`);
+    if (s.female > 0) parts.push(`${s.female} נקבות (${s.femaleRedeemed}/${s.female} נמשך)`);
+    return `
+      <div class="item-row" style="border-inline-start:4px solid ${esc(s.slotColor || 'var(--accent)')};padding-inline-start:10px">
+        <span>${esc(s.slotName)}</span>
+        <span class="meta">${parts.join(' · ')}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function customerCardHtml(c) {
   return `
     <div class="card">
       <div class="order-row-header">
-        <b>${esc(o.customerName)} · ${esc(o.phone)}</b>
-        <span class="pill ${o.paymentStatus}">${STATUS_LABEL[o.paymentStatus]}</span>
+        <b>${esc(c.customerName)} · ${esc(c.phone)}</b>
+        <span class="pill ${c.paymentStatus}">${STATUS_LABEL[c.paymentStatus]}</span>
       </div>
-      <p class="hint">הזמנה מספר ${o.orderSequence} (מס' ${o.orderNumber}) · ${new Date(o.createdAt).toLocaleString('he-IL')}</p>
-      ${o.notes ? `<div class="notice">הערות: ${esc(o.notes)}</div>` : ''}
-      ${o.items.map((it) => `
-        <div class="item-row">
-          <span>${esc(it.slotName)} · ${GENDER_LABEL[it.gender]} × ${it.quantity}</span>
-          <span class="meta">${it.quantityRedeemed}/${it.quantity} נמשך · ${money(it.lineTotal)}</span>
-        </div>
-      `).join('')}
-      <div class="total-row"><span>סה"כ ${money(o.totalAmount)}</span><span class="meta" style="font-weight:400">שולם ${money(o.amountPaid)} · יתרה ${money(o.balanceDue)}</span></div>
-      <details>
-        <summary style="cursor:pointer;font-size:13px;color:var(--accent-ink);font-weight:700">רישום תשלום ידני</summary>
-        <div class="row" style="margin-top:10px">
-          <input type="number" min="0" placeholder="סכום" id="amt-${o.id}">
-          <select id="method-${o.id}">
-            <option value="manual_cash">מזומן</option>
-            <option value="manual_card">אשראי ידני</option>
-            <option value="manual_admin">אחר</option>
-          </select>
-          <button class="secondary" data-pay="${o.id}">רישום</button>
-        </div>
-      </details>
+      ${customerSummaryRowsHtml(c)}
+      <div class="row" style="margin-top:10px">
+        <button class="secondary" data-cust-action data-phone="${esc(c.phone)}">תשלום</button>
+        <button class="secondary" data-cust-action data-phone="${esc(c.phone)}">מצב מימוש</button>
+        <button class="secondary" data-cust-action data-phone="${esc(c.phone)}">עריכה</button>
+      </div>
+      <div class="total-row">
+        <span>לתשלום ${money(c.totalAmount)}</span>
+        <span>שולם ${money(c.amountPaid)}</span>
+        <span style="color:${c.balanceDue > 0 ? 'var(--wine)' : 'inherit'};font-weight:800">חוב ${money(c.balanceDue)}</span>
+      </div>
+      <button class="ghost" data-cust-action data-phone="${esc(c.phone)}" style="width:100%">פירוט מלא · תשלום · מימוש · עריכה</button>
+      <div class="edit-panel" id="${panelSafeId(c.phone)}" hidden></div>
     </div>
   `;
 }
 
+function customerPanelHtml(c) {
+  const pid = panelSafeId(c.phone);
+  return `
+    <h3 style="margin:14px 0 8px;font-size:14px">רישום תשלום (מוקצה אוטומטית להזמנות הפתוחות, הישנה קודם)</h3>
+    <div class="row">
+      <input type="number" min="0" placeholder="סכום" id="${pid}-amt">
+      <select id="${pid}-method">
+        <option value="manual_cash">מזומן</option>
+        <option value="manual_card">אשראי ידני</option>
+        <option value="manual_admin">אחר</option>
+      </select>
+      <button class="primary" data-cpay-submit="${esc(c.phone)}">רישום תשלום</button>
+    </div>
+    <div id="${pid}-msg"></div>
+
+    <h3 style="margin:16px 0 8px;font-size:14px">הזמנות ופריטים</h3>
+    ${c.orders.map((o) => `
+      <div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px">
+        <div class="order-row-header">
+          <b>הזמנה מספר ${o.orderSequence} (מס' ${o.orderNumber})</b>
+          <span class="meta">${new Date(o.createdAt).toLocaleString('he-IL')}</span>
+        </div>
+        ${o.notes ? `<div class="notice">הערות: ${esc(o.notes)}</div>` : ''}
+        ${o.items.map((it) => `
+          <div style="padding:8px 0;border-top:1px solid var(--line)">
+            <div class="item-row" style="border:none;padding:0">
+              <span>${esc(it.slotName)} · ${GENDER_LABEL[it.gender]}</span>
+              <span class="meta">${money(it.unitPrice)}/יח' · ${money(it.lineTotal)}</span>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center">
+              <span class="meta">כמות:</span>
+              <input type="number" min="1" value="${it.quantity}" id="qty-${it.id}" style="width:70px">
+              <button class="ghost" data-save-qty="${o.id}:${it.id}">שמירה</button>
+              <span class="meta">נמשך בפועל:</span>
+              <input type="number" min="0" max="${it.quantity}" value="${it.quantityRedeemed}" id="red-${it.id}" style="width:70px">
+              <button class="ghost" data-save-red="${it.id}">שמירה</button>
+              <button class="ghost" data-del-item="${o.id}:${it.id}" style="color:var(--wine)" ${it.quantityRedeemed > 0 ? 'disabled title="לא ניתן למחוק — כבר נמשך ממנה"' : ''}>מחיקת שורה</button>
+            </div>
+          </div>
+        `).join('')}
+        <div class="spacer"></div>
+        <button class="ghost" data-del-order="${o.id}" style="color:var(--wine)">מחיקת ההזמנה כולה</button>
+      </div>
+    `).join('')}
+
+    <h3 style="margin:16px 0 8px;font-size:14px">תשלומים שנרשמו</h3>
+    <div id="${pid}-payments"><div class="loading">טוען…</div></div>
+  `;
+}
+
+async function wireCustomerPanel(c, refetch) {
+  const pid = panelSafeId(c.phone);
+  const panel = document.getElementById(pid);
+
+  panel.querySelector(`[data-cpay-submit]`).onclick = async () => {
+    const amount = Number(document.getElementById(`${pid}-amt`).value);
+    const method = document.getElementById(`${pid}-method`).value;
+    try {
+      await api(`/admin/customers/${encodeURIComponent(c.phone)}/payments`, { method: 'POST', body: { amount, method } });
+      renderOrdersTab();
+    } catch (err) {
+      document.getElementById(`${pid}-msg`).innerHTML = `<div class="error">${err.message}</div>`;
+    }
+  };
+  panel.querySelectorAll('[data-save-qty]').forEach((b) => {
+    b.onclick = async () => {
+      const [orderId, itemId] = b.dataset.saveQty.split(':');
+      const quantity = Number(document.getElementById(`qty-${itemId}`).value);
+      try {
+        await api(`/admin/orders/${orderId}/items/${itemId}`, { method: 'PUT', body: { quantity } });
+        renderOrdersTab();
+      } catch (err) { alert(err.message); }
+    };
+  });
+  panel.querySelectorAll('[data-save-red]').forEach((b) => {
+    b.onclick = async () => {
+      const itemId = b.dataset.saveRed;
+      const quantityRedeemed = Number(document.getElementById(`red-${itemId}`).value);
+      try {
+        await api(`/admin/order-items/${itemId}/redeemed`, { method: 'PUT', body: { quantityRedeemed } });
+        renderOrdersTab();
+      } catch (err) { alert(err.message); }
+    };
+  });
+  panel.querySelectorAll('[data-del-item]').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('למחוק את שורת ההזמנה הזו?')) return;
+      const [orderId, itemId] = b.dataset.delItem.split(':');
+      try {
+        await api(`/admin/orders/${orderId}/items/${itemId}`, { method: 'DELETE' });
+        renderOrdersTab();
+      } catch (err) { alert(err.message); }
+    };
+  });
+  panel.querySelectorAll('[data-del-order]').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('למחוק את כל ההזמנה? פעולה זו מוחקת לגמרי, כולל אם כבר שולם/נמשך משהו ממנה.')) return;
+      try {
+        await api(`/admin/orders/${b.dataset.delOrder}`, { method: 'DELETE' });
+        renderOrdersTab();
+      } catch (err) { alert(err.message); }
+    };
+  });
+
+  const paymentsBox = document.getElementById(`${pid}-payments`);
+  const allPayments = (await Promise.all(c.orders.map((o) => api(`/admin/orders/${o.id}/payments`)))).flat();
+  allPayments.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  paymentsBox.innerHTML = allPayments.length
+    ? allPayments.map((p) => `
+        <div class="item-row">
+          <span>${money(p.amount)} · ${METHOD_LABEL[p.method] || p.method}</span>
+          <span class="meta">${new Date(p.createdAt).toLocaleString('he-IL')} · ע"י ${esc(p.recordedBy)}</span>
+        </div>
+      `).join('')
+    : `<p class="hint">אין עדיין תשלומים.</p>`;
+}
+
+let allCustomersCache = [];
+let allSlotsForFilter = [];
+
 async function renderOrdersTab() {
-  const orders = await api('/admin/orders');
+  const [customers, slots] = await Promise.all([api('/admin/customers'), api('/admin/slots')]);
+  allCustomersCache = customers;
+  allSlotsForFilter = slots;
+
   document.getElementById('tabContent').innerHTML = `
     <div class="card">
-      <h2>כל ההזמנות (${orders.length})</h2>
-      <p class="hint">${orders.length} הזמנות · ${orders.filter((o) => o.paymentStatus === 'paid').length} שולמו במלואן</p>
+      <h2>לקוחות (${customers.length})</h2>
+      <p class="hint">${customers.length} לקוחות · ${customers.filter((c) => c.paymentStatus === 'paid').length} שולמו במלואם</p>
       <label for="orderSearch">חיפוש לפי שם או טלפון</label>
       <input type="text" id="orderSearch" placeholder="הקלידו שם או מספר טלפון...">
+      <div class="cols2" style="margin-top:10px">
+        <div>
+          <label for="filterPaid">סטטוס תשלום</label>
+          <select id="filterPaid">
+            <option value="all">הכל</option>
+            <option value="paid">שולם</option>
+            <option value="partial">שולם חלקית</option>
+            <option value="unpaid">לא שולם</option>
+          </select>
+        </div>
+        <div>
+          <label for="filterRedeemed">סטטוס מימוש</label>
+          <select id="filterRedeemed">
+            <option value="all">הכל</option>
+            <option value="full">מומש במלואו</option>
+            <option value="partial">לא מומש במלואו</option>
+          </select>
+        </div>
+      </div>
+      <label for="filterSlot">זמן חלוקה</label>
+      <select id="filterSlot">
+        <option value="all">כל הזמנים</option>
+        ${slots.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+      </select>
+      <div class="spacer"></div>
+      <div class="row">
+        <button class="secondary" id="exportCsvBtn">ייצוא דוח תשלומים (CSV)</button>
+        <button class="secondary" id="toggleBulkSms">שליחת סמס לקבוצה המסוננת</button>
+        <button class="primary" id="toggleAddOrder">+ הוספת הזמנה ידנית</button>
+      </div>
+      <div id="bulkSmsCard" hidden style="margin-top:10px">
+        <label for="bulkSmsText">תוכן ההודעה</label>
+        <textarea id="bulkSmsText" placeholder="ההודעה שתישלח לכל מי שמופיע ברשימה המסוננת כרגע..."></textarea>
+        <div class="spacer"></div>
+        <button class="primary big-action" id="bulkSmsSend" style="width:100%">שליחה</button>
+        <div id="bulkSmsMsg"></div>
+      </div>
+      <div id="addOrderCard" hidden style="margin-top:10px">
+        <label for="newOrderName">שם הלקוח (נדרש רק ללקוח חדש — ללקוח קיים יישמר השם הקיים)</label>
+        <input type="text" id="newOrderName">
+        <label for="newOrderPhone">טלפון</label>
+        <input type="tel" id="newOrderPhone" inputmode="numeric" placeholder="05XXXXXXXX">
+        <label for="newOrderNotes">הערות (אופציונלי)</label>
+        <textarea id="newOrderNotes"></textarea>
+        <label>פריטים</label>
+        <div id="newOrderItems"></div>
+        <button class="secondary" type="button" id="newOrderAddItem">+ הוספת פריט</button>
+        <div class="total-row"><span>סה"כ</span><span id="newOrderTotal">₪0</span></div>
+        <button class="primary big-action" id="newOrderSubmit" style="width:100%">יצירת הזמנה</button>
+        <div id="newOrderMsg"></div>
+      </div>
     </div>
     <div id="ordersListWrap"></div>
   `;
 
+  let currentFiltered = customers;
+
+  function applyFilters() {
+    const q = document.getElementById('orderSearch').value.trim().toLowerCase();
+    const paidFilter = document.getElementById('filterPaid').value;
+    const redeemedFilter = document.getElementById('filterRedeemed').value;
+    const slotFilter = document.getElementById('filterSlot').value;
+    currentFiltered = customers.filter((c) => {
+      if (q && !c.customerName.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
+      if (paidFilter !== 'all' && c.paymentStatus !== paidFilter) return false;
+      if (redeemedFilter === 'full' && !c.fullyRedeemed) return false;
+      if (redeemedFilter === 'partial' && c.fullyRedeemed) return false;
+      if (slotFilter !== 'all' && !c.bySlot.some((s) => String(s.slotId) === slotFilter)) return false;
+      return true;
+    });
+    renderList(currentFiltered);
+  }
+
   function renderList(list) {
     const wrap = document.getElementById('ordersListWrap');
     wrap.innerHTML = list.length
-      ? list.map(orderCardHtml).join('')
-      : `<div class="card"><p class="hint">לא נמצאו הזמנות תואמות לחיפוש.</p></div>`;
-    wrap.querySelectorAll('[data-pay]').forEach((b) => {
+      ? list.map(customerCardHtml).join('')
+      : `<div class="card"><p class="hint">לא נמצאו לקוחות תואמים.</p></div>`;
+    wrap.querySelectorAll('[data-cust-action]').forEach((b) => {
       b.onclick = async () => {
-        const id = b.dataset.pay;
-        const amount = Number(document.getElementById(`amt-${id}`).value);
-        const method = document.getElementById(`method-${id}`).value;
-        try {
-          await api(`/admin/orders/${id}/payments`, { method: 'POST', body: { amount, method } });
-          renderOrdersTab();
-        } catch (err) { alert(err.message); }
+        const phone = b.dataset.phone;
+        const panel = document.getElementById(panelSafeId(phone));
+        if (!panel.hidden) { panel.hidden = true; return; }
+        const c = allCustomersCache.find((x) => x.phone === phone);
+        panel.innerHTML = customerPanelHtml(c);
+        panel.hidden = false;
+        wireCustomerPanel(c);
       };
     });
   }
 
-  renderList(orders);
-  document.getElementById('orderSearch').oninput = (e) => {
-    const q = e.target.value.trim().toLowerCase();
-    if (!q) { renderList(orders); return; }
-    renderList(orders.filter((o) => o.customerName.toLowerCase().includes(q) || o.phone.includes(q)));
+  document.getElementById('orderSearch').oninput = applyFilters;
+  document.getElementById('filterPaid').onchange = applyFilters;
+  document.getElementById('filterRedeemed').onchange = applyFilters;
+  document.getElementById('filterSlot').onchange = applyFilters;
+
+  document.getElementById('toggleBulkSms').onclick = () => {
+    const card = document.getElementById('bulkSmsCard');
+    card.hidden = !card.hidden;
   };
+  document.getElementById('bulkSmsSend').onclick = async () => {
+    const message = document.getElementById('bulkSmsText').value.trim();
+    if (!message) return;
+    if (!confirm(`לשלוח את ההודעה ל-${currentFiltered.length} לקוחות מסוננים?`)) return;
+    try {
+      const result = await api('/admin/sms/bulk', { method: 'POST', body: { phones: currentFiltered.map((c) => c.phone), message } });
+      document.getElementById('bulkSmsMsg').innerHTML = `<div class="success">נשלח ל-${result.recipientCount ?? currentFiltered.length} נמענים.</div>`;
+    } catch (err) {
+      document.getElementById('bulkSmsMsg').innerHTML = `<div class="error">${err.message}</div>`;
+    }
+  };
+
+  document.getElementById('exportCsvBtn').onclick = async () => {
+    const payments = await api('/admin/payments');
+    const header = ['תאריך', 'הזמנה מס\'', 'שם לקוח', 'טלפון', 'סכום', 'אמצעי', 'נרשם ע"י'];
+    const rows = payments.map((p) => [
+      new Date(p.createdAt).toLocaleString('he-IL'), p.orderNumber, p.customerName, p.phone,
+      p.amount, METHOD_LABEL[p.method] || p.method, p.recordedBy,
+    ]);
+    const csv = '﻿' + [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `דוח-תשלומים-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // ---- הוספת הזמנה ידנית ----
+  document.getElementById('toggleAddOrder').onclick = () => {
+    const card = document.getElementById('addOrderCard');
+    card.hidden = !card.hidden;
+  };
+  let newOrderItems = [];
+  function newOrderPriceFor(item) {
+    const slot = slots.find((s) => s.id === item.slotId);
+    if (!slot) return 0;
+    return item.gender === 'female' ? slot.priceFemale : slot.priceMale;
+  }
+  function renderNewOrderItems() {
+    const box = document.getElementById('newOrderItems');
+    box.innerHTML = newOrderItems.map((item, idx) => `
+      <div class="item-select-row" data-idx="${idx}">
+        ${newOrderItems.length > 1 ? `<button type="button" class="remove-item" data-remove-new-item="${idx}">✕ הסר</button>` : ''}
+        <div class="cols2">
+          <div>
+            <label>זמן חלוקה</label>
+            <select data-new-field="slotId" data-idx="${idx}">
+              ${slots.map((s) => `<option value="${s.id}" ${item.slotId === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label>סוג</label>
+            <select data-new-field="gender" data-idx="${idx}">
+              <option value="male" ${item.gender === 'male' ? 'selected' : ''}>זכרים</option>
+              <option value="female" ${item.gender === 'female' ? 'selected' : ''}>נקבות</option>
+            </select>
+          </div>
+        </div>
+        <label>כמות</label>
+        <div class="stepper">
+          <button type="button" data-new-step="-1" data-idx="${idx}">−</button>
+          <span>${item.quantity}</span>
+          <button type="button" data-new-step="1" data-idx="${idx}">+</button>
+        </div>
+      </div>
+    `).join('');
+    const total = newOrderItems.reduce((sum, it) => sum + newOrderPriceFor(it) * it.quantity, 0);
+    document.getElementById('newOrderTotal').textContent = money(total);
+    box.querySelectorAll('select').forEach((sel) => {
+      sel.onchange = () => {
+        const idx = Number(sel.dataset.idx);
+        const value = sel.dataset.newField === 'slotId' ? Number(sel.value) : sel.value;
+        newOrderItems[idx][sel.dataset.newField] = value;
+        renderNewOrderItems();
+      };
+    });
+    box.querySelectorAll('[data-new-step]').forEach((b) => {
+      b.onclick = () => {
+        const idx = Number(b.dataset.idx);
+        newOrderItems[idx].quantity = Math.max(1, newOrderItems[idx].quantity + Number(b.dataset.newStep));
+        renderNewOrderItems();
+      };
+    });
+    box.querySelectorAll('[data-remove-new-item]').forEach((b) => {
+      b.onclick = () => {
+        newOrderItems.splice(Number(b.dataset.removeNewItem), 1);
+        renderNewOrderItems();
+      };
+    });
+  }
+  if (slots.length) {
+    newOrderItems = [{ slotId: slots[0].id, gender: 'male', quantity: 1 }];
+    renderNewOrderItems();
+  }
+  document.getElementById('newOrderAddItem').onclick = () => {
+    if (!slots.length) return;
+    newOrderItems.push({ slotId: slots[0].id, gender: 'male', quantity: 1 });
+    renderNewOrderItems();
+  };
+  document.getElementById('newOrderSubmit').onclick = async () => {
+    try {
+      await api('/admin/orders', { method: 'POST', body: {
+        phone: document.getElementById('newOrderPhone').value,
+        customerName: document.getElementById('newOrderName').value,
+        notes: document.getElementById('newOrderNotes').value,
+        items: newOrderItems,
+      }});
+      renderOrdersTab();
+    } catch (err) {
+      document.getElementById('newOrderMsg').innerHTML = `<div class="error">${err.message}</div>`;
+    }
+  };
+
+  renderList(customers);
 }
 
 // ============== דשבורד ==============
