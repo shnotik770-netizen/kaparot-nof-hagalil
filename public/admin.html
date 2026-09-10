@@ -58,7 +58,9 @@
 const GENDER_LABEL = { male: 'זכרים', female: 'נקבות' };
 const STATUS_LABEL = { paid: 'שולם', partial: 'חלקי', unpaid: 'לא שולם' };
 const METHOD_LABEL = { nedarim_plus: 'נדרים פלוס', manual_cash: 'מזומן', manual_card: 'אשראי ידני', manual_admin: 'אחר' };
-const TAB_TITLES = { settings: 'הגדרות', slots: 'זמני חלוקה', orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', actionLog: 'יומן פעולות' };
+// סדר המפתחות כאן קובע את סדר הטאבים בתפריט. 'settings' ו'slots' אוחדו
+// לכפתור אחד (ראו renderSettingsTab) — עדיין שתי הרשאות נפרדות, אבל ניווט משותף.
+const TAB_TITLES = { orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', settings: 'הגדרות וזמני חלוקה', actionLog: 'יומן פעולות' };
 // 'יומן פעולות' משתמש בהרשאת 'הגדרות' (אין לו הרשאה נפרדת משלו — כל מי שרואה הגדרות רואה גם את היומן)
 const TAB_PERMISSION = { actionLog: 'settings' };
 
@@ -163,7 +165,9 @@ function loadShell(session) {
     ${myPermissions.orders ? '<button class="ghost" id="redeemModeBtn">🎟️ מצב מימוש</button>' : ''}
     ${esc(session.name || '')} · <button class="ghost" id="logoutBtn" style="color:#fff">יציאה</button>
   `;
-  const availableTabs = Object.keys(TAB_TITLES).filter((t) => myPermissions[TAB_PERMISSION[t] || t]);
+  const availableTabs = Object.keys(TAB_TITLES).filter((t) => (
+    t === 'settings' ? (myPermissions.settings || myPermissions.slots) : myPermissions[TAB_PERMISSION[t] || t]
+  ));
   if (!availableTabs.length) {
     render(`<div class="card"><div class="error">לחשבון זה אין הרשאה לאף מסך ניהול. פנה למנהל אחר להוספת הרשאות.</div></div>`);
     return;
@@ -340,7 +344,6 @@ async function showTab(tab) {
   const content = document.getElementById('tabContent');
   content.innerHTML = '<div class="loading">טוען…</div>';
   if (tab === 'settings') return renderSettingsTab();
-  if (tab === 'slots') return renderSlotsTab();
   if (tab === 'orders') return renderOrdersTab();
   if (tab === 'dashboard') return renderDashboardTab();
   if (tab === 'actionLog') return renderActionLogTab();
@@ -349,8 +352,15 @@ async function showTab(tab) {
 // ============== הגדרות ==============
 
 async function renderSettingsTab() {
-  const s = await api('/admin/settings');
   const content = document.getElementById('tabContent');
+  content.innerHTML = `<div id="settingsCore"></div><div id="slotsSubSection"></div>`;
+  if (myPermissions.settings) await renderSettingsCore();
+  if (myPermissions.slots) renderSlotsTab('slotsSubSection');
+}
+
+async function renderSettingsCore() {
+  const s = await api('/admin/settings');
+  const content = document.getElementById('settingsCore');
   content.innerHTML = `
     <div class="card">
       <h2>טקסטים ניתנים לעריכה</h2>
@@ -419,6 +429,7 @@ async function renderSettingsTab() {
       <button class="danger" id="hardReset" style="width:100%">איפוס קשיח של כל הנתונים</button>
     </div>
     <div id="settingsMsg"></div>
+    <div id="slotsSubSection"></div>
   `;
 
   document.getElementById('saveTexts').onclick = async () => {
@@ -635,9 +646,9 @@ function slotCompactRowHtml(s) {
   `;
 }
 
-async function renderSlotsTab() {
+async function renderSlotsTab(containerId = 'tabContent') {
   const slots = await api('/admin/slots');
-  const content = document.getElementById('tabContent');
+  const content = document.getElementById(containerId);
   content.innerHTML = `
     <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px">
       <h2 style="margin:0">זמני חלוקה קיימים</h2>
@@ -679,7 +690,7 @@ async function renderSlotsTab() {
   document.getElementById('addSlot').onclick = async () => {
     try {
       await api('/admin/slots', { method: 'POST', body: readSlotForm('new') });
-      renderSlotsTab();
+      renderSlotsTab(containerId);
     } catch (err) {
       document.getElementById('newSlotMsg').innerHTML = `<div class="error">${err.message}</div>`;
     }
@@ -702,7 +713,7 @@ async function renderSlotsTab() {
       try {
         await api(`/admin/slots/${s.id}`, { method: 'PUT', body: readSlotForm(prefix) });
         document.getElementById(`slotMsg${s.id}`).innerHTML = `<div class="success">נשמר.</div>`;
-        renderSlotsTab();
+        renderSlotsTab(containerId);
       } catch (err) {
         document.getElementById(`slotMsg${s.id}`).innerHTML = `<div class="error">${err.message}</div>`;
       }
@@ -711,7 +722,7 @@ async function renderSlotsTab() {
       if (!confirm(`למחוק לגמרי את זמן החלוקה "${s.name}"? פעולה זו סופית.`)) return;
       try {
         await api(`/admin/slots/${s.id}`, { method: 'DELETE' });
-        renderSlotsTab();
+        renderSlotsTab(containerId);
       } catch (err) {
         document.getElementById(`slotMsg${s.id}`).innerHTML = `<div class="error">${err.message}</div>`;
       }
