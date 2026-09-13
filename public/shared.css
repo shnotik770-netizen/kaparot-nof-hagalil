@@ -100,3 +100,5 @@ button.danger{background:var(--wine);color:#fff}
 .slot-group-card{ border-inline-start:4px solid var(--accent); }
 .gender-line{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; }
 .quick-all{ background:none; border:none; color:var(--accent-ink); text-decoration:underline; font-size:12px; font-weight:700; padding:2px 4px; cursor:pointer; width:auto; }
+
+.whatsapp-btn{ display:flex; align-items:center; justify-content:center; gap:8px; background:#25D366; color:#fff; font-weight:700; font-size:14.5px; padding:12px 18px; border-radius:10px; text-decoration:none; }

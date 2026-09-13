@@ -138,7 +138,12 @@ router.get('/payment-balance', requireVerifiedPhone, wrap(async (req, res) => {
   const normalized = normalizePhone(req.query.phone);
   const orders = await listOrdersForPhone(normalized);
   const balanceDue = orders.reduce((sum, o) => sum + o.balanceDue, 0);
-  res.json({ balanceDue, ordersWithBalance: orders.filter((o) => o.balanceDue > 0).map((o) => o.orderNumber) });
+  const totalAmount = orders.reduce((sum, o) => sum + o.totalAmount, 0);
+  const amountPaid = orders.reduce((sum, o) => sum + o.amountPaid, 0);
+  res.json({
+    balanceDue, totalAmount, amountPaid,
+    ordersWithBalance: orders.filter((o) => o.balanceDue > 0).map((o) => o.orderNumber),
+  });
 }));
 
 function publicBaseUrl() {
@@ -168,17 +173,23 @@ router.post('/payment/create-session', requireVerifiedPhone, wrap(async (req, re
   const customerName = orders[0]?.customerName || '';
   const [firstName, ...restName] = customerName.split(' ').filter(Boolean);
   const lastName = restName.join(' ');
+  const zeout = String(req.body.zeout || '').trim();
+  if (zeout && !/^\d{4,9}$/.test(zeout)) {
+    return res.status(400).json({ error: 'מספר תעודת הזהות שהוזן אינו תקין (4-9 ספרות) — אפשר גם להשאיר ריק.' });
+  }
+  const mail = String(req.body.mail || '').trim();
+  if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
+    return res.status(400).json({ error: 'כתובת המייל אינה תקינה.' });
+  }
   const session = await createPaymentSession(normalized, amount);
-  // לא שולחים Zeout/Mail משלנו — לא אוספים אותם בדף שלנו בכוונה: לפי התיעוד
-  // הרשמי, אם המוסד מוגדר לחייב ת"ז ולא נשלחה, שדה הטופס בתוך האייפרם עצמו
-  // מבקש אותה (ראו docs/nedarim-plus-integration.md), כך שההצגה נשארת חלק
-  // אחד רציף בתוך חלון התשלום ולא שלב נפרד בדף שלנו.
   const { transactionId, key } = await createTransaction({
     amount,
     param2: session.token,
     callbackUrl: `${publicBaseUrl()}/webhooks/nedarim-plus`,
     firstName,
     lastName,
+    zeout: zeout || undefined,
+    mail: mail || undefined,
     groupe: 'תשלום על כפרות',
   });
   res.json({ transactionId, key, amount, token: session.token });

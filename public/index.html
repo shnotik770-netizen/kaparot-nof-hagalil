@@ -30,9 +30,15 @@
     <div id="paymentLoading" class="loading">מחשב יתרה…</div>
     <div id="paymentNoBalance" class="success" style="display:none">אין יתרת חוב פתוחה — תודה!</div>
     <div id="paymentHasBalance" style="display:none">
+      <div class="notice critical" id="paymentDeferredWarning"></div>
+      <div id="paymentAccountBreakdown"></div>
       <div class="total-row"><span>סה"כ יתרה לתשלום</span><span id="paymentAmountDisplay"></span></div>
       <label for="paymentAmountInput">סכום לתשלום כעת (אפשר לשלם רק חלק מהסכום)</label>
       <input type="number" id="paymentAmountInput" min="1" step="1">
+      <label for="paymentZeoutInput">תעודת זהות (לא חובה — למי שמעוניין בקבלה)</label>
+      <input type="text" id="paymentZeoutInput" inputmode="numeric" maxlength="9" placeholder="מספר תעודת זהות">
+      <label for="paymentMailInput">אימייל (לא חובה)</label>
+      <input type="email" id="paymentMailInput" placeholder="לקבלת אישור/קבלה במייל">
       <div class="spacer"></div>
       <button class="primary" id="paymentContinueBtn">פתח חלון תשלום</button>
       <div id="paymentError" class="error" style="display:none"></div>
@@ -106,6 +112,18 @@ function redemptionStatusText(quantity, quantityRedeemed) {
 
 // ============== מסך 1: הזנת טלפון ==============
 
+const WHATSAPP_CONTACT_PHONE = '972552595494';
+const WHATSAPP_CONTACT_MESSAGE = 'פניה בנושא כפרות, שמי הוא ';
+function whatsappContactButtonHtml() {
+  return `
+    <a class="whatsapp-btn" target="_blank" rel="noopener"
+       href="https://wa.me/${WHATSAPP_CONTACT_PHONE}?text=${encodeURIComponent(WHATSAPP_CONTACT_MESSAGE)}">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="#fff"><path d="M12 2C6.48 2 2 6.48 2 12c0 1.85.5 3.58 1.35 5.09L2 22l5.09-1.32C8.58 21.5 10.25 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm5.2 14.2c-.22.62-1.28 1.18-1.76 1.24-.45.06-.96.09-2.9-.62-2.44-.96-4-3.4-4.13-3.56-.12-.16-.98-1.3-.98-2.48 0-1.18.62-1.76.84-2 .22-.24.48-.3.64-.3h.46c.15 0 .35-.03.53.4.22.53.74 1.83.8 1.96.06.13.1.29.02.46-.08.17-.13.28-.25.43-.13.15-.27.34-.38.46-.13.13-.26.27-.11.53.15.26.66 1.09 1.42 1.76 1 .88 1.82 1.15 2.09 1.28.27.13.42.11.58-.07.16-.18.67-.78.85-1.05.18-.27.36-.22.6-.13.24.09 1.53.72 1.79.85.26.13.44.2.5.31.06.11.06.65-.16 1.27z"/></svg>
+      <span>יצירת קשר בוואטסאפ</span>
+    </a>
+  `;
+}
+
 function screenPhone(errorMsg) {
   render(`
     <div class="card">
@@ -117,6 +135,8 @@ function screenPhone(errorMsg) {
       <input type="tel" id="phoneInput" placeholder="05XXXXXXXX" value="${state.phone}" inputmode="numeric">
       <div class="spacer"></div>
       <button class="primary" id="phoneSubmit">המשך</button>
+      <div class="spacer"></div>
+      ${whatsappContactButtonHtml()}
     </div>
   `);
   document.getElementById('phoneSubmit').onclick = onPhoneSubmit;
@@ -391,6 +411,9 @@ function screenPersonalArea() {
     </div>
     ${!s.registrationOpen ? `<p class="hint">* ${s.closedRegistrationMessage || 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.'}</p>` : ''}
     ${!s.distributionOpen ? `<p class="hint">* החלוקה טרם נפתחה — לא ניתן לממש הזמנה כרגע.</p>` : ''}
+    <div id="personalAreaDebtWarning"></div>
+    <div class="spacer"></div>
+    ${whatsappContactButtonHtml()}
     <div class="spacer"></div>
     <button class="ghost" id="btnLogout">יציאה מהאזור האישי</button>
   `);
@@ -408,7 +431,17 @@ function screenPersonalArea() {
     renderCustomerNameFirstTime();
   } else {
     loadCustomerNameSection();
+    loadPersonalAreaDebtWarning();
   }
+}
+
+async function loadPersonalAreaDebtWarning() {
+  try {
+    const { balanceDue } = await api(`/payment-balance?phone=${encodeURIComponent(state.phone)}`);
+    const box = document.getElementById('personalAreaDebtWarning');
+    if (!box || balanceDue <= 0) return;
+    box.innerHTML = `<div class="notice critical" style="margin-top:14px">${state.publicSettings?.deferredPaymentNotice || 'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל.'}</div>`;
+  } catch { /* לא קריטי */ }
 }
 
 /** משתמש חדש (אין עדיין הזמנות) — מבקשים שם מיד עם הכניסה, לא בתוך טופס ההזמנה הראשונה. */
@@ -738,13 +771,19 @@ async function loadPaymentBalance() {
   document.getElementById('paymentSuccess').style.display = 'none';
   document.getElementById('paymentError').style.display = 'none';
 
-  const { balanceDue } = await api(`/payment-balance?phone=${encodeURIComponent(state.phone)}`);
+  const { balanceDue, totalAmount, amountPaid } = await api(`/payment-balance?phone=${encodeURIComponent(state.phone)}`);
   document.getElementById('paymentLoading').style.display = 'none';
   if (balanceDue <= 0) {
     document.getElementById('paymentNoBalance').style.display = '';
     return;
   }
   document.getElementById('paymentHasBalance').style.display = '';
+  document.getElementById('paymentDeferredWarning').textContent =
+    state.publicSettings?.deferredPaymentNotice || 'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל.';
+  document.getElementById('paymentAccountBreakdown').innerHTML = `
+    <div class="item-row"><span>סה"כ הזמנות</span><span>${money(totalAmount)}</span></div>
+    <div class="item-row"><span>שולם עד כה</span><span>${money(amountPaid)}</span></div>
+  `;
   document.getElementById('paymentAmountDisplay').textContent = money(balanceDue);
   const amountInput = document.getElementById('paymentAmountInput');
   amountInput.max = balanceDue;
@@ -758,15 +797,24 @@ let currentPaymentSession = null; // { token, transactionId } — לאישור �
 async function onPaymentContinue() {
   const btn = document.getElementById('paymentContinueBtn');
   const amount = Number(document.getElementById('paymentAmountInput').value);
+  const zeout = document.getElementById('paymentZeoutInput').value.trim();
+  const mail = document.getElementById('paymentMailInput').value.trim();
+  if (zeout && !/^\d{4,9}$/.test(zeout)) {
+    document.getElementById('paymentError').textContent = 'מספר תעודת הזהות שהוזן אינו תקין (4-9 ספרות) — אפשר גם להשאיר ריק.';
+    document.getElementById('paymentError').style.display = '';
+    return;
+  }
   btn.disabled = true; btn.textContent = 'פותח חלון תשלום…';
   document.getElementById('paymentError').style.display = 'none';
   try {
-    const session = await api('/payment/create-session', { method: 'POST', body: { phone: state.phone, amount } });
+    const session = await api('/payment/create-session', { method: 'POST', body: { phone: state.phone, amount, zeout, mail } });
     currentPaymentSession = { token: session.token, transactionId: session.transactionId };
     document.getElementById('paymentFrameWrap').style.display = '';
     document.getElementById('paymentSkipSection').style.display = 'none';
     btn.style.display = 'none';
-    PostNedarim({ Name: 'StartPayment', Value: { TransactionId: session.transactionId, Key: session.key } });
+    // ButtonText מחליף את כפתור "תרומה" בתוך האייפרם בטקסט "תשלום X ₪" — נתמך גם
+    // במסלול ב' (עסקה שהוקמה בשרת), לפי התיעוד הרשמי.
+    PostNedarim({ Name: 'StartPayment', Value: { TransactionId: session.transactionId, Key: session.key, ButtonText: 'תשלום' } });
   } catch (err) {
     btn.disabled = false; btn.textContent = 'פתח חלון תשלום';
     document.getElementById('paymentError').textContent = err.message;
@@ -775,7 +823,7 @@ async function onPaymentContinue() {
 }
 
 function onPaymentSkip() {
-  document.getElementById('paymentHasBalance').querySelectorAll(':scope > label, :scope > input, #paymentContinueBtn, .total-row').forEach((elm) => { elm.style.display = 'none'; });
+  document.getElementById('paymentHasBalance').querySelectorAll(':scope > label, :scope > input, #paymentContinueBtn, .total-row, #paymentDeferredWarning, #paymentAccountBreakdown').forEach((elm) => { elm.style.display = 'none'; });
   document.getElementById('paymentSkipLink').style.display = 'none';
   document.getElementById('paymentSkipNotice').textContent = state.publicSettings?.deferredPaymentNotice || '';
   document.getElementById('paymentSkipNotice').style.display = '';
