@@ -1142,14 +1142,67 @@ async function wireCustomerPanel(c, refetch) {
   const paymentsBox = document.getElementById(`${pid}-payments`);
   const allPayments = (await Promise.all(c.orders.map((o) => api(`/admin/orders/${o.id}/payments`)))).flat();
   allPayments.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  // עריכה/מחיקה זמינות רק לתשלומים שהוזנו ידנית (manual_*) — תשלומי נדרים
+  // פלוס האמיתיים מוצגים לצפייה בלבד (ומעל זה חסומים גם בשרת).
   paymentsBox.innerHTML = allPayments.length
-    ? allPayments.map((p) => `
-        <div class="item-row">
-          <span>${money(p.amount)} · ${METHOD_LABEL[p.method] || p.method}</span>
-          <span class="meta">${new Date(p.createdAt).toLocaleString('he-IL')} · ע"י ${esc(p.recordedBy)}</span>
-        </div>
-      `).join('')
+    ? allPayments.map((p) => {
+        const isManual = p.method.startsWith('manual_');
+        return `
+          <div class="item-row">
+            <span>${money(p.amount)} · ${METHOD_LABEL[p.method] || p.method}${p.note ? ` · ${esc(p.note)}` : ''}</span>
+            <span class="meta" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span>${new Date(p.createdAt).toLocaleString('he-IL')} · ע"י ${esc(p.recordedBy)}</span>
+              ${isManual ? `
+                <button type="button" class="ghost" data-pay-edit="${p.id}">עריכה</button>
+                <button type="button" class="ghost" data-pay-del="${p.id}" style="color:var(--wine)">מחיקה</button>
+              ` : ''}
+            </span>
+          </div>
+          ${isManual ? `<div id="${pid}-payedit-${p.id}" hidden style="padding:8px 0 4px;border-top:1px dashed var(--line)"></div>` : ''}
+        `;
+      }).join('')
     : `<p class="hint">אין עדיין תשלומים.</p>`;
+
+  paymentsBox.querySelectorAll('[data-pay-edit]').forEach((b) => {
+    const p = allPayments.find((x) => x.id === Number(b.dataset.payEdit));
+    b.onclick = () => {
+      const editBox = document.getElementById(`${pid}-payedit-${p.id}`);
+      if (!editBox.hidden) { editBox.hidden = true; return; }
+      editBox.hidden = false;
+      editBox.innerHTML = `
+        <div class="row">
+          <input type="number" min="0" value="${p.amount}" id="${pid}-payamt-${p.id}">
+          <select id="${pid}-paymethod-${p.id}">
+            <option value="manual_cash" ${p.method === 'manual_cash' ? 'selected' : ''}>מזומן</option>
+            <option value="manual_card" ${p.method === 'manual_card' ? 'selected' : ''}>אשראי ידני</option>
+            <option value="manual_admin" ${p.method === 'manual_admin' ? 'selected' : ''}>אחר</option>
+          </select>
+          <button class="primary" type="button" data-pay-save="${p.id}">שמירה</button>
+        </div>
+        <div id="${pid}-paymsg-${p.id}"></div>
+      `;
+      editBox.querySelector('[data-pay-save]').onclick = async () => {
+        const amount = Number(document.getElementById(`${pid}-payamt-${p.id}`).value);
+        const method = document.getElementById(`${pid}-paymethod-${p.id}`).value;
+        try {
+          await api(`/admin/payments/${p.id}`, { method: 'PUT', body: { amount, method, note: p.note } });
+          renderOrdersTab();
+        } catch (err) {
+          document.getElementById(`${pid}-paymsg-${p.id}`).innerHTML = `<div class="error">${err.message}</div>`;
+        }
+      };
+    };
+  });
+  paymentsBox.querySelectorAll('[data-pay-del]').forEach((b) => {
+    b.onclick = async () => {
+      const p = allPayments.find((x) => x.id === Number(b.dataset.payDel));
+      if (!confirm(`למחוק את התשלום הזה (${money(p.amount)})? פעולה זו סופית.`)) return;
+      try {
+        await api(`/admin/payments/${p.id}`, { method: 'DELETE' });
+        renderOrdersTab();
+      } catch (err) { alert(err.message); }
+    };
+  });
 }
 
 let allCustomersCache = [];
@@ -1452,6 +1505,8 @@ async function renderDashboardTab() {
 const ACTION_LABELS = {
   order_created: 'הזמנה נוצרה',
   payment_recorded_manual: 'תשלום ידני נרשם',
+  payment_edited: 'תשלום ידני נערך',
+  payment_deleted: 'תשלום ידני נמחק',
   payment_received_nedarim: 'תשלום התקבל (נדרים פלוס, Webhook)',
   payment_client_confirmed: 'תשלום אושר לפי הדפדפן (טרם אומת Webhook)',
   redemption_confirmed: 'מימוש עופות',
@@ -1481,6 +1536,10 @@ function actionSummaryHtml(a) {
       return d.orderId != null
         ? `הזמנה #${d.orderId} · ${money(d.amount || 0)} · ${esc(d.method || '')} · ע"י ${esc(d.recordedBy || '')}`
         : `${esc(d.phone || '')} · ${money(d.amount || 0)} · ${esc(d.method || '')} · ע"י ${esc(d.recordedBy || '')}`;
+    case 'payment_edited':
+      return `הזמנה #${d.orderId ?? ''} · ${money(d.oldAmount || 0)} (${esc(d.oldMethod || '')}) → ${money(d.newAmount || 0)} (${esc(d.newMethod || '')}) · ע"י ${esc(d.adminName || '')}`;
+    case 'payment_deleted':
+      return `הזמנה #${d.orderId ?? ''} · ${money(d.amount || 0)} · ${esc(d.method || '')} · ע"י ${esc(d.adminName || '')}`;
     case 'payment_received_nedarim':
       return `${esc(d.phone || '')} · ${money(d.paidAmount || 0)} · עסקה ${esc(d.transactionId || '')}`;
     case 'payment_client_confirmed':

@@ -91,6 +91,66 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
   });
 }
 
+const MANUAL_METHODS = new Set(['manual_cash', 'manual_card', 'manual_admin']);
+
+function assertManualPayment(payment) {
+  if (!payment) {
+    const err = new Error('תשלום לא נמצא.');
+    err.status = 404;
+    throw err;
+  }
+  if (!MANUAL_METHODS.has(payment.method)) {
+    const err = new Error('לא ניתן לערוך/למחוק תשלום שהתקבל אוטומטית מנדרים פלוס — רק תשלומים שהוזנו ידנית ניתנים לעריכה/מחיקה.');
+    err.status = 400;
+    throw err;
+  }
+}
+
+/** עריכת תשלום שהוזן ידנית (תיקון טעות הקלדה) — לא נוגעים בתשלומי נדרים פלוס האמיתיים. */
+export async function updateManualPayment(paymentId, { amount, method, note }, adminName) {
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || amt <= 0) {
+    const err = new Error('סכום לא תקין.');
+    err.status = 400;
+    throw err;
+  }
+  if (!MANUAL_METHODS.has(method)) {
+    const err = new Error('אמצעי תשלום לא תקין.');
+    err.status = 400;
+    throw err;
+  }
+  return withTransaction(async (client) => {
+    const { rows } = await client.query(`SELECT * FROM payments WHERE id = $1 FOR UPDATE`, [paymentId]);
+    const payment = rows[0];
+    assertManualPayment(payment);
+    await client.query(
+      `UPDATE payments SET amount = $2, method = $3, note = $4 WHERE id = $1`,
+      [paymentId, amt, method, note || null]
+    );
+    await logAction('payment_edited', {
+      paymentId, orderId: payment.order_id,
+      oldAmount: Number(payment.amount), newAmount: amt,
+      oldMethod: payment.method, newMethod: method,
+      adminName,
+    }, client);
+    return { success: true };
+  });
+}
+
+/** מחיקת תשלום שהוזן ידנית (הוקלד בטעות) — לא נוגעים בתשלומי נדרים פלוס האמיתיים. */
+export async function deleteManualPayment(paymentId, adminName) {
+  return withTransaction(async (client) => {
+    const { rows } = await client.query(`SELECT * FROM payments WHERE id = $1 FOR UPDATE`, [paymentId]);
+    const payment = rows[0];
+    assertManualPayment(payment);
+    await client.query(`DELETE FROM payments WHERE id = $1`, [paymentId]);
+    await logAction('payment_deleted', {
+      paymentId, orderId: payment.order_id, amount: Number(payment.amount), method: payment.method, adminName,
+    }, client);
+    return { success: true };
+  });
+}
+
 export async function listPaymentsForOrder(orderId) {
   const { rows } = await pool.query(
     `SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at DESC`,

@@ -16,6 +16,7 @@ import { getRedemptionStatus, confirmSlotRedemption } from '../lib/redemption.js
 import {
   recordManualPayment, recordManualPaymentForCustomer, listPaymentsForOrder, listAllPayments,
   createPaymentSession, confirmClientReportedPayment, dismissStalePaymentSession,
+  updateManualPayment, deleteManualPayment,
 } from '../lib/payments.js';
 import {
   listAllOrders, listCustomersSummary, getDashboardStats, hardReset,
@@ -327,6 +328,16 @@ router.post('/admin/orders/:id/payments', requireAdmin, requirePermission('order
     Number(req.params.id), req.body?.amount, req.body?.method, req.session.adminName || 'admin', req.body?.note
   );
   res.json(payment);
+}));
+
+// עריכה/מחיקה של תשלום שהוזן ידנית בלבד (תיקון טעות הקלדה) — תשלומי נדרים
+// פלוס האמיתיים חסומים בשכבת ה-lib עצמה, ראו assertManualPayment.
+router.put('/admin/payments/:id', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await updateManualPayment(Number(req.params.id), req.body || {}, req.session.adminName || 'admin'));
+}));
+
+router.delete('/admin/payments/:id', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await deleteManualPayment(Number(req.params.id), req.session.adminName || 'admin'));
 }));
 
 // הזמנה ידנית ע"י מנהל — אותה createOrder בדיוק (כולל בדיקת כפילות זמן+מגדר
