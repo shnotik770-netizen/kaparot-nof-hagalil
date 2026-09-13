@@ -751,12 +751,12 @@ async function renderSlotsTab(containerId = 'tabContent') {
 
 function panelSafeId(phone) { return 'p' + phone.replace(/\D/g, ''); }
 
-// שורות תקציר לכרטיס המכווץ — רק זמן חלוקה + כמות (בלי פירוט מימוש, שעבר ל"מימוש מהיר").
+// שורות תקציר לכרטיס המכווץ — זמן חלוקה + כמות, ומספר שכבר נמשך אם יש (0 לא מוצג, כדי לא להעמיס לפני יום החלוקה).
 function customerSummaryRowsHtml(c) {
   return c.bySlot.map((s) => {
     const parts = [];
-    if (s.male > 0) parts.push(`${s.male} זכרים`);
-    if (s.female > 0) parts.push(`${s.female} נקבות`);
+    if (s.male > 0) parts.push(`${s.male} זכרים${s.maleRedeemed > 0 ? ` (${s.maleRedeemed} נמשכו)` : ''}`);
+    if (s.female > 0) parts.push(`${s.female} נקבות${s.femaleRedeemed > 0 ? ` (${s.femaleRedeemed} נמשכו)` : ''}`);
     return `
       <div class="item-row" style="border-inline-start:4px solid ${esc(s.slotColor || 'var(--accent)')};padding-inline-start:10px">
         <span>${esc(s.slotName)}</span>
@@ -783,7 +783,7 @@ function customerCardHtml(c) {
           ${pending.map((p) => `
             <div class="pending-payment-line">
               <span>${money(p.amount)} מ-${new Date(p.createdAt).toLocaleString('he-IL')}</span>
-              <button type="button" class="ghost" data-dismiss-pending="${esc(p.token)}">✕ בדקתי, הסתר</button>
+              <button type="button" class="ghost" data-dismiss-pending="${esc(p.token)}" data-phone="${esc(c.phone)}">✕ בדקתי, הסתר</button>
             </div>
           `).join('')}
         </div>
@@ -896,7 +896,7 @@ async function loadCustomerQuickRedeem(phone, containerId) {
       const slotId = Number(b.dataset.cqconfirm);
       const c = chosen[slotId];
       if (c.male <= 0 && c.female <= 0) return;
-      attemptQuickRedeem(phone, slotId, c.male, c.female, false, `${prefix}-msg-${slotId}`, () => loadCustomerQuickRedeem(phone, containerId));
+      attemptQuickRedeem(phone, slotId, c.male, c.female, false, `${prefix}-msg-${slotId}`, () => refreshCustomerCard(phone, { keepRedeemOpen: true }));
     };
   });
   const allBtn = document.getElementById(`${prefix}-redeemAll`);
@@ -907,7 +907,7 @@ async function loadCustomerQuickRedeem(phone, containerId) {
         if (g.male <= 0 && g.female <= 0) continue;
         await attemptQuickRedeem(phone, g.slotId, g.male, g.female, false, `${prefix}-msg-${g.slotId}`, null);
       }
-      loadCustomerQuickRedeem(phone, containerId);
+      refreshCustomerCard(phone, { keepRedeemOpen: true });
     };
   }
 }
@@ -1003,6 +1003,7 @@ function customerPanelHtml(c) {
               <span class="meta">נמשך בפועל:</span>
               <input type="number" min="0" max="${it.quantity}" value="${it.quantityRedeemed}" id="red-${it.id}" style="width:70px">
               <button class="ghost" data-save-red="${it.id}">שמירה</button>
+              <button class="ghost" data-cancel-red="${it.id}" style="color:var(--wine)" ${it.quantityRedeemed === 0 ? 'disabled' : ''}>ביטול מימוש</button>
               <button class="ghost" data-del-item="${o.id}:${it.id}" style="color:var(--wine)" ${it.quantityRedeemed > 0 ? 'disabled title="לא ניתן למחוק — כבר נמשך ממנה"' : ''}>מחיקת שורה</button>
             </div>
           </div>
@@ -1056,7 +1057,7 @@ async function wireCustomerPanel(c, refetch) {
     const method = document.getElementById(`${pid}-method`).value;
     try {
       await api(`/admin/customers/${encodeURIComponent(c.phone)}/payments`, { method: 'POST', body: { amount, method } });
-      renderOrdersTab();
+      refreshCustomerCard(c.phone, { keepEditOpen: true });
     } catch (err) {
       document.getElementById(`${pid}-msg`).innerHTML = `<div class="error">${err.message}</div>`;
     }
@@ -1079,7 +1080,7 @@ async function wireCustomerPanel(c, refetch) {
         } else {
           await shrinkAggregatedQuantity(c, slotId, gender, -delta);
         }
-        renderOrdersTab();
+        refreshCustomerCard(c.phone, { keepEditOpen: true });
       } catch (err) {
         document.getElementById(`${pid}-msg`).innerHTML = `<div class="error">${err.message}</div>`;
       }
@@ -1100,7 +1101,7 @@ async function wireCustomerPanel(c, refetch) {
       const gender = document.getElementById(`${pid}-newline-gender`).value;
       try {
         await api('/admin/orders', { method: 'POST', body: { phone: c.phone, items: [{ slotId, gender, quantity: newlineQty }] } });
-        renderOrdersTab();
+        refreshCustomerCard(c.phone, { keepEditOpen: true });
       } catch (err) {
         document.getElementById(`${pid}-newline-msg`).innerHTML = `<div class="error">${err.message}</div>`;
       }
@@ -1115,7 +1116,17 @@ async function wireCustomerPanel(c, refetch) {
       }
       try {
         await api(`/admin/order-items/${itemId}/redeemed`, { method: 'PUT', body: { quantityRedeemed } });
-        renderOrdersTab();
+        refreshCustomerCard(c.phone, { keepEditOpen: true });
+      } catch (err) { alert(err.message); }
+    };
+  });
+  panel.querySelectorAll('[data-cancel-red]').forEach((b) => {
+    b.onclick = async () => {
+      const itemId = b.dataset.cancelRed;
+      if (!confirm('לבטל את המימוש של שורה זו? הכמות שנמשכה עבורה תאופס ל-0.')) return;
+      try {
+        await api(`/admin/order-items/${itemId}/redeemed`, { method: 'PUT', body: { quantityRedeemed: 0 } });
+        refreshCustomerCard(c.phone, { keepEditOpen: true });
       } catch (err) { alert(err.message); }
     };
   });
@@ -1125,7 +1136,7 @@ async function wireCustomerPanel(c, refetch) {
       const [orderId, itemId] = b.dataset.delItem.split(':');
       try {
         await api(`/admin/orders/${orderId}/items/${itemId}`, { method: 'DELETE' });
-        renderOrdersTab();
+        refreshCustomerCard(c.phone, { keepEditOpen: true });
       } catch (err) { alert(err.message); }
     };
   });
@@ -1134,7 +1145,7 @@ async function wireCustomerPanel(c, refetch) {
       if (!confirm('למחוק את כל ההזמנה? פעולה זו מוחקת לגמרי, כולל אם כבר שולם/נמשך משהו ממנה.')) return;
       try {
         await api(`/admin/orders/${b.dataset.delOrder}`, { method: 'DELETE' });
-        renderOrdersTab();
+        refreshCustomerCard(c.phone, { keepEditOpen: true });
       } catch (err) { alert(err.message); }
     };
   });
@@ -1186,7 +1197,7 @@ async function wireCustomerPanel(c, refetch) {
         const method = document.getElementById(`${pid}-paymethod-${p.id}`).value;
         try {
           await api(`/admin/payments/${p.id}`, { method: 'PUT', body: { amount, method, note: p.note } });
-          renderOrdersTab();
+          refreshCustomerCard(c.phone, { keepEditOpen: true });
         } catch (err) {
           document.getElementById(`${pid}-paymsg-${p.id}`).innerHTML = `<div class="error">${err.message}</div>`;
         }
@@ -1199,10 +1210,75 @@ async function wireCustomerPanel(c, refetch) {
       if (!confirm(`למחוק את התשלום הזה (${money(p.amount)})? פעולה זו סופית.`)) return;
       try {
         await api(`/admin/payments/${p.id}`, { method: 'DELETE' });
-        renderOrdersTab();
+        refreshCustomerCard(c.phone, { keepEditOpen: true });
       } catch (err) { alert(err.message); }
     };
   });
+}
+
+// מחברת את שלושת הכפתורים ברמת הכרטיס (מימוש מהיר / עריכה / הסתרת התראת
+// תשלום) בתוך root נתון — עובד גם על כל הרשימה (renderList) וגם על כרטיס
+// בודד (refreshCustomerCard), כי כל כפתור נושא את data-phone של עצמו.
+function wireCustomerCardButtons(root) {
+  root.querySelectorAll('[data-cust-edit]').forEach((b) => {
+    b.onclick = async () => {
+      const phone = b.dataset.phone;
+      const panel = document.getElementById(panelSafeId(phone));
+      if (!panel.hidden) { panel.hidden = true; return; }
+      const c = allCustomersCache.find((x) => x.phone === phone);
+      panel.innerHTML = customerPanelHtml(c);
+      panel.hidden = false;
+      wireCustomerPanel(c);
+    };
+  });
+  root.querySelectorAll('[data-cust-redeem]').forEach((b) => {
+    b.onclick = () => {
+      const phone = b.dataset.phone;
+      const containerId = `${panelSafeId(phone)}-redeem`;
+      const panel = document.getElementById(containerId);
+      if (!panel.hidden) { panel.hidden = true; return; }
+      panel.hidden = false;
+      loadCustomerQuickRedeem(phone, containerId);
+    };
+  });
+  root.querySelectorAll('[data-dismiss-pending]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await api(`/admin/payment-sessions/${encodeURIComponent(b.dataset.dismissPending)}/dismiss`, { method: 'POST' });
+        refreshCustomerCard(b.dataset.phone);
+      } catch (err) { alert(err.message); }
+    };
+  });
+}
+
+// מרעננת כרטיס לקוח בודד במקום (בלי לבנות מחדש את כל הרשימה ולקפוץ לראש
+// הדף) — משמשת אחרי כל שמירה/מחיקה בתוך פאנל העריכה או פאנל המימוש המהיר.
+async function refreshCustomerCard(phone, { keepEditOpen = false, keepRedeemOpen = false } = {}) {
+  const customers = await api('/admin/customers');
+  allCustomersCache = customers;
+  const headerH2 = document.querySelector('.tab-header-row h2');
+  const headerHint = document.querySelector('.tab-header-row .hint');
+  if (headerH2) headerH2.textContent = `לקוחות (${customers.length})`;
+  if (headerHint) headerHint.textContent = `${customers.length} לקוחות · ${customers.filter((x) => x.paymentStatus === 'paid').length} שולמו במלואם`;
+
+  const c = customers.find((x) => x.phone === phone);
+  const container = document.getElementById(`custcard-${panelSafeId(phone)}`);
+  if (!container) { return renderOrdersTab(); }
+  if (!c) { container.remove(); return; }
+
+  container.innerHTML = customerCardHtml(c);
+  wireCustomerCardButtons(container);
+  if (keepEditOpen) {
+    const panel = document.getElementById(panelSafeId(phone));
+    panel.innerHTML = customerPanelHtml(c);
+    panel.hidden = false;
+    wireCustomerPanel(c);
+  }
+  if (keepRedeemOpen) {
+    const redeemPanel = document.getElementById(`${panelSafeId(phone)}-redeem`);
+    redeemPanel.hidden = false;
+    loadCustomerQuickRedeem(phone, `${panelSafeId(phone)}-redeem`);
+  }
 }
 
 let allCustomersCache = [];
@@ -1301,37 +1377,9 @@ async function renderOrdersTab() {
   function renderList(list) {
     const wrap = document.getElementById('ordersListWrap');
     wrap.innerHTML = list.length
-      ? list.map(customerCardHtml).join('')
+      ? list.map((c) => `<div id="custcard-${panelSafeId(c.phone)}">${customerCardHtml(c)}</div>`).join('')
       : `<div class="card"><p class="hint">לא נמצאו לקוחות תואמים.</p></div>`;
-    wrap.querySelectorAll('[data-cust-edit]').forEach((b) => {
-      b.onclick = async () => {
-        const phone = b.dataset.phone;
-        const panel = document.getElementById(panelSafeId(phone));
-        if (!panel.hidden) { panel.hidden = true; return; }
-        const c = allCustomersCache.find((x) => x.phone === phone);
-        panel.innerHTML = customerPanelHtml(c);
-        panel.hidden = false;
-        wireCustomerPanel(c);
-      };
-    });
-    wrap.querySelectorAll('[data-cust-redeem]').forEach((b) => {
-      b.onclick = () => {
-        const phone = b.dataset.phone;
-        const containerId = `${panelSafeId(phone)}-redeem`;
-        const panel = document.getElementById(containerId);
-        if (!panel.hidden) { panel.hidden = true; return; }
-        panel.hidden = false;
-        loadCustomerQuickRedeem(phone, containerId);
-      };
-    });
-    wrap.querySelectorAll('[data-dismiss-pending]').forEach((b) => {
-      b.onclick = async () => {
-        try {
-          await api(`/admin/payment-sessions/${encodeURIComponent(b.dataset.dismissPending)}/dismiss`, { method: 'POST' });
-          renderOrdersTab();
-        } catch (err) { alert(err.message); }
-      };
-    });
+    wireCustomerCardButtons(wrap);
   }
 
   document.getElementById('orderSearch').oninput = applyFilters;
