@@ -108,7 +108,7 @@ export async function listCustomersSummary() {
       orders: c.orders,
       pendingUnconfirmedPayments: staleByPhone.get(c.normalizedPhone) || [],
     };
-  }).sort((a, b) => (b.orders[0]?.createdAt || '').localeCompare(a.orders[0]?.createdAt || ''));
+  }).sort((a, b) => new Date(b.orders[0]?.createdAt || 0) - new Date(a.orders[0]?.createdAt || 0));
 }
 
 /**
