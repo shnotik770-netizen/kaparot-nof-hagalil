@@ -1,11 +1,12 @@
-// גיבוי תקופתי של נתוני הלקוחות לטבלת Google Sheets — רץ ברקע על טיימר,
-// מנותק לגמרי מבקשות המשתמשים החיות (לא חלק מאף critical path). אם הסנכרון
-// נכשל (רשת, מכסה, הרשאות) זה רק מדלג לניסיון הבא — אף פעם לא מפיל את השרת
-// ואף פעם לא חוסם בקשה של לקוח/מנהל.
+// גיבוי תקופתי של נתוני הלקוחות + יומן הפעולות לטבלת Google Sheets — רץ ברקע
+// על טיימר, מנותק לגמרי מבקשות המשתמשים החיות (לא חלק מאף critical path). אם
+// הסנכרון נכשל (רשת, מכסה, הרשאות) זה רק מדלג לניסיון הבא — אף פעם לא מפיל
+// את השרת ואף פעם לא חוסם בקשה של לקוח/מנהל.
 
 import { getSheetsAccessToken } from './googleAuth.js';
 import { listCustomersSummary } from './adminOps.js';
 import { getAllSlots } from './slots.js';
+import { listAllActions } from './actionLog.js';
 
 let started = false;
 
@@ -20,13 +21,41 @@ function colLetter(n) {
   return s;
 }
 
-async function buildRows() {
+// תואם את ACTION_LABELS ב-admin.html — עותק עצמאי בכוונה, זו קבועה קטנה
+// שנצרכת משני צדדים עצמאיים (דפדפן מול גיליון), בלי מודול משותף ביניהם.
+const ACTION_LABELS = {
+  order_created: 'הזמנה נוצרה',
+  payment_recorded_manual: 'תשלום ידני נרשם',
+  payment_edited: 'תשלום ידני נערך',
+  payment_deleted: 'תשלום ידני נמחק',
+  payment_received_nedarim: 'תשלום התקבל (נדרים פלוס, Webhook)',
+  payment_client_confirmed: 'תשלום אושר לפי הדפדפן (טרם אומת Webhook)',
+  redemption_confirmed: 'מימוש עופות',
+  redemption_manual_override: 'מימוש עודכן ידנית ע"י מנהל',
+  order_item_edited: 'שורת הזמנה עודכנה',
+  order_item_deleted: 'שורת הזמנה נמחקה',
+  order_deleted: 'הזמנה נמחקה',
+  sms_bulk_sent: 'סמס קבוצתי נשלח',
+  payment_alert_dismissed: 'אזהרת תשלום לא-מאושר הוסתרה',
+  settings_updated: 'הגדרות עודכנו',
+  slot_created: 'זמן חלוקה נוסף',
+  slot_updated: 'זמן חלוקה עודכן',
+  slot_deleted: 'זמן חלוקה נמחק',
+  admin_created: 'מנהל נוסף',
+  admin_updated: 'מנהל עודכן',
+  admin_deleted: 'מנהל נמחק',
+  admin_login: 'כניסת מנהל',
+  hard_reset: 'איפוס קשיח',
+};
+
+async function buildCustomerRows() {
   const [slots, customers] = await Promise.all([getAllSlots(), listCustomersSummary()]);
 
-  const header = ['שם לקוח', 'טלפון'];
+  const header = ['שם', 'טלפון'];
   for (const slot of slots) {
     header.push(`${slot.name} - הזמנה זכרים`, `${slot.name} - הזמנה נקבות`, `${slot.name} - מימוש זכרים`, `${slot.name} - מימוש נקבות`);
   }
+  header.push('סה"כ לתשלום', 'שולם בפועל');
 
   const rows = [header];
   for (const c of customers) {
@@ -36,22 +65,29 @@ async function buildRows() {
       const s = bySlotId.get(slot.id);
       row.push(s?.male || 0, s?.female || 0, s?.maleRedeemed || 0, s?.femaleRedeemed || 0);
     }
+    row.push(Number(c.totalAmount) || 0, Number(c.amountPaid) || 0);
     rows.push(row);
   }
   return rows;
 }
 
-export async function syncNow() {
-  const sheetId = process.env.GOOGLE_SHEET_ID;
-  if (!sheetId) return;
+async function buildLogRows() {
+  const actions = await listAllActions();
+  const header = ['תאריך ושעה', 'סוג פעולה', 'פרטים'];
+  const rows = [header];
+  for (const a of actions) {
+    rows.push([
+      new Date(a.createdAt).toLocaleString('he-IL'),
+      ACTION_LABELS[a.actionType] || a.actionType,
+      JSON.stringify(a.details || {}),
+    ]);
+  }
+  return rows;
+}
 
-  const tabName = process.env.GOOGLE_SHEET_TAB_NAME || 'גיבוי';
-  const rows = await buildRows();
+async function writeSheetTab(token, base, tabName, rows) {
   const lastCol = colLetter(Math.max(1, rows[0]?.length || 1));
   const range = `${tabName}!A1:${lastCol}${Math.max(1, rows.length)}`;
-
-  const token = await getSheetsAccessToken();
-  const base = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}`;
 
   const clearRes = await fetch(`${base}/values/${encodeURIComponent(`${tabName}!A:ZZ`)}:clear`, {
     method: 'POST',
@@ -59,7 +95,7 @@ export async function syncNow() {
     signal: AbortSignal.timeout(15_000),
   });
   if (!clearRes.ok) {
-    throw new Error(`ניקוי הגיליון נכשל: ${clearRes.status} ${await clearRes.text().catch(() => '')}`);
+    throw new Error(`ניקוי הלשונית "${tabName}" נכשל: ${clearRes.status} ${await clearRes.text().catch(() => '')}`);
   }
 
   const writeRes = await fetch(`${base}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, {
@@ -69,8 +105,23 @@ export async function syncNow() {
     signal: AbortSignal.timeout(15_000),
   });
   if (!writeRes.ok) {
-    throw new Error(`כתיבה לגיליון נכשלה: ${writeRes.status} ${await writeRes.text().catch(() => '')}`);
+    throw new Error(`כתיבה ללשונית "${tabName}" נכשלה: ${writeRes.status} ${await writeRes.text().catch(() => '')}`);
   }
+}
+
+export async function syncNow() {
+  const sheetId = process.env.GOOGLE_SHEET_ID;
+  if (!sheetId) return;
+
+  const tabName = process.env.GOOGLE_SHEET_TAB_NAME || 'טבלה';
+  const logTabName = process.env.GOOGLE_SHEET_LOG_TAB_NAME || 'יומן';
+
+  const token = await getSheetsAccessToken();
+  const base = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}`;
+
+  const [customerRows, logRows] = await Promise.all([buildCustomerRows(), buildLogRows()]);
+  await writeSheetTab(token, base, tabName, customerRows);
+  await writeSheetTab(token, base, logTabName, logRows);
 }
 
 export function startPeriodicSheetsSync() {
