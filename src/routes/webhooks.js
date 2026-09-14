@@ -11,6 +11,17 @@ import { allocateNedarimPayment } from '../lib/payments.js';
 const router = Router();
 
 router.post('/nedarim-plus', async (req, res) => {
+  // עטיפה מלאה בטרייקאץ' — תקלת DB חולפת (בדיוק ה"נתיב החם" ביותר בזמן
+  // האירוע, כשהרבה אנשים משלמים בו-זמנית) לא אמורה להפיל את כל השרת.
+  try {
+    await handleNedarimWebhook(req, res);
+  } catch (err) {
+    console.error('[nedarim webhook] unexpected error', err);
+    if (!res.headersSent) res.status(500).json({ error: 'unexpected_error' });
+  }
+});
+
+async function handleNedarimWebhook(req, res) {
   const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
   let payload = null;
   try {
@@ -81,6 +92,6 @@ router.post('/nedarim-plus', async (req, res) => {
   );
 
   res.status(200).json({ ok: true });
-});
+}
 
 export default router;
