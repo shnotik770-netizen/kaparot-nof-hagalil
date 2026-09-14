@@ -213,6 +213,28 @@ export async function deleteOrder(orderId, adminName) {
   return { success: true };
 }
 
+// מוריד `excess` מיומן המשיכות (redemptions) של שורת הזמנה נתונה, מהאירועים
+// העדכניים ביותר קודם (LIFO), כולל פיצול אירוע חלקית אם צריך. משמש גם
+// כשמנהל מבטל/מקטין מימוש (setItemRedeemedQuantity) וגם בניקוי חד-פעמי של
+// רשומות שנשארו תקועות מלפני שהתיקון הזה נכתב (ראו reconcileRedemptionLog).
+async function trimRedemptionLog(client, itemId, excess) {
+  let remaining = excess;
+  const { rows: existing } = await client.query(
+    `SELECT id, quantity FROM redemptions WHERE order_item_id = $1 ORDER BY redeemed_at DESC, id DESC FOR UPDATE`,
+    [itemId]
+  );
+  for (const r of existing) {
+    if (remaining <= 0) break;
+    if (r.quantity <= remaining) {
+      await client.query(`DELETE FROM redemptions WHERE id = $1`, [r.id]);
+      remaining -= r.quantity;
+    } else {
+      await client.query(`UPDATE redemptions SET quantity = quantity - $2 WHERE id = $1`, [r.id, remaining]);
+      remaining = 0;
+    }
+  }
+}
+
 /**
  * "מצב מימוש" ידני ע"י מנהל: קובע ישירות כמה נמשכו בפועל משורת הזמנה, בלי
  * לעבור דרך שערי התשלום/פתיחת-הזמן הרגילים (למשל תיקון טעות, או משיכה
@@ -250,29 +272,37 @@ export async function setItemRedeemedQuantity(itemId, quantityRedeemed, adminNam
       // תיקון-כלפי-מטה (כולל ביטול מימוש מלא): מורידים בהתאם את יומן
       // המשיכות (redemptions) עצמו — אחרת אירועי משיכה שבוטלו/תוקנו ימשיכו
       // להופיע לנצח בדוחות המבוססים על היומן (ציר הזמן בדשבורד), למרות
-      // שבפועל אין להם כיסוי ב-quantity_redeemed. מורידים מהאירועים
-      // העדכניים ביותר קודם (LIFO), כולל פיצול אירוע חלקית אם צריך.
-      let remaining = -delta;
-      const { rows: existing } = await client.query(
-        `SELECT id, quantity FROM redemptions WHERE order_item_id = $1 ORDER BY redeemed_at DESC, id DESC FOR UPDATE`,
-        [itemId]
-      );
-      for (const r of existing) {
-        if (remaining <= 0) break;
-        if (r.quantity <= remaining) {
-          await client.query(`DELETE FROM redemptions WHERE id = $1`, [r.id]);
-          remaining -= r.quantity;
-        } else {
-          await client.query(`UPDATE redemptions SET quantity = quantity - $2 WHERE id = $1`, [r.id, remaining]);
-          remaining = 0;
-        }
-      }
+      // שבפועל אין להם כיסוי ב-quantity_redeemed.
+      await trimRedemptionLog(client, itemId, -delta);
     }
     await logAction('redemption_manual_override', {
       itemId, orderId: item.order_id, oldQuantityRedeemed: item.quantity_redeemed, newQuantityRedeemed: q, delta, adminName,
     }, client);
     return { success: true };
   });
+}
+
+/**
+ * ניקוי חד-פעמי (אך בטוח להרצה חוזרת — idempotent): לפני שנכתב הטיפול ב-
+ * trimRedemptionLog למעלה, ביטול/הקטנת מימוש לא הוריד רשומות מיומן
+ * redemptions, כך שמימושי-ניסיון שבוטלו נשארו רשומים שם לנצח והמשיכו
+ * להופיע בציר הזמן בדשבורד. מאתר כל שורת הזמנה שבה סכום היומן גדול
+ * מהכמות שבאמת נמשכה כרגע, ומקצץ את העודף (LIFO) כדי שהיומן יתאים למצב
+ * בפועל. רץ אוטומטית בכל דיפלוי (ראו migrate.js) — אחרי הריצה הראשונה
+ * שמתקנת את הפער ההיסטורי, אין יותר מה לתקן וזה no-op.
+ */
+export async function reconcileRedemptionLog() {
+  const { rows: mismatched } = await pool.query(
+    `SELECT oi.id AS item_id, oi.quantity_redeemed, COALESCE(SUM(r.quantity), 0)::int AS logged
+       FROM order_items oi
+       LEFT JOIN redemptions r ON r.order_item_id = oi.id
+      GROUP BY oi.id, oi.quantity_redeemed
+     HAVING COALESCE(SUM(r.quantity), 0) > oi.quantity_redeemed`
+  );
+  for (const row of mismatched) {
+    await withTransaction((client) => trimRedemptionLog(client, row.item_id, row.logged - row.quantity_redeemed));
+  }
+  return { itemsFixed: mismatched.length };
 }
 
 /** מוזמן מול נמשך, לפי זמן חלוקה + מגדר — לדשבורד. */
