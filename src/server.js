@@ -7,6 +7,7 @@ import connectPgSimple from 'connect-pg-simple';
 import { pool } from './db/pool.js';
 import apiRouter from './routes/api.js';
 import webhooksRouter from './routes/webhooks.js';
+import { startPeriodicSheetsSync } from './lib/sheetsSync.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PgSession = connectPgSimple(session);
@@ -55,4 +56,5 @@ app.use((err, req, res, next) => {
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`🐔 שרת כפרות רץ על פורט ${port}`);
+  startPeriodicSheetsSync();
 });
