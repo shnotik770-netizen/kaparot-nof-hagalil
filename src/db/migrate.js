@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import 'dotenv/config';
 import { pool } from './pool.js';
+import { reconcileRedemptionLog } from '../lib/adminOps.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -10,6 +11,12 @@ async function main() {
   const sql = readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   await pool.query(sql);
   console.log('✅ סכימת הדאטהבייס עודכנה בהצלחה.');
+
+  const { itemsFixed } = await reconcileRedemptionLog();
+  if (itemsFixed > 0) {
+    console.log(`✅ יומן מימושים נוקה: ${itemsFixed} שורות הזמנה תוקנו (מימושים שבוטלו והמשיכו להופיע ביומן).`);
+  }
+
   await pool.end();
 }
 
