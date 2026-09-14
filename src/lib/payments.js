@@ -286,6 +286,24 @@ export async function confirmClientReportedPayment(token, normalizedPhone, trans
 }
 
 /**
+ * הדפדפן מדווח שהאייפרם החזיר Status שאינו 'OK' (כישלון/ביטול מפורש בתוך
+ * נדרים פלוס) — זה איתות שלילי וודאי, לא רק "לא קיבלנו תשובה". בלי זה,
+ * ה-session היה נשאר 'pending' ומצטרף כעבור 10 דקות לאזהרת "ייתכן שיש
+ * תשלום שלא אושר" בפאנל הניהול, אף שידוע בוודאות שהתשלום הזה לא עבר.
+ * לא זורקת שגיאה אם ה-session לא נמצא/כבר טופל — זה איתות best-effort,
+ * לא פעולת מנהל.
+ */
+export async function cancelPaymentSession(token, normalizedPhone) {
+  const { rows } = await pool.query(
+    `UPDATE payment_sessions SET status = 'dismissed'
+      WHERE token = $1 AND normalized_phone = $2 AND status = 'pending'
+      RETURNING id`,
+    [token, normalizedPhone]
+  );
+  return { success: rows.length > 0 };
+}
+
+/**
  * מנהל בדק ידנית (מול נדרים פלוס) והחליט שאין כאן תשלום אמיתי לטפל בו —
  * מסמן את ה-session כ-'dismissed' כדי שיפסיק להופיע כאזהרה "ייתכן שיש
  * תשלום שלא אושר". לא נוגע בהזמנות/תשלומים בכלל, רק מפסיק להתריע.

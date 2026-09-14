@@ -15,7 +15,8 @@ import {
 import { getRedemptionStatus, confirmSlotRedemption } from '../lib/redemption.js';
 import {
   recordManualPayment, recordManualPaymentForCustomer, listPaymentsForOrder, listAllPayments,
-  createPaymentSession, confirmClientReportedPayment, dismissStalePaymentSession, dismissAllStalePaymentSessions,
+  createPaymentSession, confirmClientReportedPayment, cancelPaymentSession,
+  dismissStalePaymentSession, dismissAllStalePaymentSessions,
   updateManualPayment, deleteManualPayment,
 } from '../lib/payments.js';
 import {
@@ -203,6 +204,13 @@ router.post('/payment/confirm-client', requireVerifiedPhone, wrap(async (req, re
   const normalized = normalizePhone(req.body.phone);
   const result = await confirmClientReportedPayment(req.body?.token, normalized, req.body?.transactionId);
   res.json(result);
+}));
+
+// האייפרם דיווח על כישלון/ביטול מפורש (Status !== 'OK') — ראו cancelPaymentSession
+// ב-payments.js. מונע התראת "ייתכן שיש תשלום שלא אושר" שגויה על ניסיון שידוע שנכשל.
+router.post('/payment/cancel-session', requireVerifiedPhone, wrap(async (req, res) => {
+  const normalized = normalizePhone(req.body.phone);
+  res.json(await cancelPaymentSession(req.body?.token, normalized));
 }));
 
 // מנקה את אימות הטלפון מה-session — קריטי בעמדת הקיוסק המשותפת (וגם כפתור
