@@ -661,8 +661,24 @@ function customerSummaryRowsHtml(c) {
   }).join('');
 }
 
+// התראת "ייתכן שיש תשלום שלא אושר" — שורה אחת בלבד ללקוח (גם אם היו כמה
+// ניסיונות תשלום כושלים), ומוצגת רק אם עדיין יש לו חוב פתוח (ראו
+// pendingUnconfirmedPayment ב-listCustomersSummary).
+function pendingPaymentNoticeHtml(c) {
+  const p = c.pendingUnconfirmedPayment;
+  if (!p) return '';
+  const countLabel = p.count > 1 ? ` (${p.count} ניסיונות — מוצג האחרון)` : '';
+  return `
+    <div class="notice">
+      ⚠️ ייתכן שיש תשלום באשראי שלא אושר במערכת${countLabel} — ${money(p.amount)} מ-${new Date(p.createdAt).toLocaleString('he-IL')}. כדאי לבדוק ידנית מול נדרים פלוס, ולרשום תשלום ידני אם התשלום כן עבר.
+      <div class="pending-payment-line">
+        <button type="button" class="ghost" data-dismiss-pending data-phone="${esc(c.phone)}">✕ בדקתי, הסתר</button>
+      </div>
+    </div>
+  `;
+}
+
 function customerCardHtml(c) {
-  const pending = c.pendingUnconfirmedPayments || [];
   return `
     <div class="card">
       <div class="order-row-header">
@@ -672,17 +688,7 @@ function customerCardHtml(c) {
           <span class="pill ${c.paymentStatus}">${STATUS_LABEL[c.paymentStatus]}</span>
         </span>
       </div>
-      ${pending.length ? `
-        <div class="notice">
-          ⚠️ ייתכן שיש תשלום באשראי שלא אושר במערכת — כדאי לבדוק ידנית מול נדרים פלוס, ולרשום תשלום ידני אם התשלום כן עבר.
-          ${pending.map((p) => `
-            <div class="pending-payment-line">
-              <span>${money(p.amount)} מ-${new Date(p.createdAt).toLocaleString('he-IL')}</span>
-              <button type="button" class="ghost" data-dismiss-pending="${esc(p.token)}" data-phone="${esc(c.phone)}">✕ בדקתי, הסתר</button>
-            </div>
-          `).join('')}
-        </div>
-      ` : ''}
+      ${pendingPaymentNoticeHtml(c)}
       ${customerSummaryRowsHtml(c)}
       <div class="grid4" style="margin-top:10px">
         <button class="secondary" data-cust-view data-phone="${esc(c.phone)}">📋 הצג פירוט</button>
@@ -1235,7 +1241,7 @@ function wireCustomerCardButtons(root) {
   root.querySelectorAll('[data-dismiss-pending]').forEach((b) => {
     b.onclick = async () => {
       try {
-        await api(`/admin/payment-sessions/${encodeURIComponent(b.dataset.dismissPending)}/dismiss`, { method: 'POST' });
+        await api(`/admin/customers/${encodeURIComponent(b.dataset.phone)}/payment-sessions/dismiss`, { method: 'POST' });
         refreshCustomerCard(b.dataset.phone);
       } catch (err) { alert(err.message); }
     };

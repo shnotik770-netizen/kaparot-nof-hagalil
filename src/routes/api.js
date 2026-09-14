@@ -15,7 +15,7 @@ import {
 import { getRedemptionStatus, confirmSlotRedemption } from '../lib/redemption.js';
 import {
   recordManualPayment, recordManualPaymentForCustomer, listPaymentsForOrder, listAllPayments,
-  createPaymentSession, confirmClientReportedPayment, dismissStalePaymentSession,
+  createPaymentSession, confirmClientReportedPayment, dismissStalePaymentSession, dismissAllStalePaymentSessions,
   updateManualPayment, deleteManualPayment,
 } from '../lib/payments.js';
 import {
@@ -317,6 +317,13 @@ router.post('/admin/customers/:phone/payments', requireAdmin, requirePermission(
 // "בדקתי ידנית, אין כאן תשלום אמיתי" — משתיק את אזהרת "ייתכן שיש תשלום שלא אושר" עבור session ספציפי.
 router.post('/admin/payment-sessions/:token/dismiss', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   res.json(await dismissStalePaymentSession(req.params.token, req.session.adminName || 'admin'));
+}));
+
+// כמו למעלה, אבל מסתיר בבת אחת את כל ניסיונות התשלום הישנים של אותו לקוח
+// (ראו pendingUnconfirmedPayment המאוחד ב-listCustomersSummary).
+router.post('/admin/customers/:phone/payment-sessions/dismiss', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  const normalized = normalizePhone(req.params.phone);
+  res.json(await dismissAllStalePaymentSessions(normalized, req.session.adminName || 'admin'));
 }));
 
 router.get('/admin/orders/:id/payments', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {

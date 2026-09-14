@@ -99,6 +99,14 @@ export async function listCustomersSummary() {
       }
     }
 
+    // "ייתכן שיש תשלום שלא אושר" — התראה אחת בלבד ללקוח, לא אחת לכל ניסיון
+    // כושל, ורק אם עדיין יש לו חוב (אם הכל שולם, ניסיון ישן ולא-מאושר כבר
+    // לא רלוונטי — הבעיה פתרה את עצמה).
+    const staleList = staleByPhone.get(c.normalizedPhone) || [];
+    const pendingUnconfirmedPayment = balanceDue > 0 && staleList.length
+      ? { tokens: staleList.map((s) => s.token), amount: staleList[0].amount, createdAt: staleList[0].createdAt, count: staleList.length }
+      : null;
+
     return {
       phone: c.phone,
       customerName: c.customerName,
@@ -106,7 +114,7 @@ export async function listCustomersSummary() {
       fullyRedeemed: hasAnyItem && fullyRedeemed,
       bySlot: [...bySlot.values()],
       orders: c.orders,
-      pendingUnconfirmedPayments: staleByPhone.get(c.normalizedPhone) || [],
+      pendingUnconfirmedPayment,
     };
   }).sort((a, b) => new Date(b.orders[0]?.createdAt || 0) - new Date(a.orders[0]?.createdAt || 0));
 }
