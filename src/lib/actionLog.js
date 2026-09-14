@@ -23,3 +23,16 @@ export async function listActions({ limit = 200 } = {}) {
     createdAt: r.created_at,
   }));
 }
+
+/** כל היומן, כרונולוגי (ישן לחדש) — בלי הגבלת 500 של listActions, לצורך גיבוי מלא (ראו sheetsSync.js). */
+export async function listAllActions() {
+  const { rows } = await pool.query(
+    `SELECT id, action_type, details, created_at FROM admin_actions ORDER BY created_at ASC`
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    actionType: r.action_type,
+    details: r.details,
+    createdAt: r.created_at,
+  }));
+}
