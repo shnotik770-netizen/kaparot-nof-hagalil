@@ -712,7 +712,7 @@ function customerCardHtml(c) {
 // "מימוש מהיר" על כרטיס לקוח סגור — אותה לוגיקה בדיוק כמו מסך "מצב מימוש"
 // המלא (status + attemptQuickRedeem), רק שמוצג בתוך הכרטיס עצמו, ומאפשר גם
 // "מימוש הכל" בלחיצה אחת על כל הפריטים הזמינים של הלקוח.
-async function loadCustomerQuickRedeem(phone, containerId) {
+async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true } = {}) {
   const box = document.getElementById(containerId);
   if (!box) return;
   box.innerHTML = `<div class="loading">טוען…</div>`;
@@ -758,7 +758,7 @@ async function loadCustomerQuickRedeem(phone, containerId) {
 
   const c = allCustomersCache.find((x) => x.phone === phone);
   const historyItems = [];
-  if (c) {
+  if (showHistory && c) {
     c.orders.forEach((o) => {
       o.items.forEach((it) => historyItems.push({ ...it, orderId: o.id }));
     });
@@ -1369,7 +1369,7 @@ function wireQuickEventPayForm(phone) {
 function wireQuickEventCard(container, c) {
   if (!container) return;
   if (c.paymentStatus === 'paid') {
-    loadCustomerQuickRedeem(c.phone, `qeredeem-${panelSafeId(c.phone)}`);
+    loadCustomerQuickRedeem(c.phone, `qeredeem-${panelSafeId(c.phone)}`, { showHistory: false });
     return;
   }
   const btn = container.querySelector('[data-qe-pay]');
@@ -1392,6 +1392,24 @@ function renderQuickEventList(list) {
   list.forEach((c) => wireQuickEventCard(document.getElementById(`custcard-${panelSafeId(c.phone)}`), c));
 }
 
+// חיפוש חי בדיוק כמו בתצוגה הרגילה: כל הכרטיסים כבר מרונדרים (עם פאנל
+// המימוש המהיר טעון פעם אחת לכל לקוח ששילם) — הקלדה רק מציגה/מסתירה
+// כרטיסים קיימים לפי טקסט, בלי לבנות מחדש את הרשימה ובלי לטעון מחדש את
+// המימוש המהיר על כל הקשת מקש (מה שהיה מהביל ואיטי).
+function filterQuickEventList(list, query) {
+  const q = query.trim().toLowerCase();
+  let visibleCount = 0;
+  list.forEach((c) => {
+    const el = document.getElementById(`custcard-${panelSafeId(c.phone)}`);
+    if (!el) return;
+    const matches = !q || c.customerName.toLowerCase().includes(q) || c.phone.includes(q);
+    el.hidden = !matches;
+    if (matches) visibleCount++;
+  });
+  const noResults = document.getElementById('quickEventNoResults');
+  if (noResults) noResults.hidden = list.length === 0 || visibleCount > 0;
+}
+
 function renderQuickEventModeScreen(customers, slots) {
   quickEventOpenSlotIds = new Set(slots.filter((s) => s.isOpenForPickup).map((s) => s.id));
   const redeemable = customers.filter((c) => customerHasRedeemableInSlots(c, quickEventOpenSlotIds));
@@ -1409,6 +1427,7 @@ function renderQuickEventModeScreen(customers, slots) {
       <input type="text" id="quickEventSearch" placeholder="הקלידו שם או מספר טלפון...">
     </div>
     <div id="quickEventListWrap"></div>
+    <div class="card" id="quickEventNoResults" hidden><p class="hint">לא נמצאו לקוחות תואמים.</p></div>
   `;
 
   document.getElementById('quickEventBack').onclick = () => {
@@ -1416,9 +1435,7 @@ function renderQuickEventModeScreen(customers, slots) {
     renderOrdersTab();
   };
   document.getElementById('quickEventSearch').oninput = (e) => {
-    const q = e.target.value.trim().toLowerCase();
-    const filtered = !q ? redeemable : redeemable.filter((c) => c.customerName.toLowerCase().includes(q) || c.phone.includes(q));
-    renderQuickEventList(filtered);
+    filterQuickEventList(redeemable, e.target.value);
   };
 
   renderQuickEventList(redeemable);
