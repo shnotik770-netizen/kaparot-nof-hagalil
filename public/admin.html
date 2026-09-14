@@ -1541,21 +1541,22 @@ async function renderOrdersTab() {
         <button class="primary big-action" id="bulkSmsSend" style="width:100%">שליחה</button>
         <div id="bulkSmsMsg"></div>
       </div>
-      <div id="addOrderCard" hidden style="margin-top:10px">
-        <label for="newOrderPhone">טלפון</label>
-        <input type="tel" id="newOrderPhone" inputmode="numeric" placeholder="05XXXXXXXX">
-        <div id="newOrderCustomerIndicator"></div>
-        <label for="newOrderName">שם הלקוח (נדרש רק ללקוח חדש — ללקוח קיים יישמר השם הקיים)</label>
-        <input type="text" id="newOrderName">
-        <label for="newOrderNotes">הערות (אופציונלי)</label>
-        <textarea id="newOrderNotes"></textarea>
-        <label>פריטים</label>
-        <div id="newOrderItems"></div>
-        <button class="secondary" type="button" id="newOrderAddItem">+ הוספת פריט</button>
-        <div class="total-row"><span>סה"כ</span><span id="newOrderTotal">₪0</span></div>
-        <button class="primary big-action" id="newOrderSubmit" style="width:100%">יצירת הזמנה</button>
-        <div id="newOrderMsg"></div>
-      </div>
+    </div>
+    <div class="card" id="addOrderCard" hidden>
+      <h2 style="margin:0 0 10px">➕ הזמנה ידנית חדשה</h2>
+      <label for="newOrderPhone">טלפון</label>
+      <input type="tel" id="newOrderPhone" inputmode="numeric" placeholder="05XXXXXXXX">
+      <div id="newOrderCustomerIndicator"></div>
+      <label for="newOrderName">שם הלקוח (נדרש רק ללקוח חדש — ללקוח קיים יישמר השם הקיים)</label>
+      <input type="text" id="newOrderName">
+      <label for="newOrderNotes">הערות (אופציונלי)</label>
+      <textarea id="newOrderNotes"></textarea>
+      <label>פריטים</label>
+      <div id="newOrderItems"></div>
+      <button class="secondary" type="button" id="newOrderAddItem">+ הוספת פריט</button>
+      <div class="total-row"><span>סה"כ</span><span id="newOrderTotal">₪0</span></div>
+      <button class="primary big-action" id="newOrderSubmit" style="width:100%">יצירת הזמנה</button>
+      <div id="newOrderMsg"></div>
     </div>
     <div id="ordersListWrap"></div>
   `;
