@@ -1195,11 +1195,24 @@ async function wireCustomerPanel(c, refetch) {
 // הרשימה (renderList) וגם על כרטיס בודד (refreshCustomerCard), כי כל
 // כפתור נושא את data-phone של עצמו.
 function wireCustomerCardButtons(root) {
+  // ארבעת הפאנלים הם תצוגות חלופיות של אותו כרטיס — פתיחת אחד סוגרת
+  // אוטומטית את שלושת האחרים, כדי שלא ייפתחו כולם אחד מתחת לשני.
+  function closeOtherCustomerPanels(phone, exceptId) {
+    const ids = [`${panelSafeId(phone)}-view`, `${panelSafeId(phone)}-pay`, `${panelSafeId(phone)}-redeem`, panelSafeId(phone)];
+    for (const id of ids) {
+      if (id === exceptId) continue;
+      const p = document.getElementById(id);
+      if (p) p.hidden = true;
+    }
+  }
+
   root.querySelectorAll('[data-cust-view]').forEach((b) => {
     b.onclick = async () => {
       const phone = b.dataset.phone;
-      const panel = document.getElementById(`${panelSafeId(phone)}-view`);
+      const panelId = `${panelSafeId(phone)}-view`;
+      const panel = document.getElementById(panelId);
       if (!panel.hidden) { panel.hidden = true; return; }
+      closeOtherCustomerPanels(phone, panelId);
       const c = allCustomersCache.find((x) => x.phone === phone);
       panel.innerHTML = customerViewPanelHtml(c);
       panel.hidden = false;
@@ -1209,8 +1222,10 @@ function wireCustomerCardButtons(root) {
   root.querySelectorAll('[data-cust-pay]').forEach((b) => {
     b.onclick = async () => {
       const phone = b.dataset.phone;
-      const panel = document.getElementById(`${panelSafeId(phone)}-pay`);
+      const panelId = `${panelSafeId(phone)}-pay`;
+      const panel = document.getElementById(panelId);
       if (!panel.hidden) { panel.hidden = true; return; }
+      closeOtherCustomerPanels(phone, panelId);
       const c = allCustomersCache.find((x) => x.phone === phone);
       panel.innerHTML = customerPaymentsPanelHtml(c);
       panel.hidden = false;
@@ -1223,6 +1238,7 @@ function wireCustomerCardButtons(root) {
       const containerId = `${panelSafeId(phone)}-redeem`;
       const panel = document.getElementById(containerId);
       if (!panel.hidden) { panel.hidden = true; return; }
+      closeOtherCustomerPanels(phone, containerId);
       panel.hidden = false;
       loadCustomerQuickRedeem(phone, containerId);
     };
@@ -1230,8 +1246,10 @@ function wireCustomerCardButtons(root) {
   root.querySelectorAll('[data-cust-edit]').forEach((b) => {
     b.onclick = async () => {
       const phone = b.dataset.phone;
-      const panel = document.getElementById(panelSafeId(phone));
+      const panelId = panelSafeId(phone);
+      const panel = document.getElementById(panelId);
       if (!panel.hidden) { panel.hidden = true; return; }
+      closeOtherCustomerPanels(phone, panelId);
       const c = allCustomersCache.find((x) => x.phone === phone);
       panel.innerHTML = customerPanelHtml(c);
       panel.hidden = false;
