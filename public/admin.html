@@ -1384,12 +1384,28 @@ function wireQuickEventCard(container, c) {
   }
 }
 
-function renderQuickEventList(list) {
+// טוענים את פאנלי המימוש המהיר (בקשת רשת לכל לקוח ששילם) בקבוצות קטנות,
+// לא את כולם בבת אחת — ביום החלוקה זה בדיוק הרגע שגם לקוחות מממשים בעצמם
+// דרך הקיוסק/האזור האישי, ופרץ של עשרות בקשות מקבילות מהמנהל בפתיחת המסך
+// רק מתחרה על אותו דאטהבייס בזמן הכי עמוס.
+async function renderQuickEventList(list) {
   const wrap = document.getElementById('quickEventListWrap');
   wrap.innerHTML = list.length
     ? list.map((c) => `<div id="custcard-${panelSafeId(c.phone)}">${quickEventCardHtml(c)}</div>`).join('')
     : `<div class="card"><p class="hint">אין כרגע לקוחות עם כמות זמינה למימוש בזמן החלוקה הפתוח.</p></div>`;
-  list.forEach((c) => wireQuickEventCard(document.getElementById(`custcard-${panelSafeId(c.phone)}`), c));
+
+  const paid = [];
+  for (const c of list) {
+    const container = document.getElementById(`custcard-${panelSafeId(c.phone)}`);
+    if (!container) continue;
+    if (c.paymentStatus === 'paid') { paid.push(c); continue; }
+    wireQuickEventCard(container, c); // מיידי — חיבור כפתור תשלום בלבד, בלי בקשת רשת
+  }
+  const BATCH_SIZE = 4;
+  for (let i = 0; i < paid.length; i += BATCH_SIZE) {
+    const batch = paid.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map((c) => loadCustomerQuickRedeem(c.phone, `qeredeem-${panelSafeId(c.phone)}`, { showHistory: false })));
+  }
 }
 
 // חיפוש חי בדיוק כמו בתצוגה הרגילה: כל הכרטיסים כבר מרונדרים (עם פאנל
