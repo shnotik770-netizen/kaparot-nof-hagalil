@@ -947,6 +947,7 @@ function customerPaymentsPanelHtml(c) {
       </select>
       <button class="primary" data-cpay-submit="${esc(c.phone)}">רישום תשלום</button>
     </div>
+    <input type="text" id="${pid}-pnote" placeholder="פרטו מהו אופן התשלום..." hidden style="margin-top:8px">
     <div id="${pid}-pmsg"></div>
 
     <h3 style="margin:16px 0 8px;font-size:14px">תשלומים שנרשמו</h3>
@@ -958,11 +959,16 @@ async function wireCustomerPaymentsPanel(c) {
   const pid = panelSafeId(c.phone);
   const panel = document.getElementById(`${pid}-pay`);
 
+  const pmethodSelect = document.getElementById(`${pid}-pmethod`);
+  const pnoteInput = document.getElementById(`${pid}-pnote`);
+  pmethodSelect.onchange = () => { pnoteInput.hidden = pmethodSelect.value !== 'manual_admin'; };
+
   panel.querySelector('[data-cpay-submit]').onclick = async () => {
     const amount = Number(document.getElementById(`${pid}-pamt`).value);
-    const method = document.getElementById(`${pid}-pmethod`).value;
+    const method = pmethodSelect.value;
+    const note = pnoteInput.hidden ? undefined : pnoteInput.value.trim() || undefined;
     try {
-      await api(`/admin/customers/${encodeURIComponent(c.phone)}/payments`, { method: 'POST', body: { amount, method } });
+      await api(`/admin/customers/${encodeURIComponent(c.phone)}/payments`, { method: 'POST', body: { amount, method, note } });
       refreshCustomerCard(c.phone, { keepPayOpen: true });
     } catch (err) {
       document.getElementById(`${pid}-pmsg`).innerHTML = `<div class="error">${err.message}</div>`;
@@ -1009,13 +1015,18 @@ async function wireCustomerPaymentsPanel(c) {
           </select>
           <button class="primary" type="button" data-pay-save="${p.id}">שמירה</button>
         </div>
+        <input type="text" id="${pid}-paynote-${p.id}" placeholder="פרטו מהו אופן התשלום..." value="${esc(p.note || '')}" ${p.method === 'manual_admin' ? '' : 'hidden'} style="margin-top:8px">
         <div id="${pid}-paymsg-${p.id}"></div>
       `;
+      const editMethodSelect = document.getElementById(`${pid}-paymethod-${p.id}`);
+      const editNoteInput = document.getElementById(`${pid}-paynote-${p.id}`);
+      editMethodSelect.onchange = () => { editNoteInput.hidden = editMethodSelect.value !== 'manual_admin'; };
       editBox.querySelector('[data-pay-save]').onclick = async () => {
         const amount = Number(document.getElementById(`${pid}-payamt-${p.id}`).value);
-        const method = document.getElementById(`${pid}-paymethod-${p.id}`).value;
+        const method = editMethodSelect.value;
+        const note = editNoteInput.hidden ? undefined : editNoteInput.value.trim() || undefined;
         try {
-          await api(`/admin/payments/${p.id}`, { method: 'PUT', body: { amount, method, note: p.note } });
+          await api(`/admin/payments/${p.id}`, { method: 'PUT', body: { amount, method, note } });
           refreshCustomerCard(c.phone, { keepPayOpen: true });
         } catch (err) {
           document.getElementById(`${pid}-paymsg-${p.id}`).innerHTML = `<div class="error">${err.message}</div>`;
@@ -1373,6 +1384,7 @@ function quickEventPayFormHtml(phone) {
       </select>
       <button class="primary" type="button" data-qe-pay-submit>רישום תשלום</button>
     </div>
+    <input type="text" id="qe-note-${pid}" placeholder="פרטו מהו אופן התשלום..." hidden style="margin-top:8px">
     <div id="qe-msg-${pid}"></div>
   `;
 }
@@ -1380,11 +1392,15 @@ function quickEventPayFormHtml(phone) {
 function wireQuickEventPayForm(phone) {
   const pid = panelSafeId(phone);
   const panel = document.getElementById(`qepay-${pid}`);
+  const methodSelect = document.getElementById(`qe-method-${pid}`);
+  const noteInput = document.getElementById(`qe-note-${pid}`);
+  methodSelect.onchange = () => { noteInput.hidden = methodSelect.value !== 'manual_admin'; };
   panel.querySelector('[data-qe-pay-submit]').onclick = async () => {
     const amount = Number(document.getElementById(`qe-amt-${pid}`).value);
-    const method = document.getElementById(`qe-method-${pid}`).value;
+    const method = methodSelect.value;
+    const note = noteInput.hidden ? undefined : noteInput.value.trim() || undefined;
     try {
-      await api(`/admin/customers/${encodeURIComponent(phone)}/payments`, { method: 'POST', body: { amount, method } });
+      await api(`/admin/customers/${encodeURIComponent(phone)}/payments`, { method: 'POST', body: { amount, method, note } });
       refreshCustomerCard(phone);
     } catch (err) {
       document.getElementById(`qe-msg-${pid}`).innerHTML = `<div class="error">${err.message}</div>`;
