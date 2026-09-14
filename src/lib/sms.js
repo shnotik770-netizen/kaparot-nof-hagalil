@@ -41,7 +41,13 @@ export async function sendSms(normalizedPhone, message) {
   return data;
 }
 
-/** אותה הודעה למספר טלפונים בבת אחת (API של ימות המשיח תומך ברשימת טלפונים מופרדת בפסיקים ב-phones). */
+/**
+ * אותה הודעה למספר טלפונים בבקשה אחת. לפי תיעוד רשמי של ימות המשיח,
+ * ההפרדה בין טלפונים ב-phones היא ':' (נקודתיים) — לא ',' כפי שהונח
+ * בטעות בגרסה קודמת (מה שגרם ל-API להתייחס לכל הרשימה כטלפון בודד
+ * לא-תקין ולהחזיר "all Phone not is valid"). תשובת הצלחה כוללת oks/errors
+ * פר-טלפון — כלומר responseStatus יכול להיות 'OK' גם כשחלק מהנמענים נכשלו.
+ */
 export async function sendBulkSms(normalizedPhones, message) {
   const apiKey = process.env.YEMOT_SMS_API_KEY;
   if (!apiKey) {
@@ -58,8 +64,8 @@ export async function sendBulkSms(normalizedPhones, message) {
     res = await fetch(SEND_SMS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: apiKey, phones: normalizedPhones.join(','), message }),
-      signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify({ token: apiKey, phones: normalizedPhones.join(':'), message }),
+      signal: AbortSignal.timeout(30_000),
     });
   } catch {
     throw Object.assign(new Error('שליחת ה-SMS נכשלה (בעיית תקשורת עם שרת הסמס).'), { status: 502 });
@@ -79,5 +85,10 @@ export async function sendBulkSms(normalizedPhones, message) {
     throw err;
   }
 
-  return { ...data, recipientCount: normalizedPhones.length };
+  const failedEntries = Object.entries(data.errors || {});
+  return {
+    recipientCount: data.sendCount ?? (Array.isArray(data.oks) ? data.oks.length : normalizedPhones.length),
+    failedCount: failedEntries.length,
+    failed: failedEntries.map(([phone, error]) => ({ phone, error })),
+  };
 }

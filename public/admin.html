@@ -1622,7 +1622,8 @@ async function renderOrdersTab() {
     if (!confirm(`לשלוח את ההודעה ל-${currentFiltered.length} לקוחות מסוננים?`)) return;
     try {
       const result = await api('/admin/sms/bulk', { method: 'POST', body: { phones: currentFiltered.map((c) => c.phone), message } });
-      document.getElementById('bulkSmsMsg').innerHTML = `<div class="success">נשלח ל-${result.recipientCount ?? currentFiltered.length} נמענים.</div>`;
+      const failedNote = result.failedCount ? ` (נכשל עבור ${result.failedCount} נמענים)` : '';
+      document.getElementById('bulkSmsMsg').innerHTML = `<div class="success">נשלח ל-${result.recipientCount ?? currentFiltered.length} נמענים.${failedNote}</div>`;
     } catch (err) {
       document.getElementById('bulkSmsMsg').innerHTML = `<div class="error">${err.message}</div>`;
     }
