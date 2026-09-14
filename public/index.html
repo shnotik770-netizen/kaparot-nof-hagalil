@@ -859,6 +859,16 @@ async function onNedarimTransactionResponse(value) {
     document.getElementById('paymentContinueBtn').textContent = 'פתח חלון תשלום';
     document.getElementById('paymentError').textContent = value.Message || 'התשלום לא הושלם. ניתן לנסות שוב.';
     document.getElementById('paymentError').style.display = '';
+    // Status שאינו 'OK' הוא איתות שלילי וודאי מנדרים פלוס (לא רק "לא הגיע
+    // אישור") — מסמנים את ה-session מיד, כדי שלא יופיע בעוד 10 דקות כ"ייתכן
+    // שיש תשלום שלא אושר" אצל המנהל, אף שכבר ידוע שהתשלום הזה נכשל/בוטל.
+    if (currentPaymentSession?.token) {
+      api('/payment/cancel-session', {
+        method: 'POST',
+        body: { phone: state.phone, token: currentPaymentSession.token },
+      }).catch((err) => console.error('ביטול session תשלום נכשל (לא קריטי):', err));
+      currentPaymentSession = null;
+    }
   }
 }
 
