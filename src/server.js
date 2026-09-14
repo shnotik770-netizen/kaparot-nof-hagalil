@@ -11,6 +11,16 @@ import webhooksRouter from './routes/webhooks.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PgSession = connectPgSimple(session);
 
+// רשת ביטחון אחרונה: בלי זה, כל שגיאה לא-צפויה שמחמיצה את wrap()/try-catch
+// (למשל ב-webhooks או בקוד שרץ מחוץ לבקשת HTTP) מפילה את כל התהליך — כלומר
+// את השירות לכל הלקוחות המחוברים בבת אחת. עדיף לרשום ללוג ולהמשיך לרוץ.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+
 const app = express();
 app.set('trust proxy', 1);
 

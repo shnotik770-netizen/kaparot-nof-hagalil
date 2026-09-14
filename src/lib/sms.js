@@ -10,11 +10,19 @@ export async function sendSms(normalizedPhone, message) {
     throw Object.assign(new Error('שירות ה-SMS לא מוגדר (חסר YEMOT_SMS_API_KEY).'), { status: 500 });
   }
 
-  const res = await fetch(SEND_SMS_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: apiKey, phones: normalizedPhone, message }),
-  });
+  // בלי timeout, שרת ימות שנתקע/מאט משאיר בקשות לקוחות (למשל בקשת קוד אימות)
+  // תלויות ללא סוף — עם הרבה בקשות בו-זמנית זה נערם ומחמיר את המצב.
+  let res;
+  try {
+    res = await fetch(SEND_SMS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: apiKey, phones: normalizedPhone, message }),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw Object.assign(new Error('שליחת ה-SMS נכשלה (בעיית תקשורת עם שרת הסמס).'), { status: 502 });
+  }
   const text = await res.text();
   let data;
   try {
@@ -45,11 +53,17 @@ export async function sendBulkSms(normalizedPhones, message) {
     throw err;
   }
 
-  const res = await fetch(SEND_SMS_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: apiKey, phones: normalizedPhones.join(','), message }),
-  });
+  let res;
+  try {
+    res = await fetch(SEND_SMS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: apiKey, phones: normalizedPhones.join(','), message }),
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch {
+    throw Object.assign(new Error('שליחת ה-SMS נכשלה (בעיית תקשורת עם שרת הסמס).'), { status: 502 });
+  }
   const text = await res.text();
   let data;
   try {
