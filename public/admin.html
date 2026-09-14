@@ -1761,14 +1761,26 @@ function formatChartDate(dateStr) {
   return `${d.getDate()}.${d.getMonth() + 1}`;
 }
 
+function formatChartClock(d) {
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function bucketRangeLabel(bucketStartDate) {
+  const end = new Date(bucketStartDate.getTime() + 9 * 60_000);
+  return `${formatChartClock(bucketStartDate)}-${formatChartClock(end)}`;
+}
+
 // ממלא את הדילוגים בין ה-buckets שהתקבלו מהשרת (אין רשומה = 0 עופות באותו
-// חלון 10 דקות) כדי שהגרף יראה רצף אחיד מתחילת המימוש ועד סופו.
+// חלון 10 דקות) כדי שהגרף יראה רצף אחיד לפי שעון-קיר, מהחלון הראשון שבו
+// היה מימוש ועד האחרון (5:30-5:39, 5:40-5:49 וכו').
 function denseRedemptionBuckets(buckets) {
-  const maxIndex = Math.max(...buckets.map((b) => b.bucketIndex), 0);
-  const byIndex = new Map(buckets.map((b) => [b.bucketIndex, b.total]));
+  if (!buckets.length) return [];
+  const times = buckets.map((b) => new Date(b.bucketStart).getTime());
+  const minTime = Math.min(...times);
+  const maxTime = Math.max(...times);
+  const byTime = new Map(buckets.map((b) => [new Date(b.bucketStart).getTime(), b.total]));
   const items = [];
-  for (let i = 0; i <= maxIndex; i++) {
-    items.push({ label: String(i * 10), value: byIndex.get(i) || 0 });
+  for (let t = minTime; t <= maxTime; t += 600_000) {
+    items.push({ label: bucketRangeLabel(new Date(t)), value: byTime.get(t) || 0 });
   }
   return items;
 }

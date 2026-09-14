@@ -281,30 +281,26 @@ export async function getDashboardStats() {
       ORDER BY date`
   );
 
-  // ציר זמן מימושים: עופות שנמשכו בפועל, בקפיצות של 10 דקות ביחס לתחילת
-  // המימוש של אותו זמן חלוקה (המשיכה הראשונה שנרשמה לו) — ציר נפרד לכל חלוקה.
+  // ציר זמן מימושים: עופות שנמשכו בפועל, בקפיצות של 10 דקות לפי שעון-קיר
+  // (5:30-5:39, 5:40-5:49...) — ציר נפרד לכל חלוקה. floor לפי epoch (UTC) נותן
+  // בדיוק את אותה רשת 10-דקות כמו floor לפי שעון ישראל, כי ההפרש בין
+  // האזורים הוא תמיד כפולה של שעות שלמות (=כפולה של 10 דקות).
   const { rows: redemptionRows } = await pool.query(
-    `WITH r AS (
-       SELECT oi.slot_id, red.redeemed_at, red.quantity
-         FROM redemptions red
-         JOIN order_items oi ON oi.id = red.order_item_id
-     ),
-     bounds AS (SELECT slot_id, MIN(redeemed_at) AS t0 FROM r GROUP BY slot_id)
-     SELECT r.slot_id, s.name AS slot_name, s.color AS slot_color,
-            FLOOR(EXTRACT(EPOCH FROM (r.redeemed_at - b.t0)) / 600)::int AS bucket_index,
-            SUM(r.quantity)::int AS total
-       FROM r
-       JOIN bounds b ON b.slot_id = r.slot_id
-       JOIN distribution_slots s ON s.id = r.slot_id
-      GROUP BY r.slot_id, s.name, s.color, bucket_index
-      ORDER BY r.slot_id, bucket_index`
+    `SELECT oi.slot_id, s.name AS slot_name, s.color AS slot_color,
+            to_timestamp(FLOOR(EXTRACT(EPOCH FROM red.redeemed_at) / 600) * 600) AS bucket_start,
+            SUM(red.quantity)::int AS total
+       FROM redemptions red
+       JOIN order_items oi ON oi.id = red.order_item_id
+       JOIN distribution_slots s ON s.id = oi.slot_id
+      GROUP BY oi.slot_id, s.name, s.color, bucket_start
+      ORDER BY oi.slot_id, bucket_start`
   );
   const redemptionBySlot = new Map();
   for (const r of redemptionRows) {
     if (!redemptionBySlot.has(r.slot_id)) {
       redemptionBySlot.set(r.slot_id, { slotId: r.slot_id, slotName: r.slot_name, slotColor: r.slot_color, buckets: [] });
     }
-    redemptionBySlot.get(r.slot_id).buckets.push({ bucketIndex: r.bucket_index, total: r.total });
+    redemptionBySlot.get(r.slot_id).buckets.push({ bucketStart: r.bucket_start, total: r.total });
   }
 
   return {
