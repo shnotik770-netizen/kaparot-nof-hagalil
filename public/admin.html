@@ -781,7 +781,7 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
       </div>
     `).join('')}
     ${historyItems.length ? `
-      <h3 style="margin:18px 0 8px;font-size:14px">היסטוריית מימושים (כולל שורות שכבר מומשו במלואן) — לעריכה/ביטול</h3>
+      <h3 style="margin:18px 0 8px;font-size:14px">היסטוריית מימושים ועריכה</h3>
       ${historyItems.map((it) => `
         <div class="item-row" style="flex-wrap:wrap;gap:8px">
           <span>${esc(it.slotName)} · ${GENDER_LABEL[it.gender]} · הוזמנו ${it.quantity}</span>
