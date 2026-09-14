@@ -60,6 +60,14 @@
   #slotStatusBar:empty{display:none}
   .slot-status-chip{display:flex;align-items:center;gap:6px;white-space:nowrap;font-size:11.5px;font-weight:700;border-inline-start:3px solid var(--accent);padding-inline-start:8px;flex:none}
   .slot-status-chip .pill{font-size:10px;padding:2px 7px}
+  .chart-wrap{overflow-x:auto;padding-top:22px}
+  .chart-bars{display:flex;align-items:flex-end;gap:6px;height:140px;min-width:min-content;direction:ltr}
+  .chart-bar-col{flex:0 0 30px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+  .chart-bar{width:100%;background:var(--accent);border-radius:4px 4px 0 0;min-height:3px;position:relative}
+  .chart-bar-value{position:absolute;top:-18px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--ink-dim);white-space:nowrap}
+  .chart-labels{display:flex;gap:6px;direction:ltr;margin-top:6px}
+  .chart-labels span{flex:0 0 30px;font-size:10px;color:var(--ink-dim);text-align:center;white-space:nowrap}
+  .chart-empty{color:var(--ink-dim);font-size:13px}
 </style>
 </head>
 <body>
@@ -1727,6 +1735,44 @@ async function renderOrdersTab() {
 
 // ============== דשבורד ==============
 
+// בונה HTML לגרף עמודות פשוט (בלי ספריית צד ג') — items: [{label, value}].
+// גובה כל עמודה יחסי לערך המקסימלי ברשימה; color אופציונלי (ברירת מחדל --accent).
+function barChartHtml(items, color) {
+  if (!items.length) return `<p class="chart-empty">אין עדיין נתונים להצגה.</p>`;
+  const max = Math.max(...items.map((it) => it.value), 1);
+  return `
+    <div class="chart-wrap">
+      <div class="chart-bars">
+        ${items.map((it) => `
+          <div class="chart-bar-col">
+            <div class="chart-bar" style="height:${Math.max(3, Math.round((it.value / max) * 100))}%${color ? `;background:${esc(color)}` : ''}">
+              <span class="chart-bar-value">${it.value}</span>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="chart-labels">${items.map((it) => `<span>${esc(it.label)}</span>`).join('')}</div>
+    </div>
+  `;
+}
+
+function formatChartDate(dateStr) {
+  const d = new Date(dateStr);
+  return `${d.getDate()}.${d.getMonth() + 1}`;
+}
+
+// ממלא את הדילוגים בין ה-buckets שהתקבלו מהשרת (אין רשומה = 0 עופות באותו
+// חלון 10 דקות) כדי שהגרף יראה רצף אחיד מתחילת המימוש ועד סופו.
+function denseRedemptionBuckets(buckets) {
+  const maxIndex = Math.max(...buckets.map((b) => b.bucketIndex), 0);
+  const byIndex = new Map(buckets.map((b) => [b.bucketIndex, b.total]));
+  const items = [];
+  for (let i = 0; i <= maxIndex; i++) {
+    items.push({ label: String(i * 10), value: byIndex.get(i) || 0 });
+  }
+  return items;
+}
+
 async function renderDashboardTab() {
   const stats = await api('/admin/dashboard');
   document.getElementById('tabContent').innerHTML = `
@@ -1744,6 +1790,17 @@ async function renderDashboardTab() {
           `).join('')}
         </tbody>
       </table>
+    </div>
+    <div class="card">
+      <h2>ציר זמן הזמנות (סה"כ עופות שהוזמנו לפי תאריך)</h2>
+      ${barChartHtml(stats.ordersByDate.map((r) => ({ label: formatChartDate(r.date), value: r.total })))}
+    </div>
+    <div class="card">
+      <h2>ציר זמן מימושים (עופות שנמשכו, בקפיצות של 10 דקות מתחילת המימוש)</h2>
+      ${stats.redemptionTimeline.length ? stats.redemptionTimeline.map((s) => `
+        <h3 style="margin:16px 0 8px;font-size:14px;border-inline-start:3px solid ${esc(s.slotColor)};padding-inline-start:8px">${esc(s.slotName)}</h3>
+        ${barChartHtml(denseRedemptionBuckets(s.buckets), s.slotColor)}
+      `).join('') : `<p class="chart-empty">עדיין לא בוצעו מימושים.</p>`}
     </div>
   `;
 }
