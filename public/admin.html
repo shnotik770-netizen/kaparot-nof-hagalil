@@ -60,6 +60,14 @@
   #slotStatusBar:empty{display:none}
   .slot-status-chip{display:flex;align-items:center;gap:6px;white-space:nowrap;font-size:11.5px;font-weight:700;border-inline-start:3px solid var(--accent);padding-inline-start:8px;flex:none}
   .slot-status-chip .pill{font-size:10px;padding:2px 7px}
+  .chart-wrap{overflow-x:auto;padding-top:22px}
+  .chart-bars{display:flex;align-items:flex-end;gap:6px;height:140px;min-width:min-content;direction:ltr}
+  .chart-bar-col{flex:0 0 30px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+  .chart-bar{width:100%;background:var(--accent);border-radius:4px 4px 0 0;min-height:3px;position:relative}
+  .chart-bar-value{position:absolute;top:-18px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--ink-dim);white-space:nowrap}
+  .chart-labels{display:flex;gap:6px;direction:ltr;margin-top:6px}
+  .chart-labels span{flex:0 0 30px;font-size:10px;color:var(--ink-dim);text-align:center;white-space:nowrap}
+  .chart-empty{color:var(--ink-dim);font-size:13px}
 </style>
 </head>
 <body>
@@ -781,7 +789,7 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
       </div>
     `).join('')}
     ${historyItems.length ? `
-      <h3 style="margin:18px 0 8px;font-size:14px">היסטוריית מימושים (כולל שורות שכבר מומשו במלואן) — לעריכה/ביטול</h3>
+      <h3 style="margin:18px 0 8px;font-size:14px">היסטוריית מימושים ועריכה</h3>
       ${historyItems.map((it) => `
         <div class="item-row" style="flex-wrap:wrap;gap:8px">
           <span>${esc(it.slotName)} · ${GENDER_LABEL[it.gender]} · הוזמנו ${it.quantity}</span>
@@ -1063,7 +1071,7 @@ function customerPanelHtml(c) {
       <div id="${pid}-newline-msg"></div>
     </div>
 
-    <h3 style="margin:16px 0 8px;font-size:14px">מבנה ההזמנות (למחיקת שורה/הזמנה בלבד — לפירוט מלא ראו "הצג פירוט", לתשלומים ראו "תשלומים")</h3>
+    <h3 style="margin:16px 0 8px;font-size:14px">מבנה ההזמנות</h3>
     ${c.orders.map((o) => `
       <div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px">
         <div class="order-row-header">
@@ -1727,6 +1735,56 @@ async function renderOrdersTab() {
 
 // ============== דשבורד ==============
 
+// בונה HTML לגרף עמודות פשוט (בלי ספריית צד ג') — items: [{label, value}].
+// גובה כל עמודה יחסי לערך המקסימלי ברשימה; color אופציונלי (ברירת מחדל --accent).
+function barChartHtml(items, color) {
+  if (!items.length) return `<p class="chart-empty">אין עדיין נתונים להצגה.</p>`;
+  const max = Math.max(...items.map((it) => it.value), 1);
+  return `
+    <div class="chart-wrap">
+      <div class="chart-bars">
+        ${items.map((it) => `
+          <div class="chart-bar-col">
+            <div class="chart-bar" style="height:${Math.max(3, Math.round((it.value / max) * 100))}%${color ? `;background:${esc(color)}` : ''}">
+              <span class="chart-bar-value">${it.value}</span>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="chart-labels">${items.map((it) => `<span>${esc(it.label)}</span>`).join('')}</div>
+    </div>
+  `;
+}
+
+function formatChartDate(dateStr) {
+  const d = new Date(dateStr);
+  return `${d.getDate()}.${d.getMonth() + 1}`;
+}
+
+function formatChartClock(d) {
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function bucketRangeLabel(bucketStartDate) {
+  const end = new Date(bucketStartDate.getTime() + 9 * 60_000);
+  return `${formatChartClock(bucketStartDate)}-${formatChartClock(end)}`;
+}
+
+// ממלא את הדילוגים בין ה-buckets שהתקבלו מהשרת (אין רשומה = 0 עופות באותו
+// חלון 10 דקות) כדי שהגרף יראה רצף אחיד לפי שעון-קיר, מהחלון הראשון שבו
+// היה מימוש ועד האחרון (5:30-5:39, 5:40-5:49 וכו').
+function denseRedemptionBuckets(buckets) {
+  if (!buckets.length) return [];
+  const times = buckets.map((b) => new Date(b.bucketStart).getTime());
+  const minTime = Math.min(...times);
+  const maxTime = Math.max(...times);
+  const byTime = new Map(buckets.map((b) => [new Date(b.bucketStart).getTime(), b.total]));
+  const items = [];
+  for (let t = minTime; t <= maxTime; t += 600_000) {
+    items.push({ label: bucketRangeLabel(new Date(t)), value: byTime.get(t) || 0 });
+  }
+  return items;
+}
+
 async function renderDashboardTab() {
   const stats = await api('/admin/dashboard');
   document.getElementById('tabContent').innerHTML = `
@@ -1744,6 +1802,17 @@ async function renderDashboardTab() {
           `).join('')}
         </tbody>
       </table>
+    </div>
+    <div class="card">
+      <h2>ציר זמן הזמנות (סה"כ עופות שהוזמנו לפי תאריך)</h2>
+      ${barChartHtml(stats.ordersByDate.map((r) => ({ label: formatChartDate(r.date), value: r.total })))}
+    </div>
+    <div class="card">
+      <h2>ציר זמן מימושים (עופות שנמשכו, בקפיצות של 10 דקות מתחילת המימוש)</h2>
+      ${stats.redemptionTimeline.length ? stats.redemptionTimeline.map((s) => `
+        <h3 style="margin:16px 0 8px;font-size:14px;border-inline-start:3px solid ${esc(s.slotColor)};padding-inline-start:8px">${esc(s.slotName)}</h3>
+        ${barChartHtml(denseRedemptionBuckets(s.buckets), s.slotColor)}
+      `).join('') : `<p class="chart-empty">עדיין לא בוצעו מימושים.</p>`}
     </div>
   `;
 }

@@ -271,12 +271,46 @@ export async function getDashboardStats() {
   const { rows: paidRows } = await pool.query(
     `SELECT COALESCE(SUM(amount),0) AS total_paid FROM payments`
   );
+
+  // ציר זמן הזמנות: סה"כ עופות שהוזמנו בכל יום קלנדרי (לפי מתי בוצעה ההזמנה, לא תאריך האספקה) — למעקב קצב הרשמה.
+  const { rows: ordersByDateRows } = await pool.query(
+    `SELECT o.created_at::date AS date, SUM(oi.quantity)::int AS total
+       FROM orders o JOIN order_items oi ON oi.order_id = o.id
+      WHERE NOT o.is_deleted
+      GROUP BY o.created_at::date
+      ORDER BY date`
+  );
+
+  // ציר זמן מימושים: עופות שנמשכו בפועל, בקפיצות של 10 דקות לפי שעון-קיר
+  // (5:30-5:39, 5:40-5:49...) — ציר נפרד לכל חלוקה. floor לפי epoch (UTC) נותן
+  // בדיוק את אותה רשת 10-דקות כמו floor לפי שעון ישראל, כי ההפרש בין
+  // האזורים הוא תמיד כפולה של שעות שלמות (=כפולה של 10 דקות).
+  const { rows: redemptionRows } = await pool.query(
+    `SELECT oi.slot_id, s.name AS slot_name, s.color AS slot_color,
+            to_timestamp(FLOOR(EXTRACT(EPOCH FROM red.redeemed_at) / 600) * 600) AS bucket_start,
+            SUM(red.quantity)::int AS total
+       FROM redemptions red
+       JOIN order_items oi ON oi.id = red.order_item_id
+       JOIN distribution_slots s ON s.id = oi.slot_id
+      GROUP BY oi.slot_id, s.name, s.color, bucket_start
+      ORDER BY oi.slot_id, bucket_start`
+  );
+  const redemptionBySlot = new Map();
+  for (const r of redemptionRows) {
+    if (!redemptionBySlot.has(r.slot_id)) {
+      redemptionBySlot.set(r.slot_id, { slotId: r.slot_id, slotName: r.slot_name, slotColor: r.slot_color, buckets: [] });
+    }
+    redemptionBySlot.get(r.slot_id).buckets.push({ bucketStart: r.bucket_start, total: r.total });
+  }
+
   return {
     bySlot: rows.map((r) => ({
       slotId: r.slot_id, slotName: r.slot_name, gender: r.gender,
       ordered: r.ordered, redeemed: r.redeemed, revenueOrdered: Number(r.revenue_ordered),
     })),
     totalPaid: Number(paidRows[0].total_paid),
+    ordersByDate: ordersByDateRows.map((r) => ({ date: r.date, total: r.total })),
+    redemptionTimeline: [...redemptionBySlot.values()],
   };
 }
 
