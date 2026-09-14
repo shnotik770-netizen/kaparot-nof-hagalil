@@ -1888,6 +1888,9 @@ function actionSummaryHtml(a) {
     case 'order_deleted':
       return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ע"י ${esc(d.adminName || '')}`;
     case 'sms_bulk_sent': {
+      if (d.error) {
+        return `<span style="color:var(--wine)">כישלון מוחלט (${d.failedCount ?? 0} נמענים) — ${esc(d.error)}</span> · ע"י ${esc(d.sentBy || '')}`;
+      }
       const failedList = (d.failed || []).map((f) => `${esc(f.phone)} (${esc(f.error)})`).join(', ');
       return `${d.recipientCount ?? 0} נמענים נשלח בהצלחה${d.failedCount ? ` · ${d.failedCount} נכשלו` : ''} · ע"י ${esc(d.sentBy || '')}`
         + (failedList ? `<br><span style="color:var(--wine)">נכשל: ${failedList}</span>` : '');
