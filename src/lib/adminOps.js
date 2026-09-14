@@ -246,6 +246,27 @@ export async function setItemRedeemedQuantity(itemId, quantityRedeemed, adminNam
         `INSERT INTO redemptions(order_item_id, quantity, confirmation_code, redeemed_by) VALUES ($1,$2,'ADMIN-MANUAL',$3)`,
         [itemId, delta, adminName]
       );
+    } else if (delta < 0) {
+      // תיקון-כלפי-מטה (כולל ביטול מימוש מלא): מורידים בהתאם את יומן
+      // המשיכות (redemptions) עצמו — אחרת אירועי משיכה שבוטלו/תוקנו ימשיכו
+      // להופיע לנצח בדוחות המבוססים על היומן (ציר הזמן בדשבורד), למרות
+      // שבפועל אין להם כיסוי ב-quantity_redeemed. מורידים מהאירועים
+      // העדכניים ביותר קודם (LIFO), כולל פיצול אירוע חלקית אם צריך.
+      let remaining = -delta;
+      const { rows: existing } = await client.query(
+        `SELECT id, quantity FROM redemptions WHERE order_item_id = $1 ORDER BY redeemed_at DESC, id DESC FOR UPDATE`,
+        [itemId]
+      );
+      for (const r of existing) {
+        if (remaining <= 0) break;
+        if (r.quantity <= remaining) {
+          await client.query(`DELETE FROM redemptions WHERE id = $1`, [r.id]);
+          remaining -= r.quantity;
+        } else {
+          await client.query(`UPDATE redemptions SET quantity = quantity - $2 WHERE id = $1`, [r.id, remaining]);
+          remaining = 0;
+        }
+      }
     }
     await logAction('redemption_manual_override', {
       itemId, orderId: item.order_id, oldQuantityRedeemed: item.quantity_redeemed, newQuantityRedeemed: q, delta, adminName,
