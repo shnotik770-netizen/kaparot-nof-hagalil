@@ -305,3 +305,27 @@ export async function dismissStalePaymentSession(token, adminName) {
   });
   return { success: true };
 }
+
+/**
+ * כמו dismissStalePaymentSession, אבל מסמן בבת אחת את כל בקשות התשלום
+ * הממתינות/הישנות של אותו לקוח — כדי שהתראה אחת מכסה כמה ניסיונות תשלום
+ * כושלים שהצטברו (לא צריך ללחוץ "בדקתי" בנפרד על כל ניסיון).
+ */
+export async function dismissAllStalePaymentSessions(normalizedPhone, adminName) {
+  const { rows } = await pool.query(
+    `UPDATE payment_sessions SET status = 'dismissed'
+      WHERE normalized_phone = $1 AND status = 'pending' AND created_at < now() - interval '10 minutes'
+      RETURNING id, requested_amount`,
+    [normalizedPhone]
+  );
+  if (!rows.length) {
+    const err = new Error('לא נמצאו בקשות תשלום ממתינות עבור לקוח זה.');
+    err.status = 404;
+    throw err;
+  }
+  await logAction('payment_alert_dismissed', {
+    phone: normalizedPhone, count: rows.length,
+    totalAmount: rows.reduce((sum, r) => sum + Number(r.requested_amount), 0), adminName,
+  });
+  return { success: true, dismissedCount: rows.length };
+}
