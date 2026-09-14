@@ -410,7 +410,10 @@ router.post('/admin/sms/bulk', requireAdmin, requirePermission('orders'), wrap(a
   }
   const normalized = [...new Set(phones.map((p) => normalizePhone(p)).filter(Boolean))];
   const result = await sendBulkSms(normalized, message);
-  await logAction('sms_bulk_sent', { recipientCount: normalized.length, message, sentBy: req.session.adminName || 'admin' });
+  await logAction('sms_bulk_sent', {
+    recipientCount: result.recipientCount, failedCount: result.failedCount, failed: result.failed,
+    message, sentBy: req.session.adminName || 'admin',
+  });
   res.json(result);
 }));
 

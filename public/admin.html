@@ -1887,8 +1887,11 @@ function actionSummaryHtml(a) {
       return `הזמנה #${d.orderId ?? ''} · ${esc(d.gender === 'female' ? 'נקבות' : 'זכרים')} × ${d.quantity ?? ''} · ע"י ${esc(d.adminName || '')}`;
     case 'order_deleted':
       return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ע"י ${esc(d.adminName || '')}`;
-    case 'sms_bulk_sent':
-      return `${d.recipientCount ?? 0} נמענים · ע"י ${esc(d.sentBy || '')}`;
+    case 'sms_bulk_sent': {
+      const failedList = (d.failed || []).map((f) => `${esc(f.phone)} (${esc(f.error)})`).join(', ');
+      return `${d.recipientCount ?? 0} נמענים נשלח בהצלחה${d.failedCount ? ` · ${d.failedCount} נכשלו` : ''} · ע"י ${esc(d.sentBy || '')}`
+        + (failedList ? `<br><span style="color:var(--wine)">נכשל: ${failedList}</span>` : '');
+    }
     case 'payment_alert_dismissed':
       return `${esc(d.phone || '')} · ${money(d.amount || 0)} · ע"י ${esc(d.adminName || '')}`;
     case 'redemption_confirmed':
