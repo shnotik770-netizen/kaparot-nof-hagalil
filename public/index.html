@@ -520,7 +520,7 @@ async function screenMyOrders() {
     ${orders.map((o) => `
       <div class="card">
         <div class="order-row-header">
-          <b>הזמנה מספר ${o.orderSequence} (מס' ${o.orderNumber})</b>
+          <b>הזמנה מספר ${o.orderSequence}</b>
           <span class="pill ${o.paymentStatus}">${STATUS_LABEL[o.paymentStatus]}</span>
         </div>
         ${o.items.map((it) => `
@@ -754,7 +754,7 @@ async function screenPayment() {
 /** מיד אחרי שליחת הזמנה חדשה — נפתחת אוטומטית, עם אפשרות מפורשת "לדלג ולשלם אחר כך". */
 async function openPaymentAfterRegistration(order) {
   document.getElementById('paymentHeader').innerHTML =
-    `<div class="success">ההזמנה נקלטה בהצלחה! מספר הזמנה: ${order.orderNumber} (הזמנה מספר ${order.orderSequence}).</div>`;
+    `<div class="success">ההזמנה נקלטה בהצלחה! (הזמנה מספר ${order.orderSequence}).</div>`;
   document.getElementById('paymentSkipSection').style.display = '';
   document.getElementById('paymentSkipNotice').style.display = 'none';
   document.getElementById('paymentSkipContinueBtn').style.display = 'none';
