@@ -437,14 +437,23 @@ function screenPersonalArea() {
 
 async function loadPersonalAreaDebtWarning() {
   try {
-    const { balanceDue, allCoordinated } = await api(`/payment-balance?phone=${encodeURIComponent(state.phone)}`);
+    const { balanceDue, allCoordinated, ordersWithBalance } = await api(`/payment-balance?phone=${encodeURIComponent(state.phone)}`);
     const box = document.getElementById('personalAreaDebtWarning');
     if (!box || balanceDue <= 0) return;
+    // פירוט פר-הזמנה — רק כשיש יותר מהזמנה אחת עם יתרה, כדי שיהיה ברור איזו
+    // הזמנה שמורה (תואמה מול המשרד) ואיזו עדיין ממתינה לתשלום. בהזמנה אחת
+    // בלבד הסכום המצרפי כבר מספיק ברור.
+    const breakdown = ordersWithBalance.length > 1
+      ? `<div style="margin-top:6px;font-size:13px">${ordersWithBalance.map((o) => o.paymentCoordinated
+          ? `✅ הזמנה מספר ${o.orderSequence} — שמורה (תואם תשלום), יתרה ${money(o.balanceDue)}`
+          : `⏳ הזמנה מספר ${o.orderSequence} — ממתינה לתשלום, יתרה ${money(o.balanceDue)}`
+        ).join('<br>')}</div>`
+      : '';
     // אם כל ההזמנות עם יתרה תואמו מול המשרד, לא מציגים את אזהרת "העופות לא
     // נשמרים" (הן כן נשמרות — זה בדיוק מה שהתיאום נועד לו), רק את סכום היתרה.
     box.innerHTML = allCoordinated
-      ? `<div class="notice" style="margin-top:14px">יתרה לתשלום: ${money(balanceDue)}.</div>`
-      : `<div class="notice critical" style="margin-top:14px">${state.publicSettings?.deferredPaymentNotice || 'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל.'}<br>יתרה לתשלום: ${money(balanceDue)}.</div>`;
+      ? `<div class="notice" style="margin-top:14px">יתרה לתשלום: ${money(balanceDue)}.${breakdown}</div>`
+      : `<div class="notice critical" style="margin-top:14px">${state.publicSettings?.deferredPaymentNotice || 'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל.'}<br>יתרה לתשלום: ${money(balanceDue)}.${breakdown}</div>`;
   } catch { /* לא קריטי */ }
 }
 

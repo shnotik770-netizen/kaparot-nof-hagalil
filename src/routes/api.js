@@ -151,7 +151,11 @@ router.get('/payment-balance', requireVerifiedPhone, wrap(async (req, res) => {
   const ordersWithBalance = orders.filter((o) => o.balanceDue > 0);
   res.json({
     balanceDue, totalAmount, amountPaid,
-    ordersWithBalance: ordersWithBalance.map((o) => o.orderNumber),
+    // פירוט פר-הזמנה (לא רק סכום מצרפי) — כדי שהלקוח יראה בדיוק איזו הזמנה
+    // "שמורה" (תואמה) ואיזו עדיין ממתינה לתשלום, ראו loadPersonalAreaDebtWarning ב-index.html.
+    ordersWithBalance: ordersWithBalance.map((o) => ({
+      orderSequence: o.orderSequence, balanceDue: o.balanceDue, paymentCoordinated: o.paymentCoordinated,
+    })),
     // כל ההזמנות שיש בהן חוב תואמו עם המשרד — לא מציגים את אזהרת "העופות
     // לא נשמרים", רק את סכום היתרה עצמו (ראו loadPersonalAreaDebtWarning ב-index.html).
     allCoordinated: ordersWithBalance.length > 0 && ordersWithBalance.every((o) => o.paymentCoordinated),
