@@ -345,6 +345,14 @@ export async function getDashboardStats() {
        JOIN order_balances b ON b.order_id = o.id
       WHERE NOT o.is_deleted AND b.payment_status <> 'paid'`
   );
+  // המראה של unpaidBirds — כמות עופות בהזמנות ששולמו במלואן, לתצוגה ליד "סה"כ שולם".
+  const { rows: paidBirdsRows } = await pool.query(
+    `SELECT COALESCE(SUM(oi.quantity),0)::int AS paid_birds
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       JOIN order_balances b ON b.order_id = o.id
+      WHERE NOT o.is_deleted AND b.payment_status = 'paid'`
+  );
 
   // ציר זמן הזמנות: סה"כ עופות שהוזמנו בכל יום קלנדרי (לפי מתי בוצעה ההזמנה, לא תאריך האספקה) — למעקב קצב הרשמה.
   const { rows: ordersByDateRows } = await pool.query(
@@ -383,6 +391,7 @@ export async function getDashboardStats() {
       ordered: r.ordered, redeemed: r.redeemed, revenueOrdered: Number(r.revenue_ordered),
     })),
     totalPaid: Number(paidRows[0].total_paid),
+    paidBirds: paidBirdsRows[0].paid_birds,
     paidByMethod: paidByMethodRows.map((r) => ({ method: r.method, total: Number(r.total) })),
     unpaidMoney: Number(unpaidMoneyRows[0].unpaid_money),
     unpaidBirds: unpaidBirdsRows[0].unpaid_birds,

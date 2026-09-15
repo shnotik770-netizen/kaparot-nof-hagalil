@@ -1844,6 +1844,7 @@ async function renderDashboardTab() {
     <div class="card">
       <h2>סה"כ שולם בפועל</h2>
       <div class="total-row"><span>סכום</span><span>${money(stats.totalPaid)}</span></div>
+      <div class="total-row"><span>בעופות</span><span>${stats.paidBirds}</span></div>
       ${stats.paidByMethod.length ? `
         <h3 style="margin:16px 0 8px;font-size:14px">פילוח לפי אמצעי תשלום</h3>
         <table>
