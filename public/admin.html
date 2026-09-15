@@ -109,6 +109,27 @@ function el(html) { const t = document.createElement('template'); t.innerHTML = 
 function render(html) { document.getElementById('app').innerHTML = html; }
 function money(n) { return `₪${Number(n).toLocaleString('he-IL', { maximumFractionDigits: 0 })}`; }
 function esc(s) { return String(s ?? '').replace(/"/g, '&quot;'); }
+// הבדל מ-esc(): מיועד לתוכן טקסט (לא attribute) שמקורו חיצוני (תגובות ימות
+// המשיח) — חוסם גם < > & כדי שלא יישברו את ה-HTML או יריצו תגיות.
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+// תצוגה משותפת לתוצאות קריאות ימות המשיח (בניית שלוחות + בדיקות חופשיות):
+// לכל שלב — מה נשלח (בלי token) ומה חזר, כולל קוד HTTP.
+function yemotResultsHtml(results, labelField) {
+  return results.map((r) => {
+    const ok = r.response?.responseStatus === 'OK';
+    return `
+      <div class="notice${ok ? '' : ' critical'}" style="margin-top:10px;text-align:right">
+        ${r[labelField] ? `<div><b>${labelField === 'webService' ? 'שירות' : 'שלוחה'}:</b> ${escHtml(r[labelField])}</div>` : ''}
+        <div style="margin-top:6px"><b>נשלח:</b></div>
+        <pre style="white-space:pre-wrap;word-break:break-all;font-size:12px;margin:4px 0">${escHtml(JSON.stringify(r.sentParams, null, 2))}</pre>
+        <div style="margin-top:6px"><b>תגובת ימות המשיח (HTTP ${r.httpStatus ?? '—'}):</b></div>
+        <pre style="white-space:pre-wrap;word-break:break-all;font-size:12px;margin:4px 0">${escHtml(JSON.stringify(r.response, null, 2))}</pre>
+      </div>
+    `;
+  }).join('');
+}
 // זהה ללוגיקת normalizePhone בשרת (src/lib/normalize.js) — לזיהוי לקוח קיים בצד הלקוח בלבד.
 function normalizePhoneClient(phone) {
   let digits = String(phone || '').replace(/\D/g, '');
@@ -354,6 +375,22 @@ async function renderSettingsCore() {
     </div>
 
     <div class="card">
+      <h2>בניית שלוחות IVR (ימות המשיח)</h2>
+      <p class="hint">יוצר/מעדכן דרך ה-API את שלוחת התפריט 9 (הזמנה/בירור) ואת תתי-השלוחות 9/1 ו-9/2. מציג לכל שלב בדיוק מה נשלח וגם מה ימות המשיח החזיר.</p>
+      <button class="primary" id="setupIvrExtensions">בניית השלוחות</button>
+      <div id="ivrSetupResults"></div>
+    </div>
+
+    <div class="card">
+      <h2>בדיקת קריאות API חופשיות לימות המשיח</h2>
+      <p class="hint">כל שורה = קריאה בפורמט WebServiceName?param1=val1&param2=val2 (בדיוק כמו בכתובת ה-API עצמה, בלי הכתובת הבסיסית ובלי token — הטוקן מתווסף אוטומטית מהשרת ולעולם לא נלקח ממה שכתוב כאן). אפשר כמה שורות בבת אחת.</p>
+      <textarea id="ivrTestCode" rows="4" placeholder="GetIVR2Dir?path=/&#10;GetCustomerData"></textarea>
+      <div class="spacer"></div>
+      <button class="primary" id="runIvrTest">שליחה לימות המשיח</button>
+      <div id="ivrTestResults"></div>
+    </div>
+
+    <div class="card">
       <h2>איפוס קשיח</h2>
       <p class="hint">מוחק את כל ההזמנות, התשלומים והמשיכות. לא ניתן לשחזר. משתמשים בזה בסוף העונה או לניקוי בדיקות.</p>
       <label>הקלידו "איפוס" לאישור</label>
@@ -389,6 +426,35 @@ async function renderSettingsCore() {
       sheets_sync_enabled: document.getElementById('sheetsSyncEnabled').checked,
     }});
     flash('נשמר.');
+  };
+  document.getElementById('setupIvrExtensions').onclick = async () => {
+    const btn = document.getElementById('setupIvrExtensions');
+    const out = document.getElementById('ivrSetupResults');
+    btn.disabled = true;
+    out.innerHTML = `<p class="hint">בונה שלוחות…</p>`;
+    try {
+      const { results } = await api('/admin/ivr/setup-extensions', { method: 'POST' });
+      out.innerHTML = yemotResultsHtml(results, 'path');
+    } catch (err) {
+      out.innerHTML = `<div class="notice critical" style="margin-top:10px">${escHtml(err.message)}</div>`;
+    } finally {
+      btn.disabled = false;
+    }
+  };
+  document.getElementById('runIvrTest').onclick = async () => {
+    const btn = document.getElementById('runIvrTest');
+    const out = document.getElementById('ivrTestResults');
+    const code = document.getElementById('ivrTestCode').value;
+    btn.disabled = true;
+    out.innerHTML = `<p class="hint">שולח…</p>`;
+    try {
+      const { results } = await api('/admin/ivr/test-call', { method: 'POST', body: { code } });
+      out.innerHTML = yemotResultsHtml(results, 'webService');
+    } catch (err) {
+      out.innerHTML = `<div class="notice critical" style="margin-top:10px">${escHtml(err.message)}</div>`;
+    } finally {
+      btn.disabled = false;
+    }
   };
   document.getElementById('hardReset').onclick = async () => {
     const confirmText = document.getElementById('resetConfirm').value;
@@ -1596,12 +1662,6 @@ async function renderOrdersTab() {
             ${slots.map((s) => `<label><input type="checkbox" class="filterSlotCheck" value="${s.id}" checked> ${esc(s.name)}</label>`).join('')}
           </div>
         </div>
-        <div class="multiselect" id="msExtra">
-          <button type="button" class="multiselect-btn" data-ms-toggle>סינון נוסף <span class="ms-count" data-ms-count></span></button>
-          <div class="multiselect-panel" hidden>
-            <label><input type="checkbox" id="filterMultiUnpaid"> ⚠️ 2+ הזמנות לא סגורות</label>
-          </div>
-        </div>
       </div>
       <div id="bulkSmsCard" hidden style="margin-top:10px">
         <label for="bulkSmsText">תוכן ההודעה</label>
@@ -1653,7 +1713,6 @@ async function renderOrdersTab() {
     const redeemedFilters = [...document.querySelectorAll('.filterRedeemedCheck:checked')].map((cb) => cb.value);
     const allSlotChecks = document.querySelectorAll('.filterSlotCheck');
     const checkedSlots = [...allSlotChecks].filter((cb) => cb.checked).map((cb) => cb.value);
-    const multiUnpaidOnly = document.getElementById('filterMultiUnpaid').checked;
     currentFiltered = customers.filter((c) => {
       if (q && !c.customerName.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
       if (!c.orders.some((o) => paidFilters.some((cat) => orderMatchesPaidCategory(o, cat)))) return false;
@@ -1661,7 +1720,6 @@ async function renderOrdersTab() {
       // כל הזמנים מסומנים = בלי סינון בכלל (כמו "כל הזמנים" הישן) — אחרת
       // הלקוח חייב פריט בלפחות אחד מהזמנים שנשארו מסומנים.
       if (checkedSlots.length < allSlotChecks.length && !c.bySlot.some((s) => checkedSlots.includes(String(s.slotId)))) return false;
-      if (multiUnpaidOnly && c.unpaidOrdersCount < 2) return false;
       return true;
     });
     renderList(currentFiltered);
@@ -1714,7 +1772,6 @@ async function renderOrdersTab() {
   wireMultiSelectDropdown('msPaid', '.filterPaidCheck', applyFilters);
   wireMultiSelectDropdown('msRedeemed', '.filterRedeemedCheck', applyFilters);
   wireMultiSelectDropdown('msSlot', '.filterSlotCheck', applyFilters);
-  wireMultiSelectDropdown('msExtra', '#filterMultiUnpaid', applyFilters);
   document.getElementById('toggleQuickEventMode').onclick = () => {
     quickEventModeOn = true;
     renderOrdersTab();
