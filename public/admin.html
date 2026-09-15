@@ -1596,12 +1596,6 @@ async function renderOrdersTab() {
             ${slots.map((s) => `<label><input type="checkbox" class="filterSlotCheck" value="${s.id}" checked> ${esc(s.name)}</label>`).join('')}
           </div>
         </div>
-        <div class="multiselect" id="msExtra">
-          <button type="button" class="multiselect-btn" data-ms-toggle>סינון נוסף <span class="ms-count" data-ms-count></span></button>
-          <div class="multiselect-panel" hidden>
-            <label><input type="checkbox" id="filterMultiUnpaid"> ⚠️ 2+ הזמנות לא סגורות</label>
-          </div>
-        </div>
       </div>
       <div id="bulkSmsCard" hidden style="margin-top:10px">
         <label for="bulkSmsText">תוכן ההודעה</label>
@@ -1653,7 +1647,6 @@ async function renderOrdersTab() {
     const redeemedFilters = [...document.querySelectorAll('.filterRedeemedCheck:checked')].map((cb) => cb.value);
     const allSlotChecks = document.querySelectorAll('.filterSlotCheck');
     const checkedSlots = [...allSlotChecks].filter((cb) => cb.checked).map((cb) => cb.value);
-    const multiUnpaidOnly = document.getElementById('filterMultiUnpaid').checked;
     currentFiltered = customers.filter((c) => {
       if (q && !c.customerName.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
       if (!c.orders.some((o) => paidFilters.some((cat) => orderMatchesPaidCategory(o, cat)))) return false;
@@ -1661,7 +1654,6 @@ async function renderOrdersTab() {
       // כל הזמנים מסומנים = בלי סינון בכלל (כמו "כל הזמנים" הישן) — אחרת
       // הלקוח חייב פריט בלפחות אחד מהזמנים שנשארו מסומנים.
       if (checkedSlots.length < allSlotChecks.length && !c.bySlot.some((s) => checkedSlots.includes(String(s.slotId)))) return false;
-      if (multiUnpaidOnly && c.unpaidOrdersCount < 2) return false;
       return true;
     });
     renderList(currentFiltered);
@@ -1714,7 +1706,6 @@ async function renderOrdersTab() {
   wireMultiSelectDropdown('msPaid', '.filterPaidCheck', applyFilters);
   wireMultiSelectDropdown('msRedeemed', '.filterRedeemedCheck', applyFilters);
   wireMultiSelectDropdown('msSlot', '.filterSlotCheck', applyFilters);
-  wireMultiSelectDropdown('msExtra', '#filterMultiUnpaid', applyFilters);
   document.getElementById('toggleQuickEventMode').onclick = () => {
     quickEventModeOn = true;
     renderOrdersTab();
