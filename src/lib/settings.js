@@ -14,6 +14,7 @@ const DEFAULTS = {
   closedRegistrationMessage: 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.',
   welcomeNoticeTitle: '',
   welcomeNoticeBody: '',
+  sheetsSyncEnabled: true,
 };
 
 export async function getSettings() {
@@ -33,6 +34,9 @@ export async function getSettings() {
     // חלונית הסבר שמוצגת ללקוח במסך הראשי — ריק = לא מוצגת בכלל (ראו getPublicSettings)
     welcomeNoticeTitle: (map.welcome_notice_title || '').trim(),
     welcomeNoticeBody: (map.welcome_notice_body || '').trim(),
+    // מתג ידני להשהיית הגיבוי התקופתי לגוגל שיטס (ראו sheetsSync.js) — בלי
+    // צורך בדפלוי/שינוי משתני סביבה. ברירת מחדל: פעיל.
+    sheetsSyncEnabled: map.sheets_sync_enabled == null ? DEFAULTS.sheetsSyncEnabled : map.sheets_sync_enabled === 'true',
   };
 }
 

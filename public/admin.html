@@ -312,6 +312,14 @@ async function renderSettingsCore() {
       <button class="primary" id="saveWelcome">שמירת חלונית ההסבר</button>
     </div>
 
+    <div class="card">
+      <h2>גיבוי לגוגל שיטס</h2>
+      <p class="hint">הסנכרון התקופתי (כל כמה דקות) מעדכן גיליון גיבוי חיצוני. אפשר להשהות זמנית בלי לגעת בהגדרות השרת.</p>
+      <div class="toggle-row"><span>סנכרון פעיל</span><input type="checkbox" id="sheetsSyncEnabled" ${s.sheetsSyncEnabled ? 'checked' : ''}></div>
+      <div class="spacer"></div>
+      <button class="primary" id="saveSheetsSync">שמירה</button>
+    </div>
+
     <div class="card admin-card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
         <h2 style="margin:0">ניהול מנהלים</h2>
@@ -367,6 +375,12 @@ async function renderSettingsCore() {
     await api('/admin/settings', { method: 'PUT', body: {
       welcome_notice_title: document.getElementById('welcomeTitle').value,
       welcome_notice_body: document.getElementById('welcomeBody').value,
+    }});
+    flash('נשמר.');
+  };
+  document.getElementById('saveSheetsSync').onclick = async () => {
+    await api('/admin/settings', { method: 'PUT', body: {
+      sheets_sync_enabled: document.getElementById('sheetsSyncEnabled').checked,
     }});
     flash('נשמר.');
   };

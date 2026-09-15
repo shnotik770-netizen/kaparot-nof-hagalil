@@ -7,6 +7,7 @@ import { getSheetsAccessToken } from './googleAuth.js';
 import { listCustomersSummary } from './adminOps.js';
 import { getAllSlots } from './slots.js';
 import { listAllActions } from './actionLog.js';
+import { getSettings } from './settings.js';
 
 let started = false;
 
@@ -111,7 +112,13 @@ async function writeSheetTab(token, base, tabName, rows) {
 
 export async function syncNow() {
   const sheetId = process.env.GOOGLE_SHEET_ID;
-  if (!sheetId) return;
+  if (!sheetId) return { skipped: 'no_sheet_id' };
+
+  // מתג ידני בטאב "הגדרות" (settings.sheetsSyncEnabled) — מאפשר להשהות את
+  // הסנכרון בלי לגעת במשתני סביבה/דפלוי, למשל אם רוצים לצמצם עומס בזמן
+  // החלוקה או שיש חשד לבעיה בגיליון.
+  const { sheetsSyncEnabled } = await getSettings();
+  if (!sheetsSyncEnabled) return { skipped: 'disabled' };
 
   const tabName = process.env.GOOGLE_SHEET_TAB_NAME || 'טבלה';
   const logTabName = process.env.GOOGLE_SHEET_LOG_TAB_NAME || 'יומן';
@@ -122,6 +129,7 @@ export async function syncNow() {
   const [customerRows, logRows] = await Promise.all([buildCustomerRows(), buildLogRows()]);
   await writeSheetTab(token, base, tabName, customerRows);
   await writeSheetTab(token, base, logTabName, logRows);
+  return { skipped: false };
 }
 
 export function startPeriodicSheetsSync() {
@@ -135,7 +143,10 @@ export function startPeriodicSheetsSync() {
   const intervalMs = Number(process.env.SHEETS_SYNC_INTERVAL_MS) || 120_000;
   const run = () => {
     syncNow()
-      .then(() => console.log('[sheetsSync] סנכרון גיבוי הושלם בהצלחה.'))
+      .then((result) => {
+        if (result.skipped === 'disabled') console.log('[sheetsSync] סנכרון מושהה ידנית (הגדרות → גיבוי לגוגל שיטס) — מדולג.');
+        else if (!result.skipped) console.log('[sheetsSync] סנכרון גיבוי הושלם בהצלחה.');
+      })
       .catch((err) => console.error('[sheetsSync] סנכרון גיבוי נכשל (לא קריטי, ינסה שוב):', err.message || err));
   };
 
