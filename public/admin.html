@@ -707,6 +707,7 @@ function customerCardHtml(c) {
         <b>${esc(c.customerName)} · ${esc(c.phone)}</b>
         <span style="display:flex;gap:6px;align-items:center">
           ${c.fullyRedeemed ? '<span class="fully-pill">✓ מומש</span>' : ''}
+          ${c.unpaidOrdersCount >= 2 ? `<span class="pill unpaid" title="${c.unpaidOrdersCount} הזמנות אינן משולמות במלואן">⚠️ ${c.unpaidOrdersCount} הזמנות לא סגורות</span>` : ''}
           <span class="pill ${c.paymentStatus}">${STATUS_LABEL[c.paymentStatus]}</span>
         </span>
       </div>
@@ -1588,6 +1589,12 @@ async function renderOrdersTab() {
             ${slots.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
           </select>
         </div>
+        <div>
+          <label>&nbsp;</label>
+          <div class="perm-checks">
+            <label><input type="checkbox" id="filterMultiUnpaid"> ⚠️ 2+ הזמנות לא סגורות</label>
+          </div>
+        </div>
       </div>
       <div id="bulkSmsCard" hidden style="margin-top:10px">
         <label for="bulkSmsText">תוכן ההודעה</label>
@@ -1623,12 +1630,14 @@ async function renderOrdersTab() {
     const paidFilters = [...document.querySelectorAll('.filterPaidCheck:checked')].map((cb) => cb.value);
     const redeemedFilter = document.getElementById('filterRedeemed').value;
     const slotFilter = document.getElementById('filterSlot').value;
+    const multiUnpaidOnly = document.getElementById('filterMultiUnpaid').checked;
     currentFiltered = customers.filter((c) => {
       if (q && !c.customerName.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
       if (!paidFilters.includes(c.paymentStatus)) return false;
       if (redeemedFilter === 'full' && !c.fullyRedeemed) return false;
       if (redeemedFilter === 'partial' && c.fullyRedeemed) return false;
       if (slotFilter !== 'all' && !c.bySlot.some((s) => String(s.slotId) === slotFilter)) return false;
+      if (multiUnpaidOnly && c.unpaidOrdersCount < 2) return false;
       return true;
     });
     renderList(currentFiltered);
@@ -1646,6 +1655,7 @@ async function renderOrdersTab() {
   document.querySelectorAll('.filterPaidCheck').forEach((cb) => { cb.onchange = applyFilters; });
   document.getElementById('filterRedeemed').onchange = applyFilters;
   document.getElementById('filterSlot').onchange = applyFilters;
+  document.getElementById('filterMultiUnpaid').onchange = applyFilters;
   document.getElementById('toggleQuickEventMode').onclick = () => {
     quickEventModeOn = true;
     renderOrdersTab();

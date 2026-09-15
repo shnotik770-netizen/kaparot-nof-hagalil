@@ -108,6 +108,11 @@ export async function listCustomersSummary() {
       ? { tokens: staleList.map((s) => s.token), amount: staleList[0].amount, createdAt: staleList[0].createdAt, count: staleList.length }
       : null;
 
+    // כמה מההזמנות של הלקוח הזה אינן משולמות במלואן (גם אם כולן קיבלו סכום
+    // כלשהו) — 2+ מסמן מצב "מפל תשלום מפוזר" שכדאי למנהל לשים לב אליו: אף
+    // הזמנה בודדת לא בהכרח "נסגרה" למרות שהתקבל תשלום כלשהו.
+    const unpaidOrdersCount = c.orders.filter((o) => o.paymentStatus !== 'paid').length;
+
     return {
       phone: c.phone,
       customerName: c.customerName,
@@ -116,6 +121,7 @@ export async function listCustomersSummary() {
       bySlot: [...bySlot.values()],
       orders: c.orders,
       pendingUnconfirmedPayment,
+      unpaidOrdersCount,
     };
   }).sort((a, b) => new Date(b.orders[0]?.createdAt || 0) - new Date(a.orders[0]?.createdAt || 0));
 }
