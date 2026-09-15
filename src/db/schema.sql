@@ -101,6 +101,11 @@ CREATE INDEX IF NOT EXISTS idx_orders_phone ON orders(normalized_phone);
 -- orders כבר קיימת מפריסות קודמות (CREATE TABLE IF NOT EXISTS לא מוסיף עמודות לטבלה קיימת) —
 -- notes הוא שדה חדש, נוסף כאן במפורש.
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS notes TEXT;
+-- מנהל תיאם עם הלקוח תשלום שעדיין לא בוצע בפועל (למשל טלפונית/במשרד) — ההזמנה
+-- "ננעלת" (הלקוח לא יכול יותר לבטל/לתקן אותה בעצמו דרך האזור האישי), אבל
+-- אין לזה השפעה על payment_status/יתרות/משיכה בפועל — ראו cancelUnpaidOrder
+-- ב-orders.js ו-setOrderPaymentCoordinated ב-adminOps.js.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_coordinated BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- ================= שורות הזמנה: זמן חלוקה + מגדר + כמות =================
 -- כל שורה נמשכת/נשלמת בנפרד — quantity_redeemed מתעדכן בעסקה נעולה (FOR UPDATE)

@@ -437,10 +437,14 @@ function screenPersonalArea() {
 
 async function loadPersonalAreaDebtWarning() {
   try {
-    const { balanceDue } = await api(`/payment-balance?phone=${encodeURIComponent(state.phone)}`);
+    const { balanceDue, allCoordinated } = await api(`/payment-balance?phone=${encodeURIComponent(state.phone)}`);
     const box = document.getElementById('personalAreaDebtWarning');
     if (!box || balanceDue <= 0) return;
-    box.innerHTML = `<div class="notice critical" style="margin-top:14px">${state.publicSettings?.deferredPaymentNotice || 'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל.'}</div>`;
+    // אם כל ההזמנות עם יתרה תואמו מול המשרד, לא מציגים את אזהרת "העופות לא
+    // נשמרים" (הן כן נשמרות — זה בדיוק מה שהתיאום נועד לו), רק את סכום היתרה.
+    box.innerHTML = allCoordinated
+      ? `<div class="notice" style="margin-top:14px">יתרה לתשלום: ${money(balanceDue)}.</div>`
+      : `<div class="notice critical" style="margin-top:14px">${state.publicSettings?.deferredPaymentNotice || 'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל.'}<br>יתרה לתשלום: ${money(balanceDue)}.</div>`;
   } catch { /* לא קריטי */ }
 }
 
@@ -514,11 +518,14 @@ function renderCustomerNameEdit(name) {
 async function screenMyOrders() {
   render(`<div class="loading">טוען הזמנות…</div>`);
   const orders = await api(`/my-orders?phone=${encodeURIComponent(state.phone)}`);
+  // ביטול עצמי מותר רק להזמנה שלא שולם עליה כלל ושלא תואמה מול המשרד —
+  // ראו cancelUnpaidOrder ב-orders.js לתנאים המדויקים (נבדקים שוב בשרת, לא סומכים על הלקוח).
+  const canCancel = (o) => o.paymentStatus === 'unpaid' && !o.paymentCoordinated;
   render(`
     <button class="ghost" id="back">← חזרה</button>
     <h2>ההזמנות שלי</h2>
     ${orders.map((o) => `
-      <div class="card">
+      <div class="card" id="ordercard-${o.id}">
         <div class="order-row-header">
           <b>הזמנה מספר ${o.orderSequence}</b>
           <span class="pill ${o.paymentStatus}">${STATUS_LABEL[o.paymentStatus]}</span>
@@ -531,10 +538,28 @@ async function screenMyOrders() {
         `).join('')}
         <div class="total-row"><span>סה"כ</span><span>${money(o.totalAmount)}</span></div>
         ${o.balanceDue > 0 ? `<p class="hint">יתרה לתשלום: ${money(o.balanceDue)}</p>` : ''}
+        ${canCancel(o) ? `
+          <button type="button" class="ghost" data-cancel-order="${o.id}" style="color:var(--wine);margin-top:8px">ביטול הזמנה</button>
+          <div id="cancelmsg-${o.id}"></div>
+        ` : ''}
       </div>
     `).join('') || `<div class="card"><p class="hint">אין הזמנות עדיין.</p></div>`}
   `);
   document.getElementById('back').onclick = () => goBack();
+  document.querySelectorAll('[data-cancel-order]').forEach((btn) => {
+    btn.onclick = async () => {
+      const orderId = btn.dataset.cancelOrder;
+      if (!confirm('לבטל את ההזמנה הזו? פעולה זו סופית.')) return;
+      btn.disabled = true;
+      try {
+        await api(`/orders/${orderId}/cancel`, { method: 'POST', body: { phone: state.phone } });
+        screenMyOrders();
+      } catch (err) {
+        btn.disabled = false;
+        document.getElementById(`cancelmsg-${orderId}`).innerHTML = `<div class="error">${err.message}</div>`;
+      }
+    };
+  });
 }
 
 // ---- מימוש הזמנה: מקובץ לפי זמן חלוקה, כפתור אחד לכל הזמן ----

@@ -20,6 +20,7 @@ function rowToOrder(row) {
     notes: row.notes,
     totalAmount: Number(row.total_amount),
     createdAt: row.created_at,
+    paymentCoordinated: row.payment_coordinated,
   };
 }
 
@@ -229,4 +230,52 @@ export async function getOrderById(orderId) {
     [orderId]
   );
   return rows[0] || null;
+}
+
+/**
+ * ביטול עצמי של הזמנה ע"י הלקוח מהאזור האישי — מותר רק אם: ההזמנה שייכת
+ * לטלפון המאומת (לא סומכים על מה שהלקוח טוען, נבדק מול ה-DB), לא שולם
+ * עליה כלל (payment_status === 'unpaid' — גם שקל אחד שכבר שולם חוסם ביטול
+ * עצמי, יש לפנות למשרד), לא סומנה ע"י מנהל כ"תואם תשלום" (ראו
+ * setOrderPaymentCoordinated ב-adminOps.js), ולא נמשך ממנה כלום בפועל.
+ */
+export async function cancelUnpaidOrder(orderId, normalizedPhone) {
+  return withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `SELECT o.*, b.payment_status
+         FROM orders o JOIN order_balances b ON b.order_id = o.id
+        WHERE o.id = $1 FOR UPDATE OF o`,
+      [orderId]
+    );
+    const order = rows[0];
+    if (!order || order.is_deleted || order.normalized_phone !== normalizedPhone) {
+      const err = new Error('הזמנה לא נמצאה.');
+      err.status = 404;
+      throw err;
+    }
+    if (order.payment_coordinated) {
+      const err = new Error('תשלום עבור הזמנה זו תואם מול המשרד — לא ניתן לבטל אותה עצמאית. יש לפנות למשרד.');
+      err.status = 400;
+      throw err;
+    }
+    if (order.payment_status !== 'unpaid') {
+      const err = new Error('לא ניתן לבטל עצמאית הזמנה ששולם עליה, ולו חלקית — יש לפנות למשרד.');
+      err.status = 400;
+      throw err;
+    }
+    const { rows: redeemedRows } = await client.query(
+      `SELECT 1 FROM order_items WHERE order_id = $1 AND quantity_redeemed > 0 LIMIT 1`,
+      [orderId]
+    );
+    if (redeemedRows.length) {
+      const err = new Error('לא ניתן לבטל הזמנה שכבר נמשכה ממנה כמות — יש לפנות למשרד.');
+      err.status = 400;
+      throw err;
+    }
+    await client.query(`UPDATE orders SET is_deleted = true WHERE id = $1`, [orderId]);
+    await logAction('order_cancelled_by_customer', {
+      orderId, orderNumber: order.order_number, customerName: order.customer_name, phone: order.phone,
+    }, client);
+    return { success: true };
+  });
 }

@@ -29,6 +29,7 @@ export async function listAllOrders() {
     amountPaid: Number(o.amount_paid),
     balanceDue: Number(o.balance_due),
     paymentStatus: o.payment_status,
+    paymentCoordinated: o.payment_coordinated,
     createdAt: o.created_at,
     items: itemRows
       .filter((it) => it.order_id === o.id)
@@ -210,6 +211,28 @@ export async function deleteOrder(orderId, adminName) {
   }
   await pool.query(`UPDATE orders SET is_deleted = true WHERE id = $1`, [orderId]);
   await logAction('order_deleted', { orderId, orderNumber: rows[0].order_number, customerName: rows[0].customer_name, phone: rows[0].phone, adminName });
+  return { success: true };
+}
+
+/**
+ * "תיאום תשלום" — מנהל מסמן שתיאם עם הלקוח תשלום שעדיין לא בוצע בפועל
+ * (טלפונית/במשרד וכו'). לא נוגע ב-payment_status/יתרות/משיכה — רק נועל
+ * את ההזמנה מפני ביטול/עריכה עצמית של הלקוח (ראו cancelUnpaidOrder ב-
+ * orders.js), ומחליף את אזהרת "העופות לא נשמרים" בציון היתרה בלבד באזור
+ * האישי (ראו /payment-balance ב-api.js).
+ */
+export async function setOrderPaymentCoordinated(orderId, coordinated, adminName) {
+  const { rows } = await pool.query(`SELECT order_number, customer_name, phone FROM orders WHERE id = $1`, [orderId]);
+  if (!rows.length) {
+    const err = new Error('הזמנה לא נמצאה.');
+    err.status = 404;
+    throw err;
+  }
+  await pool.query(`UPDATE orders SET payment_coordinated = $2 WHERE id = $1`, [orderId, !!coordinated]);
+  await logAction('payment_coordinated_set', {
+    orderId, orderNumber: rows[0].order_number, customerName: rows[0].customer_name, phone: rows[0].phone,
+    coordinated: !!coordinated, adminName,
+  });
   return { success: true };
 }
 

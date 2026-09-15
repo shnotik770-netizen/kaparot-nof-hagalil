@@ -36,6 +36,8 @@ const ACTION_LABELS = {
   order_item_edited: 'שורת הזמנה עודכנה',
   order_item_deleted: 'שורת הזמנה נמחקה',
   order_deleted: 'הזמנה נמחקה',
+  order_cancelled_by_customer: 'הזמנה בוטלה ע"י הלקוח (לא שולם)',
+  payment_coordinated_set: 'סטטוס "תיאום תשלום" עודכן',
   sms_bulk_sent: 'סמס קבוצתי נשלח',
   payment_alert_dismissed: 'אזהרת תשלום לא-מאושר הוסתרה',
   settings_updated: 'הגדרות עודכנו',

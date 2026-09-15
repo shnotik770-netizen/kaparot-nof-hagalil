@@ -964,6 +964,19 @@ function customerPaymentsPanelHtml(c) {
     <input type="text" id="${pid}-pnote" placeholder="פרטו מהו אופן התשלום..." hidden style="margin-top:8px">
     <div id="${pid}-pmsg"></div>
 
+    ${c.orders.some((o) => o.paymentStatus !== 'paid') ? `
+      <h3 style="margin:16px 0 8px;font-size:14px">תיאום תשלום (ננעל מעריכה עצמית של הלקוח, לא משנה יתרה/מימוש)</h3>
+      ${c.orders.filter((o) => o.paymentStatus !== 'paid').map((o) => `
+        <div class="item-row">
+          <span>הזמנה מספר ${o.orderSequence} · ${STATUS_LABEL[o.paymentStatus]}${o.paymentCoordinated ? ' · ✅ תואם תשלום' : ''}</span>
+          <button type="button" class="ghost" data-coord-toggle="${o.id}" data-coord-current="${o.paymentCoordinated ? '1' : '0'}">
+            ${o.paymentCoordinated ? 'ביטול תיאום' : 'סמן כתואם תשלום'}
+          </button>
+        </div>
+      `).join('')}
+      <div id="${pid}-coordmsg"></div>
+    ` : ''}
+
     <h3 style="margin:16px 0 8px;font-size:14px">תשלומים שנרשמו</h3>
     <div id="${pid}-paylist"><div class="loading">טוען…</div></div>
   `;
@@ -988,6 +1001,19 @@ async function wireCustomerPaymentsPanel(c) {
       document.getElementById(`${pid}-pmsg`).innerHTML = `<div class="error">${err.message}</div>`;
     }
   };
+
+  panel.querySelectorAll('[data-coord-toggle]').forEach((btn) => {
+    btn.onclick = async () => {
+      const orderId = btn.dataset.coordToggle;
+      const nextCoordinated = btn.dataset.coordCurrent !== '1';
+      try {
+        await api(`/admin/orders/${orderId}/payment-coordinated`, { method: 'PUT', body: { coordinated: nextCoordinated } });
+        refreshCustomerCard(c.phone, { keepPayOpen: true });
+      } catch (err) {
+        document.getElementById(`${pid}-coordmsg`).innerHTML = `<div class="error">${err.message}</div>`;
+      }
+    };
+  });
 
   const paymentsBox = document.getElementById(`${pid}-paylist`);
   const allPayments = (await Promise.all(c.orders.map((o) => api(`/admin/orders/${o.id}/payments`)))).flat();
@@ -1876,6 +1902,8 @@ const ACTION_LABELS = {
   order_item_edited: 'שורת הזמנה עודכנה',
   order_item_deleted: 'שורת הזמנה נמחקה',
   order_deleted: 'הזמנה נמחקה',
+  order_cancelled_by_customer: 'הזמנה בוטלה ע"י הלקוח (לא שולם)',
+  payment_coordinated_set: 'סטטוס "תיאום תשלום" עודכן',
   sms_bulk_sent: 'סמס קבוצתי נשלח',
   payment_alert_dismissed: 'אזהרת תשלום לא-מאושר הוסתרה',
   settings_updated: 'הגדרות עודכנו',
@@ -1914,6 +1942,10 @@ function actionSummaryHtml(a) {
       return `הזמנה #${d.orderId ?? ''} · ${esc(d.gender === 'female' ? 'נקבות' : 'זכרים')} × ${d.quantity ?? ''} · ע"י ${esc(d.adminName || '')}`;
     case 'order_deleted':
       return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ע"י ${esc(d.adminName || '')}`;
+    case 'order_cancelled_by_customer':
+      return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ${esc(d.phone || '')}`;
+    case 'payment_coordinated_set':
+      return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ${d.coordinated ? 'סומן כתואם' : 'בוטל תיאום'} · ע"י ${esc(d.adminName || '')}`;
     case 'sms_bulk_sent': {
       if (d.error) {
         return `<span style="color:var(--wine)">כישלון מוחלט (${d.failedCount ?? 0} נמענים) — ${esc(d.error)}</span> · ע"י ${esc(d.sentBy || '')}`;
