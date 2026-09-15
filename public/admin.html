@@ -28,6 +28,12 @@
   .filter-row > div{flex:1 1 130px;min-width:0}
   .filter-row label{font-size:11px;margin:0 0 3px}
   .filter-row select{font-size:13px;padding:9px 8px}
+  .multiselect{position:relative}
+  .multiselect-btn{width:100%;text-align:right;background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:9px 8px;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:6px}
+  .multiselect-btn .ms-count{color:var(--ink-dim);font-weight:700;font-size:11.5px}
+  .multiselect-panel{position:absolute;z-index:20;top:calc(100% + 4px);right:0;left:0;background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:8px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto}
+  .multiselect-panel[hidden]{display:none}
+  .multiselect-panel label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--ink);margin:0;white-space:nowrap}
   .colorpick{display:flex;align-items:center;gap:8px}
   .colorpick input[type=color]{width:44px;height:38px;padding:2px;border:1.5px solid var(--line);border-radius:8px;cursor:pointer}
   .inline-hint{font-size:12px;color:var(--ink-dim);margin:2px 0 0}
@@ -1379,6 +1385,7 @@ async function refreshCustomerCard(phone, { keepViewOpen = false, keepPayOpen = 
 
 let allCustomersCache = [];
 let allSlotsForFilter = [];
+let multiSelectOutsideClickWired = false;
 
 // ============== מימוש מהיר ליום החלוקה — בתוך טאב ההזמנות בלבד ==============
 // מסך מצומצם: בלי כפתורי סינון/הזמנה חדשה, רק חיפוש חופשי, ורשימת לקוחות
@@ -1566,32 +1573,30 @@ async function renderOrdersTab() {
       <label for="orderSearch">חיפוש לפי שם או טלפון</label>
       <input type="text" id="orderSearch" placeholder="הקלידו שם או מספר טלפון...">
       <div class="filter-row">
-        <div>
-          <label>סטטוס תשלום</label>
-          <div class="perm-checks">
+        <div class="multiselect" id="msPaid">
+          <button type="button" class="multiselect-btn" data-ms-toggle>סטטוס תשלום <span class="ms-count" data-ms-count></span></button>
+          <div class="multiselect-panel" hidden>
             <label><input type="checkbox" class="filterPaidCheck" value="paid" checked> שולם</label>
             <label><input type="checkbox" class="filterPaidCheck" value="partial" checked> שולם חלקית</label>
             <label><input type="checkbox" class="filterPaidCheck" value="unpaid" checked> לא שולם</label>
           </div>
         </div>
-        <div>
-          <label for="filterRedeemed">סטטוס מימוש</label>
-          <select id="filterRedeemed">
-            <option value="all">הכל</option>
-            <option value="full">מומש במלואו</option>
-            <option value="partial">לא מומש במלואו</option>
-          </select>
+        <div class="multiselect" id="msRedeemed">
+          <button type="button" class="multiselect-btn" data-ms-toggle>סטטוס מימוש <span class="ms-count" data-ms-count></span></button>
+          <div class="multiselect-panel" hidden>
+            <label><input type="checkbox" class="filterRedeemedCheck" value="full" checked> מומש במלואו</label>
+            <label><input type="checkbox" class="filterRedeemedCheck" value="partial" checked> לא מומש במלואו</label>
+          </div>
         </div>
-        <div>
-          <label for="filterSlot">זמן חלוקה</label>
-          <select id="filterSlot">
-            <option value="all">כל הזמנים</option>
-            ${slots.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
-          </select>
+        <div class="multiselect" id="msSlot">
+          <button type="button" class="multiselect-btn" data-ms-toggle>זמן חלוקה <span class="ms-count" data-ms-count></span></button>
+          <div class="multiselect-panel" hidden>
+            ${slots.map((s) => `<label><input type="checkbox" class="filterSlotCheck" value="${s.id}" checked> ${esc(s.name)}</label>`).join('')}
+          </div>
         </div>
-        <div>
-          <label>&nbsp;</label>
-          <div class="perm-checks">
+        <div class="multiselect" id="msExtra">
+          <button type="button" class="multiselect-btn" data-ms-toggle>סינון נוסף <span class="ms-count" data-ms-count></span></button>
+          <div class="multiselect-panel" hidden>
             <label><input type="checkbox" id="filterMultiUnpaid"> ⚠️ 2+ הזמנות לא סגורות</label>
           </div>
         </div>
@@ -1628,15 +1633,17 @@ async function renderOrdersTab() {
   function applyFilters() {
     const q = document.getElementById('orderSearch').value.trim().toLowerCase();
     const paidFilters = [...document.querySelectorAll('.filterPaidCheck:checked')].map((cb) => cb.value);
-    const redeemedFilter = document.getElementById('filterRedeemed').value;
-    const slotFilter = document.getElementById('filterSlot').value;
+    const redeemedFilters = [...document.querySelectorAll('.filterRedeemedCheck:checked')].map((cb) => cb.value);
+    const allSlotChecks = document.querySelectorAll('.filterSlotCheck');
+    const checkedSlots = [...allSlotChecks].filter((cb) => cb.checked).map((cb) => cb.value);
     const multiUnpaidOnly = document.getElementById('filterMultiUnpaid').checked;
     currentFiltered = customers.filter((c) => {
       if (q && !c.customerName.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
       if (!paidFilters.includes(c.paymentStatus)) return false;
-      if (redeemedFilter === 'full' && !c.fullyRedeemed) return false;
-      if (redeemedFilter === 'partial' && c.fullyRedeemed) return false;
-      if (slotFilter !== 'all' && !c.bySlot.some((s) => String(s.slotId) === slotFilter)) return false;
+      if (!(c.fullyRedeemed ? redeemedFilters.includes('full') : redeemedFilters.includes('partial'))) return false;
+      // כל הזמנים מסומנים = בלי סינון בכלל (כמו "כל הזמנים" הישן) — אחרת
+      // הלקוח חייב פריט בלפחות אחד מהזמנים שנשארו מסומנים.
+      if (checkedSlots.length < allSlotChecks.length && !c.bySlot.some((s) => checkedSlots.includes(String(s.slotId)))) return false;
       if (multiUnpaidOnly && c.unpaidOrdersCount < 2) return false;
       return true;
     });
@@ -1651,11 +1658,46 @@ async function renderOrdersTab() {
     wireCustomerCardButtons(wrap);
   }
 
+  // הופך <div class="multiselect" id="..."> עם כפתור + פאנל checkboxes לתפריט
+  // נפתח: לחיצה על הכפתור פותחת/סוגרת, לחיצה מחוץ לפאנל סוגרת, ותקציר
+  // "(2/3)" מתעדכן על הכפתור בכל שינוי.
+  function wireMultiSelectDropdown(containerId, checkboxSelector, onChange) {
+    const container = document.getElementById(containerId);
+    const btn = container.querySelector('[data-ms-toggle]');
+    const panel = container.querySelector('.multiselect-panel');
+    const countEl = container.querySelector('[data-ms-count]');
+    function updateCount() {
+      const all = container.querySelectorAll(checkboxSelector);
+      const checked = [...all].filter((cb) => cb.checked).length;
+      countEl.textContent = `(${checked}/${all.length})`;
+    }
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('.multiselect-panel').forEach((p) => { if (p !== panel) p.hidden = true; });
+      panel.hidden = !panel.hidden;
+    };
+    container.querySelectorAll(checkboxSelector).forEach((cb) => {
+      cb.onchange = () => { updateCount(); onChange(); };
+    });
+    updateCount();
+
+    // נרשם פעם אחת גלובלית (לא בכל קריאה ל-wireMultiSelectDropdown/רינדור
+    // מחדש של הטאב) כדי לא לצבור מאזינים כפולים על document.
+    if (!multiSelectOutsideClickWired) {
+      multiSelectOutsideClickWired = true;
+      document.addEventListener('click', (e) => {
+        document.querySelectorAll('.multiselect-panel').forEach((p) => {
+          if (!p.hidden && !p.closest('.multiselect').contains(e.target)) p.hidden = true;
+        });
+      });
+    }
+  }
+
   document.getElementById('orderSearch').oninput = applyFilters;
-  document.querySelectorAll('.filterPaidCheck').forEach((cb) => { cb.onchange = applyFilters; });
-  document.getElementById('filterRedeemed').onchange = applyFilters;
-  document.getElementById('filterSlot').onchange = applyFilters;
-  document.getElementById('filterMultiUnpaid').onchange = applyFilters;
+  wireMultiSelectDropdown('msPaid', '.filterPaidCheck', applyFilters);
+  wireMultiSelectDropdown('msRedeemed', '.filterRedeemedCheck', applyFilters);
+  wireMultiSelectDropdown('msSlot', '.filterSlotCheck', applyFilters);
+  wireMultiSelectDropdown('msExtra', '#filterMultiUnpaid', applyFilters);
   document.getElementById('toggleQuickEventMode').onclick = () => {
     quickEventModeOn = true;
     renderOrdersTab();
