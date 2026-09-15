@@ -348,6 +348,22 @@ export async function getDashboardStats() {
       GROUP BY oi.slot_id, s.name, oi.gender
       ORDER BY s.name, oi.gender`
   );
+  // גרסה "מאובטחת" של אותה טבלה — רק הזמנות ששולמו במלואן או תואמו מול
+  // המשרד, כלומר עופות שבאמת נחשבים שמורים. זו ברירת המחדל בתצוגה בדשבורד,
+  // עם אפשרות להחליף לתצוגת "הכל" כולל מה שעוד לא הוסדר.
+  const { rows: securedRows } = await pool.query(
+    `SELECT oi.slot_id, s.name AS slot_name, oi.gender,
+            SUM(oi.quantity)::int AS ordered,
+            SUM(oi.quantity_redeemed)::int AS redeemed,
+            SUM(oi.line_total) AS revenue_ordered
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       JOIN order_balances b ON b.order_id = o.id
+       JOIN distribution_slots s ON s.id = oi.slot_id
+      WHERE NOT o.is_deleted AND (b.payment_status = 'paid' OR o.payment_coordinated)
+      GROUP BY oi.slot_id, s.name, oi.gender
+      ORDER BY s.name, oi.gender`
+  );
   const { rows: paidRows } = await pool.query(
     `SELECT COALESCE(SUM(amount),0) AS total_paid FROM payments`
   );
@@ -414,11 +430,14 @@ export async function getDashboardStats() {
     redemptionBySlot.get(r.slot_id).buckets.push({ bucketStart: r.bucket_start, total: r.total });
   }
 
+  const mapSlotRow = (r) => ({
+    slotId: r.slot_id, slotName: r.slot_name, gender: r.gender,
+    ordered: r.ordered, redeemed: r.redeemed, revenueOrdered: Number(r.revenue_ordered),
+  });
+
   return {
-    bySlot: rows.map((r) => ({
-      slotId: r.slot_id, slotName: r.slot_name, gender: r.gender,
-      ordered: r.ordered, redeemed: r.redeemed, revenueOrdered: Number(r.revenue_ordered),
-    })),
+    bySlotAll: rows.map(mapSlotRow),
+    bySlotSecured: securedRows.map(mapSlotRow),
     totalPaid: Number(paidRows[0].total_paid),
     paidBirds: paidBirdsRows[0].paid_birds,
     paidByMethod: paidByMethodRows.map((r) => ({ method: r.method, total: Number(r.total) })),
