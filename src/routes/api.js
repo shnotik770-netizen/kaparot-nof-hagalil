@@ -10,7 +10,7 @@ import {
   getOpenSlotsForRegistration, getAllSlots, createSlot, updateSlot, deleteSlot, suggestDayLabel,
 } from '../lib/slots.js';
 import {
-  countOrdersForPhone, createOrder, listOrdersForPhone, getCustomerName, updateCustomerName,
+  countOrdersForPhone, createOrder, listOrdersForPhone, getCustomerName, updateCustomerName, cancelUnpaidOrder,
 } from '../lib/orders.js';
 import { getRedemptionStatus, confirmSlotRedemption } from '../lib/redemption.js';
 import {
@@ -21,7 +21,7 @@ import {
 } from '../lib/payments.js';
 import {
   listAllOrders, listCustomersSummary, getDashboardStats, hardReset,
-  updateOrderItemQuantity, deleteOrderItem, deleteOrder, setItemRedeemedQuantity,
+  updateOrderItemQuantity, deleteOrderItem, deleteOrder, setItemRedeemedQuantity, setOrderPaymentCoordinated,
 } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
 import { listActions, logAction } from '../lib/actionLog.js';
@@ -109,6 +109,12 @@ router.get('/my-orders', requireVerifiedPhone, wrap(async (req, res) => {
   res.json(await listOrdersForPhone(normalized));
 }));
 
+// ביטול עצמי של הזמנה שלא שולם עליה כלל — ראו cancelUnpaidOrder ב-orders.js לתנאים המדויקים.
+router.post('/orders/:id/cancel', requireVerifiedPhone, wrap(async (req, res) => {
+  const normalized = normalizePhone(req.body.phone);
+  res.json(await cancelUnpaidOrder(Number(req.params.id), normalized));
+}));
+
 router.get('/customer-name', requireVerifiedPhone, wrap(async (req, res) => {
   const normalized = normalizePhone(req.query.phone);
   res.json({ customerName: await getCustomerName(normalized) });
@@ -142,9 +148,13 @@ router.get('/payment-balance', requireVerifiedPhone, wrap(async (req, res) => {
   const balanceDue = orders.reduce((sum, o) => sum + o.balanceDue, 0);
   const totalAmount = orders.reduce((sum, o) => sum + o.totalAmount, 0);
   const amountPaid = orders.reduce((sum, o) => sum + o.amountPaid, 0);
+  const ordersWithBalance = orders.filter((o) => o.balanceDue > 0);
   res.json({
     balanceDue, totalAmount, amountPaid,
-    ordersWithBalance: orders.filter((o) => o.balanceDue > 0).map((o) => o.orderNumber),
+    ordersWithBalance: ordersWithBalance.map((o) => o.orderNumber),
+    // כל ההזמנות שיש בהן חוב תואמו עם המשרד — לא מציגים את אזהרת "העופות
+    // לא נשמרים", רק את סכום היתרה עצמו (ראו loadPersonalAreaDebtWarning ב-index.html).
+    allCoordinated: ordersWithBalance.length > 0 && ordersWithBalance.every((o) => o.paymentCoordinated),
   });
 }));
 
@@ -365,6 +375,10 @@ router.post('/admin/orders', requireAdmin, requirePermission('orders'), wrap(asy
 
 router.delete('/admin/orders/:id', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   res.json(await deleteOrder(Number(req.params.id), req.session.adminName || 'admin'));
+}));
+
+router.put('/admin/orders/:id/payment-coordinated', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await setOrderPaymentCoordinated(Number(req.params.id), req.body?.coordinated, req.session.adminName || 'admin'));
 }));
 
 router.put('/admin/orders/:orderId/items/:itemId', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {

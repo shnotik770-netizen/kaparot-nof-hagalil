@@ -29,6 +29,7 @@ export async function listAllOrders() {
     amountPaid: Number(o.amount_paid),
     balanceDue: Number(o.balance_due),
     paymentStatus: o.payment_status,
+    paymentCoordinated: o.payment_coordinated,
     createdAt: o.created_at,
     items: itemRows
       .filter((it) => it.order_id === o.id)
@@ -107,6 +108,11 @@ export async function listCustomersSummary() {
       ? { tokens: staleList.map((s) => s.token), amount: staleList[0].amount, createdAt: staleList[0].createdAt, count: staleList.length }
       : null;
 
+    // כמה מההזמנות של הלקוח הזה אינן משולמות במלואן (גם אם כולן קיבלו סכום
+    // כלשהו) — 2+ מסמן מצב "מפל תשלום מפוזר" שכדאי למנהל לשים לב אליו: אף
+    // הזמנה בודדת לא בהכרח "נסגרה" למרות שהתקבל תשלום כלשהו.
+    const unpaidOrdersCount = c.orders.filter((o) => o.paymentStatus !== 'paid').length;
+
     return {
       phone: c.phone,
       customerName: c.customerName,
@@ -115,6 +121,7 @@ export async function listCustomersSummary() {
       bySlot: [...bySlot.values()],
       orders: c.orders,
       pendingUnconfirmedPayment,
+      unpaidOrdersCount,
     };
   }).sort((a, b) => new Date(b.orders[0]?.createdAt || 0) - new Date(a.orders[0]?.createdAt || 0));
 }
@@ -210,6 +217,28 @@ export async function deleteOrder(orderId, adminName) {
   }
   await pool.query(`UPDATE orders SET is_deleted = true WHERE id = $1`, [orderId]);
   await logAction('order_deleted', { orderId, orderNumber: rows[0].order_number, customerName: rows[0].customer_name, phone: rows[0].phone, adminName });
+  return { success: true };
+}
+
+/**
+ * "תיאום תשלום" — מנהל מסמן שתיאם עם הלקוח תשלום שעדיין לא בוצע בפועל
+ * (טלפונית/במשרד וכו'). לא נוגע ב-payment_status/יתרות/משיכה — רק נועל
+ * את ההזמנה מפני ביטול/עריכה עצמית של הלקוח (ראו cancelUnpaidOrder ב-
+ * orders.js), ומחליף את אזהרת "העופות לא נשמרים" בציון היתרה בלבד באזור
+ * האישי (ראו /payment-balance ב-api.js).
+ */
+export async function setOrderPaymentCoordinated(orderId, coordinated, adminName) {
+  const { rows } = await pool.query(`SELECT order_number, customer_name, phone FROM orders WHERE id = $1`, [orderId]);
+  if (!rows.length) {
+    const err = new Error('הזמנה לא נמצאה.');
+    err.status = 404;
+    throw err;
+  }
+  await pool.query(`UPDATE orders SET payment_coordinated = $2 WHERE id = $1`, [orderId, !!coordinated]);
+  await logAction('payment_coordinated_set', {
+    orderId, orderNumber: rows[0].order_number, customerName: rows[0].customer_name, phone: rows[0].phone,
+    coordinated: !!coordinated, adminName,
+  });
   return { success: true };
 }
 
@@ -345,6 +374,14 @@ export async function getDashboardStats() {
        JOIN order_balances b ON b.order_id = o.id
       WHERE NOT o.is_deleted AND b.payment_status <> 'paid'`
   );
+  // המראה של unpaidBirds — כמות עופות בהזמנות ששולמו במלואן, לתצוגה ליד "סה"כ שולם".
+  const { rows: paidBirdsRows } = await pool.query(
+    `SELECT COALESCE(SUM(oi.quantity),0)::int AS paid_birds
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       JOIN order_balances b ON b.order_id = o.id
+      WHERE NOT o.is_deleted AND b.payment_status = 'paid'`
+  );
 
   // ציר זמן הזמנות: סה"כ עופות שהוזמנו בכל יום קלנדרי (לפי מתי בוצעה ההזמנה, לא תאריך האספקה) — למעקב קצב הרשמה.
   const { rows: ordersByDateRows } = await pool.query(
@@ -383,6 +420,7 @@ export async function getDashboardStats() {
       ordered: r.ordered, redeemed: r.redeemed, revenueOrdered: Number(r.revenue_ordered),
     })),
     totalPaid: Number(paidRows[0].total_paid),
+    paidBirds: paidBirdsRows[0].paid_birds,
     paidByMethod: paidByMethodRows.map((r) => ({ method: r.method, total: Number(r.total) })),
     unpaidMoney: Number(unpaidMoneyRows[0].unpaid_money),
     unpaidBirds: unpaidBirdsRows[0].unpaid_birds,
