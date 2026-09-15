@@ -7,6 +7,7 @@ import connectPgSimple from 'connect-pg-simple';
 import { pool } from './db/pool.js';
 import apiRouter from './routes/api.js';
 import webhooksRouter from './routes/webhooks.js';
+import ivrRouter from './routes/ivr.js';
 import { startPeriodicSheetsSync } from './lib/sheetsSync.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,6 +29,10 @@ app.set('trust proxy', 1);
 // לפני express.json() הגלובלי בכוונה: אימות ה-HMAC של נדרים פלוס חייב את
 // הבייטים הגולמיים של הבקשה בדיוק כפי שהתקבלו (ראו docs/nedarim-plus-integration.md).
 app.use('/webhooks', express.raw({ type: '*/*', limit: '256kb' }), webhooksRouter);
+
+// ימות המשיח שולח GET כברירת מחדל (query string) — express.urlencoded כאן
+// רק ליתרת-בטיחות אם בעתיד api_url_post=yes יופעל לשלוחות ה-IVR.
+app.use('/ivr', express.urlencoded({ extended: true }), ivrRouter);
 
 app.use(express.json({ limit: '1mb' }));
 
