@@ -1540,13 +1540,12 @@ async function renderOrdersTab() {
       <input type="text" id="orderSearch" placeholder="הקלידו שם או מספר טלפון...">
       <div class="filter-row">
         <div>
-          <label for="filterPaid">סטטוס תשלום</label>
-          <select id="filterPaid">
-            <option value="all">הכל</option>
-            <option value="paid">שולם</option>
-            <option value="partial">שולם חלקית</option>
-            <option value="unpaid">לא שולם</option>
-          </select>
+          <label>סטטוס תשלום</label>
+          <div class="perm-checks">
+            <label><input type="checkbox" class="filterPaidCheck" value="paid" checked> שולם</label>
+            <label><input type="checkbox" class="filterPaidCheck" value="partial" checked> שולם חלקית</label>
+            <label><input type="checkbox" class="filterPaidCheck" value="unpaid" checked> לא שולם</label>
+          </div>
         </div>
         <div>
           <label for="filterRedeemed">סטטוס מימוש</label>
@@ -1595,12 +1594,12 @@ async function renderOrdersTab() {
 
   function applyFilters() {
     const q = document.getElementById('orderSearch').value.trim().toLowerCase();
-    const paidFilter = document.getElementById('filterPaid').value;
+    const paidFilters = [...document.querySelectorAll('.filterPaidCheck:checked')].map((cb) => cb.value);
     const redeemedFilter = document.getElementById('filterRedeemed').value;
     const slotFilter = document.getElementById('filterSlot').value;
     currentFiltered = customers.filter((c) => {
       if (q && !c.customerName.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
-      if (paidFilter !== 'all' && c.paymentStatus !== paidFilter) return false;
+      if (!paidFilters.includes(c.paymentStatus)) return false;
       if (redeemedFilter === 'full' && !c.fullyRedeemed) return false;
       if (redeemedFilter === 'partial' && c.fullyRedeemed) return false;
       if (slotFilter !== 'all' && !c.bySlot.some((s) => String(s.slotId) === slotFilter)) return false;
@@ -1618,7 +1617,7 @@ async function renderOrdersTab() {
   }
 
   document.getElementById('orderSearch').oninput = applyFilters;
-  document.getElementById('filterPaid').onchange = applyFilters;
+  document.querySelectorAll('.filterPaidCheck').forEach((cb) => { cb.onchange = applyFilters; });
   document.getElementById('filterRedeemed').onchange = applyFilters;
   document.getElementById('filterSlot').onchange = applyFilters;
   document.getElementById('toggleQuickEventMode').onclick = () => {
@@ -1821,10 +1820,6 @@ async function renderDashboardTab() {
   const stats = await api('/admin/dashboard');
   document.getElementById('tabContent').innerHTML = `
     <div class="card">
-      <h2>סה"כ שולם בפועל</h2>
-      <div class="total-row"><span>סכום</span><span>${money(stats.totalPaid)}</span></div>
-    </div>
-    <div class="card">
       <h2>מוזמן מול נמשך</h2>
       <table>
         <thead><tr><th>זמן חלוקה</th><th>סוג</th><th>הוזמן</th><th>נמשך</th></tr></thead>
@@ -1845,6 +1840,23 @@ async function renderDashboardTab() {
         <h3 style="margin:16px 0 8px;font-size:14px;border-inline-start:3px solid ${esc(s.slotColor)};padding-inline-start:8px">${esc(s.slotName)}</h3>
         ${barChartHtml(denseRedemptionBuckets(s.buckets), s.slotColor)}
       `).join('') : `<p class="chart-empty">עדיין לא בוצעו מימושים.</p>`}
+    </div>
+    <div class="card">
+      <h2>סה"כ שולם בפועל</h2>
+      <div class="total-row"><span>סכום</span><span>${money(stats.totalPaid)}</span></div>
+      ${stats.paidByMethod.length ? `
+        <h3 style="margin:16px 0 8px;font-size:14px">פילוח לפי אמצעי תשלום</h3>
+        <table>
+          <tbody>
+            ${stats.paidByMethod.map((r) => `
+              <tr><td>${esc(METHOD_LABEL[r.method] || r.method)}</td><td>${money(r.total)}</td></tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : ''}
+      <h3 style="margin:16px 0 8px;font-size:14px">עדיין לא שולם</h3>
+      <div class="total-row"><span>בכסף</span><span>${money(stats.unpaidMoney)}</span></div>
+      <div class="total-row"><span>בעופות</span><span>${stats.unpaidBirds}</span></div>
     </div>
   `;
 }

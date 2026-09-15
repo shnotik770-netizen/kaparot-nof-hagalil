@@ -323,6 +323,29 @@ export async function getDashboardStats() {
     `SELECT COALESCE(SUM(amount),0) AS total_paid FROM payments`
   );
 
+  // פילוח תשלומים לפי אמצעי (נדרים פלוס / מזומן / אשראי ידני / אחר).
+  const { rows: paidByMethodRows } = await pool.query(
+    `SELECT method, COALESCE(SUM(amount),0) AS total FROM payments GROUP BY method`
+  );
+
+  // כמה עוד לא שולם: בכסף — סכום היתרות הפתוחות בפועל (balance_due), לא שווי
+  // מלא של ההזמנה (הבדל משמעותי בתשלום חלקי). בעופות — סכום הכמות בהזמנות
+  // שעדיין לא שולמו במלואן (paymentStatus != 'paid'), כי זה בדיוק מה שחסום
+  // למשיכה כרגע — ראו שער התשלום ב-redemption.js: כל שורות הזמנה שלא שולמה
+  // עד תום נחסמות יחד, גם אם שולם בה חלקית, ולא רק שורות "היתרה" שלה.
+  const { rows: unpaidMoneyRows } = await pool.query(
+    `SELECT COALESCE(SUM(b.balance_due),0) AS unpaid_money
+       FROM orders o JOIN order_balances b ON b.order_id = o.id
+      WHERE NOT o.is_deleted`
+  );
+  const { rows: unpaidBirdsRows } = await pool.query(
+    `SELECT COALESCE(SUM(oi.quantity),0)::int AS unpaid_birds
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       JOIN order_balances b ON b.order_id = o.id
+      WHERE NOT o.is_deleted AND b.payment_status <> 'paid'`
+  );
+
   // ציר זמן הזמנות: סה"כ עופות שהוזמנו בכל יום קלנדרי (לפי מתי בוצעה ההזמנה, לא תאריך האספקה) — למעקב קצב הרשמה.
   const { rows: ordersByDateRows } = await pool.query(
     `SELECT o.created_at::date AS date, SUM(oi.quantity)::int AS total
@@ -360,6 +383,9 @@ export async function getDashboardStats() {
       ordered: r.ordered, redeemed: r.redeemed, revenueOrdered: Number(r.revenue_ordered),
     })),
     totalPaid: Number(paidRows[0].total_paid),
+    paidByMethod: paidByMethodRows.map((r) => ({ method: r.method, total: Number(r.total) })),
+    unpaidMoney: Number(unpaidMoneyRows[0].unpaid_money),
+    unpaidBirds: unpaidBirdsRows[0].unpaid_birds,
     ordersByDate: ordersByDateRows.map((r) => ({ date: r.date, total: r.total })),
     redemptionTimeline: [...redemptionBySlot.values()],
   };
