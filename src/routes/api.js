@@ -26,7 +26,7 @@ import {
 import { createTransaction } from '../lib/nedarim.js';
 import { listActions, logAction } from '../lib/actionLog.js';
 import { sendBulkSms } from '../lib/sms.js';
-import { setupKapparotIvrExtensions } from '../lib/yemotIvr.js';
+import { setupKapparotIvrExtensions, runYemotTestCalls } from '../lib/yemotIvr.js';
 
 const router = Router();
 
@@ -469,6 +469,10 @@ router.post('/admin/hard-reset', requireAdmin, requirePermission('settings'), wr
 
 router.post('/admin/ivr/setup-extensions', requireAdmin, requirePermission('settings'), wrap(async (req, res) => {
   res.json({ results: await setupKapparotIvrExtensions() });
+}));
+
+router.post('/admin/ivr/test-call', requireAdmin, requirePermission('settings'), wrap(async (req, res) => {
+  res.json({ results: await runYemotTestCalls(req.body?.code) });
 }));
 
 // ---- יומן פעולות ----
