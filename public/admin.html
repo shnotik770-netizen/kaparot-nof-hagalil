@@ -109,6 +109,11 @@ function el(html) { const t = document.createElement('template'); t.innerHTML = 
 function render(html) { document.getElementById('app').innerHTML = html; }
 function money(n) { return `₪${Number(n).toLocaleString('he-IL', { maximumFractionDigits: 0 })}`; }
 function esc(s) { return String(s ?? '').replace(/"/g, '&quot;'); }
+// הבדל מ-esc(): מיועד לתוכן טקסט (לא attribute) שמקורו חיצוני (תגובות ימות
+// המשיח) — חוסם גם < > & כדי שלא יישברו את ה-HTML או יריצו תגיות.
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
 // זהה ללוגיקת normalizePhone בשרת (src/lib/normalize.js) — לזיהוי לקוח קיים בצד הלקוח בלבד.
 function normalizePhoneClient(phone) {
   let digits = String(phone || '').replace(/\D/g, '');
@@ -354,6 +359,13 @@ async function renderSettingsCore() {
     </div>
 
     <div class="card">
+      <h2>בניית שלוחות IVR (ימות המשיח)</h2>
+      <p class="hint">יוצר/מעדכן דרך ה-API את שלוחת התפריט 9 (הזמנה/בירור) ואת תתי-השלוחות 9/1 ו-9/2. מציג לכל שלב בדיוק מה נשלח וגם מה ימות המשיח החזיר.</p>
+      <button class="primary" id="setupIvrExtensions">בניית השלוחות</button>
+      <div id="ivrSetupResults"></div>
+    </div>
+
+    <div class="card">
       <h2>איפוס קשיח</h2>
       <p class="hint">מוחק את כל ההזמנות, התשלומים והמשיכות. לא ניתן לשחזר. משתמשים בזה בסוף העונה או לניקוי בדיקות.</p>
       <label>הקלידו "איפוס" לאישור</label>
@@ -389,6 +401,31 @@ async function renderSettingsCore() {
       sheets_sync_enabled: document.getElementById('sheetsSyncEnabled').checked,
     }});
     flash('נשמר.');
+  };
+  document.getElementById('setupIvrExtensions').onclick = async () => {
+    const btn = document.getElementById('setupIvrExtensions');
+    const out = document.getElementById('ivrSetupResults');
+    btn.disabled = true;
+    out.innerHTML = `<p class="hint">בונה שלוחות…</p>`;
+    try {
+      const { results } = await api('/admin/ivr/setup-extensions', { method: 'POST' });
+      out.innerHTML = results.map((r) => {
+        const ok = r.response?.responseStatus === 'OK';
+        return `
+          <div class="notice${ok ? '' : ' critical'}" style="margin-top:10px;text-align:right">
+            <div><b>שלוחה:</b> ${escHtml(r.path)}</div>
+            <div style="margin-top:6px"><b>נשלח:</b></div>
+            <pre style="white-space:pre-wrap;word-break:break-all;font-size:12px;margin:4px 0">${escHtml(JSON.stringify(r.sentParams, null, 2))}</pre>
+            <div style="margin-top:6px"><b>תגובת ימות המשיח (HTTP ${r.httpStatus ?? '—'}):</b></div>
+            <pre style="white-space:pre-wrap;word-break:break-all;font-size:12px;margin:4px 0">${escHtml(JSON.stringify(r.response, null, 2))}</pre>
+          </div>
+        `;
+      }).join('');
+    } catch (err) {
+      out.innerHTML = `<div class="notice critical" style="margin-top:10px">${escHtml(err.message)}</div>`;
+    } finally {
+      btn.disabled = false;
+    }
   };
   document.getElementById('hardReset').onclick = async () => {
     const confirmText = document.getElementById('resetConfirm').value;
