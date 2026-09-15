@@ -409,10 +409,24 @@ router.post('/admin/sms/bulk', requireAdmin, requirePermission('orders'), wrap(a
     return res.status(400).json({ error: 'חסר תוכן הודעה.' });
   }
   const normalized = [...new Set(phones.map((p) => normalizePhone(p)).filter(Boolean))];
-  const result = await sendBulkSms(normalized, message);
+  const sentBy = req.session.adminName || 'admin';
+
+  let result;
+  try {
+    result = await sendBulkSms(normalized, message);
+  } catch (err) {
+    // גם כישלון מוחלט (לא רק נמענים בודדים) נרשם ביומן — אחרת ניסיון שנכשל
+    // כולו (למשל שרת הסמס לא זמין) נעלם בלי עקבות.
+    await logAction('sms_bulk_sent', {
+      recipientCount: 0, failedCount: normalized.length, error: err.message, errorDetails: err.details || null,
+      message, sentBy,
+    });
+    throw err;
+  }
+
   await logAction('sms_bulk_sent', {
     recipientCount: result.recipientCount, failedCount: result.failedCount, failed: result.failed,
-    message, sentBy: req.session.adminName || 'admin',
+    message, sentBy,
   });
   res.json(result);
 }));
