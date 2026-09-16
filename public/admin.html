@@ -1051,26 +1051,12 @@ function customerPaymentsPanelHtml(c) {
       </select>
       <button class="primary" data-cpay-submit="${esc(c.phone)}">רישום תשלום</button>
     </div>
+    <label style="margin-top:8px;display:flex;align-items:center;gap:6px;font-weight:normal">
+      <input type="checkbox" id="${pid}-pcredit" style="width:auto">
+      זיכוי (הסכום יירשם במינוס — לתיקון עודף תשלום, למשל אחרי תיקון הזמנה ידני)
+    </label>
     <input type="text" id="${pid}-pnote" placeholder="פרטו מהו אופן התשלום..." hidden style="margin-top:8px">
     <div id="${pid}-pmsg"></div>
-
-    <h3 style="margin:16px 0 8px;font-size:14px">רישום זיכוי/תיקון (עבור הזמנה ספציפית ששולמה ביתר, למשל אחרי תיקון ידני)</h3>
-    <div class="row">
-      <select id="${pid}-credit-order">
-        ${c.orders.map((o) => `<option value="${o.id}">הזמנה מס' ${o.orderSequence} (${o.orderNumber}) · יתרה נוכחית: ${money(o.balanceDue)}${o.balanceDue < 0 ? ' 💰' : ''}</option>`).join('')}
-      </select>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <input type="number" min="0" placeholder="סכום לזיכוי" id="${pid}-credit-amt">
-      <select id="${pid}-credit-method">
-        <option value="manual_cash">מזומן</option>
-        <option value="manual_card">אשראי ידני</option>
-        <option value="manual_admin">אחר</option>
-      </select>
-    </div>
-    <input type="text" id="${pid}-credit-note" placeholder="פרטו את הסיבה לזיכוי (חובה)..." style="margin-top:8px">
-    <button class="secondary" type="button" data-credit-submit style="margin-top:8px">רישום זיכוי (יירשם כתשלום שלילי)</button>
-    <div id="${pid}-creditmsg"></div>
 
     ${c.orders.some((o) => o.paymentStatus !== 'paid') ? (() => {
       const openOrders = c.orders.filter((o) => o.paymentStatus !== 'paid');
@@ -1099,7 +1085,9 @@ async function wireCustomerPaymentsPanel(c) {
   pmethodSelect.onchange = () => { pnoteInput.hidden = pmethodSelect.value !== 'manual_admin'; };
 
   panel.querySelector('[data-cpay-submit]').onclick = async () => {
-    const amount = Number(document.getElementById(`${pid}-pamt`).value);
+    const rawAmount = Number(document.getElementById(`${pid}-pamt`).value);
+    const isCredit = document.getElementById(`${pid}-pcredit`).checked;
+    const amount = isCredit ? -Math.abs(rawAmount) : rawAmount;
     const method = pmethodSelect.value;
     const note = pnoteInput.hidden ? undefined : pnoteInput.value.trim() || undefined;
     try {
@@ -1107,28 +1095,6 @@ async function wireCustomerPaymentsPanel(c) {
       refreshCustomerCard(c.phone, { keepPayOpen: true });
     } catch (err) {
       document.getElementById(`${pid}-pmsg`).innerHTML = `<div class="error">${err.message}</div>`;
-    }
-  };
-
-  panel.querySelector('[data-credit-submit]').onclick = async () => {
-    const orderId = document.getElementById(`${pid}-credit-order`).value;
-    const rawAmount = Number(document.getElementById(`${pid}-credit-amt`).value);
-    const method = document.getElementById(`${pid}-credit-method`).value;
-    const note = document.getElementById(`${pid}-credit-note`).value.trim();
-    const msgEl = document.getElementById(`${pid}-creditmsg`);
-    if (!Number.isFinite(rawAmount) || rawAmount <= 0) {
-      msgEl.innerHTML = `<div class="error">יש להזין סכום זיכוי חיובי.</div>`;
-      return;
-    }
-    if (!note) {
-      msgEl.innerHTML = `<div class="error">יש לפרט את הסיבה לזיכוי.</div>`;
-      return;
-    }
-    try {
-      await api(`/admin/orders/${orderId}/payments`, { method: 'POST', body: { amount: -rawAmount, method, note } });
-      refreshCustomerCard(c.phone, { keepPayOpen: true });
-    } catch (err) {
-      msgEl.innerHTML = `<div class="error">${err.message}</div>`;
     }
   };
 

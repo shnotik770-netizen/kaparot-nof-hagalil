@@ -64,13 +64,12 @@ export async function listAllPayments() {
  * תשלום ידני מהפאנל, ברמת הלקוח (לא הזמנה בודדת) — "מפל" בדיוק כמו נדרים
  * פלוס: מקצה את הסכום שהמנהל הקליד על ההזמנות הפתוחות של הטלפון, הישנה
  * ביותר קודם, ורושם שורת payments לכל הזמנה שנפרעה/נפרעה חלקית.
- * בכוונה נשאר דורש סכום חיובי בלבד — "מפל" על הזמנות עם יתרת חוב פתוחה לא
- * הגיוני לזיכוי/תיקון; לזה יש להשתמש ב-recordManualPayment ברמת הזמנה בודדת
- * (ההזמנה הספציפית ששולמה ביתר).
+ * סכום שלילי (זיכוי/תיקון, למשל ללקוח ששילם על הזמנה שתוקנה אח"כ למטה
+ * במחיר) מטופל אחרת — ראו recordCustomerCredit.
  */
 export async function recordManualPaymentForCustomer(normalizedPhone, amount, method, recordedBy, note) {
   const amt = Number(amount);
-  if (!Number.isFinite(amt) || amt <= 0) {
+  if (!Number.isFinite(amt) || amt === 0) {
     const err = new Error('סכום לא תקין.');
     err.status = 400;
     throw err;
@@ -79,6 +78,9 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
     const err = new Error('אמצעי תשלום לא תקין.');
     err.status = 400;
     throw err;
+  }
+  if (amt < 0) {
+    return recordCustomerCredit(normalizedPhone, amt, method, recordedBy, note);
   }
   return withTransaction(async (client) => {
     const { rows: orders } = await client.query(
@@ -110,6 +112,42 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
     }
     await logAction('payment_recorded_manual', { phone: normalizedPhone, amount: amt, method, recordedBy, note: note || null, allocations, unallocatedSurplus: remaining }, client);
     return { allocations, unallocatedSurplus: remaining };
+  });
+}
+
+/**
+ * זיכוי/תיקון (סכום שלילי) ברמת הלקוח — מזהה אוטומטית את ההזמנה עם עודף
+ * התשלום הגדול ביותר (balance_due הכי שלילי, "הזכות" הכי גדולה) ורושמת
+ * את התשלום השלילי מולה. לא "מפל" כמו סכום חיובי — זו תמיד הזמנה אחת,
+ * כי מקור הזכות (תיקון ידני שהוריד את מחיר ההזמנה אחרי שכבר שולם) תמיד
+ * שייך להזמנה ספציפית אחת.
+ */
+async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, note) {
+  return withTransaction(async (client) => {
+    const { rows: orders } = await client.query(
+      `SELECT o.id, b.balance_due
+         FROM orders o
+         JOIN order_balances b ON b.order_id = o.id
+        WHERE o.normalized_phone = $1 AND NOT o.is_deleted AND b.balance_due < 0
+        ORDER BY b.balance_due ASC, o.order_sequence ASC
+        FOR UPDATE OF o`,
+      [normalizedPhone]
+    );
+    if (!orders.length) {
+      const err = new Error('לא נמצאה ללקוח זה הזמנה עם עודף תשלום (זכות) לרישום הזיכוי מולה.');
+      err.status = 400;
+      throw err;
+    }
+    const target = orders[0];
+    await client.query(
+      `INSERT INTO payments(order_id, amount, method, recorded_by, note) VALUES ($1,$2,$3,$4,$5)`,
+      [target.id, amt, method, recordedBy, note || null]
+    );
+    await logAction('payment_recorded_manual', {
+      phone: normalizedPhone, amount: amt, method, recordedBy, note: note || null,
+      allocations: [{ orderId: target.id, amount: amt }], unallocatedSurplus: 0, isCredit: true,
+    }, client);
+    return { allocations: [{ orderId: target.id, amount: amt }], unallocatedSurplus: 0 };
   });
 }
 
