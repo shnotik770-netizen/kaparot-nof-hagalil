@@ -187,6 +187,7 @@ export async function updateOrderItemQuantity(orderId, itemId, newQuantity, admi
 async function reassignOrphanedPayments(client, orderId, normalizedPhone, adminName) {
   const { rows: payments } = await client.query(`SELECT id, amount FROM payments WHERE order_id = $1`, [orderId]);
   if (!payments.length) return { moved: false };
+  const totalAmount = payments.reduce((s, p) => s + Number(p.amount), 0);
 
   const { rows: candidates } = await client.query(
     `SELECT o.id
@@ -198,11 +199,18 @@ async function reassignOrphanedPayments(client, orderId, normalizedPhone, adminN
     [normalizedPhone, orderId]
   );
   if (!candidates.length) {
-    return { moved: false, reason: 'no_active_orders', orphanedAmount: payments.reduce((s, p) => s + Number(p.amount), 0) };
+    // אין לאן להעביר — ללקוח אין אף הזמנה פעילה אחרת. נרשם ביומן הפעולות
+    // (בסגנון ivr_payment_orphaned) כדי שהמנהל יראה את זה ולא רק בלוג
+    // הדיפלוי החד-פעמי, שאף אחד לא רואה אחרי שהוא גולל.
+    const { rows: orderRow } = await client.query(`SELECT customer_name, phone FROM orders WHERE id = $1`, [orderId]);
+    await logAction('payment_reassign_failed_no_active_order', {
+      fromOrderId: orderId, customerName: orderRow[0]?.customer_name, phone: orderRow[0]?.phone,
+      paymentIds: payments.map((p) => p.id), totalAmount, adminName,
+    }, client);
+    return { moved: false, reason: 'no_active_orders', orphanedAmount: totalAmount };
   }
   const targetOrderId = candidates[0].id;
   await client.query(`UPDATE payments SET order_id = $1 WHERE order_id = $2`, [targetOrderId, orderId]);
-  const totalAmount = payments.reduce((s, p) => s + Number(p.amount), 0);
   await logAction('payments_reassigned_from_deleted_order', {
     fromOrderId: orderId, toOrderId: targetOrderId, paymentIds: payments.map((p) => p.id), totalAmount, adminName,
   }, client);
