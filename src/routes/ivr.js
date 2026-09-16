@@ -83,6 +83,16 @@ router.all('/registration-menu', wrap(async (req, res) => {
   const params = { ...req.query, ...req.body };
   res.type('text/plain');
 
+  // הגנה: השלוחה הזו יוצרת הזמנות אמיתיות ומחייבת כרטיסי אשראי — חובה
+  // לוודא שהבקשה אכן הגיעה מימות המשיח (עם api_add_0 בהגדרות השלוחה)
+  // ולא ממישהו שמדביק/מנחש את הכתובת ישירות, בדיוק כפי שנבדק ידנית קודם
+  // (אפשר היה ליצור הזמנה מזויפת עם CreditCard_CODE=OK בלי לשלם בפועל).
+  // 9/2 (בירור מצב) נשאר בכוונה בלי הגנה כזו — קריאה בלבד, לא כסף.
+  if (!process.env.IVR_REGISTRATION_SECRET || params.ivr_secret !== process.env.IVR_REGISTRATION_SECRET) {
+    console.error('[ivr] registration-menu rejected: missing/invalid ivr_secret');
+    return res.send(idListMessage([textSegment('ההרשמה נסגרה')]));
+  }
+
   if (params.hangup === 'yes') return res.send('ok');
 
   const slots = await getIvrRegistrationSlots();
