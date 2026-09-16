@@ -85,6 +85,15 @@
 <script>
 const GENDER_LABEL = { male: 'זכרים', female: 'נקבות' };
 const STATUS_LABEL = { paid: 'שולם', partial: 'חלקי', unpaid: 'לא שולם' };
+
+// תג סטטוס תשלום ללקוח: אם "לא שולם" אבל כל ההזמנות הפתוחות שלו תואמו מול
+// המשרד (payment_coordinated), מוסיפים "· מתואם" ומחליפים את האדום המזהיר
+// בצבע רגוע יותר — זה חוב ידוע ועקוב, לא בעיה שצריך לטפל בה.
+function customerPaymentPillHtml(c) {
+  const openOrders = c.orders.filter((o) => o.paymentStatus !== 'paid');
+  const coordinated = c.paymentStatus === 'unpaid' && openOrders.length > 0 && openOrders.every((o) => o.paymentCoordinated);
+  return `<span class="pill ${c.paymentStatus}${coordinated ? ' coordinated' : ''}">${STATUS_LABEL[c.paymentStatus]}${coordinated ? ' · מתואם' : ''}</span>`;
+}
 const METHOD_LABEL = { nedarim_plus: 'נדרים פלוס', manual_cash: 'מזומן', manual_card: 'אשראי ידני', manual_admin: 'אחר' };
 // סדר המפתחות כאן קובע את סדר הטאבים בתפריט. 'settings' ו'slots' אוחדו
 // לכפתור אחד (ראו renderSettingsTab) — עדיין שתי הרשאות נפרדות, אבל ניווט משותף.
@@ -777,7 +786,7 @@ function customerCardHtml(c) {
         <span style="display:flex;gap:6px;align-items:center">
           ${c.fullyRedeemed ? '<span class="fully-pill">✓ מומש</span>' : ''}
           ${c.unpaidOrdersCount >= 2 ? `<span class="pill unpaid" title="${c.unpaidOrdersCount} הזמנות אינן משולמות במלואן">⚠️ ${c.unpaidOrdersCount} הזמנות לא סגורות</span>` : ''}
-          <span class="pill ${c.paymentStatus}">${STATUS_LABEL[c.paymentStatus]}</span>
+          ${customerPaymentPillHtml(c)}
         </span>
       </div>
       ${pendingPaymentNoticeHtml(c)}
@@ -1556,7 +1565,7 @@ function quickEventCardHtml(c) {
     <div class="card">
       <div class="order-row-header">
         <b>${esc(c.customerName)} · ${esc(c.phone)}</b>
-        <span class="pill ${c.paymentStatus}">${STATUS_LABEL[c.paymentStatus]}</span>
+        ${customerPaymentPillHtml(c)}
       </div>
       ${customerSummaryRowsHtml(c)}
       ${c.paymentStatus === 'paid'

@@ -49,6 +49,7 @@ button.danger{background:var(--wine);color:#fff}
 .pill.paid{background:var(--sage-soft);color:var(--sage)}
 .pill.partial{background:var(--accent-soft);color:var(--accent-ink)}
 .pill.unpaid{background:var(--wine-soft);color:var(--wine)}
+.pill.unpaid.coordinated{background:var(--accent-soft);color:var(--accent-ink)}
 .item-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
 .item-row:first-child{border-top:none}
 .item-row .meta{font-size:13.5px;color:var(--ink-dim)}
