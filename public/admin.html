@@ -1402,8 +1402,12 @@ async function refreshCustomerCard(phone, { keepViewOpen = false, keepPayOpen = 
 
   const headerH2 = document.querySelector('.tab-header-row h2');
   const headerHint = document.querySelector('.tab-header-row .hint');
-  if (headerH2) headerH2.textContent = `לקוחות (${customers.length})`;
   if (headerHint) headerHint.textContent = `${customers.length} לקוחות · ${customers.filter((x) => x.paymentStatus === 'paid').length} שולמו במלואם`;
+  // אם מסנן פעיל כרגע לא נוגעים בכותרת (שמציגה "X מתוך Y") כדי לא להציג
+  // מספר שגוי — היא תתעדכן בפעם הבאה שהמסננים יופעלו מחדש.
+  if (headerH2 && (!lastOrdersHeaderState || !lastOrdersHeaderState.isFiltered)) {
+    headerH2.textContent = `לקוחות (${customers.length})`;
+  }
 
   if (!container) { return renderOrdersTab(); }
   if (!c) { container.remove(); return; }
@@ -1438,6 +1442,15 @@ async function refreshCustomerCard(phone, { keepViewOpen = false, keepPayOpen = 
 let allCustomersCache = [];
 let allSlotsForFilter = [];
 let multiSelectOutsideClickWired = false;
+let lastOrdersHeaderState = null;
+
+// מעדכן את "לקוחות (X)" שבראש טאב ההזמנות — כשמסנן פעיל, מציג "X מתוך Y"
+// (X מסוננים מתוך Y סה"כ) במקום רק את המספר הכולל.
+function updateOrdersHeader(filteredCount, totalCount, isFiltered) {
+  const headerH2 = document.querySelector('.tab-header-row h2');
+  if (headerH2) headerH2.textContent = isFiltered ? `לקוחות (${filteredCount} מתוך ${totalCount})` : `לקוחות (${totalCount})`;
+  lastOrdersHeaderState = { isFiltered };
+}
 
 // ============== מימוש מהיר ליום החלוקה — בתוך טאב ההזמנות בלבד ==============
 // מסך מצומצם: בלי כפתורי סינון/הזמנה חדשה, רק חיפוש חופשי, ורשימת לקוחות
@@ -1676,6 +1689,7 @@ async function renderOrdersTab() {
     <div id="ordersListWrap"></div>
   `;
 
+  updateOrdersHeader(customers.length, customers.length, false);
   let currentFiltered = customers;
 
   // מיפוי הזמנה בודדת לקטגוריית "סטטוס תשלום" לצורך הסינון. לקוח נחשב
@@ -1693,21 +1707,37 @@ async function renderOrdersTab() {
     }
   }
 
+  // "מומש במלואו" ביחס לזמני החלוקה המסוננים כרגע (לא ביחס לכל ההזמנות של
+  // הלקוח): כשמסנן זמן חלוקה פעיל, בודקים מימוש רק מול הפריטים בזמני
+  // החלוקה שנשארו מסומנים — כדי שמי שמימש במלואו ביום חמישי אך טרם הגיע
+  // ביום ראשון לא ייחשב "לא מומש" כשהמסנן מוגבל ליום חמישי בלבד.
+  function isFullyRedeemedForSlots(c, checkedSlots, slotFilterActive) {
+    const relevant = slotFilterActive ? c.bySlot.filter((s) => checkedSlots.includes(String(s.slotId))) : c.bySlot;
+    if (!relevant.length) return c.fullyRedeemed;
+    return relevant.every((s) => s.maleRedeemed >= s.male && s.femaleRedeemed >= s.female);
+  }
+
   function applyFilters() {
     const q = document.getElementById('orderSearch').value.trim().toLowerCase();
-    const paidFilters = [...document.querySelectorAll('.filterPaidCheck:checked')].map((cb) => cb.value);
-    const redeemedFilters = [...document.querySelectorAll('.filterRedeemedCheck:checked')].map((cb) => cb.value);
+    const allPaidChecks = document.querySelectorAll('.filterPaidCheck');
+    const paidFilters = [...allPaidChecks].filter((cb) => cb.checked).map((cb) => cb.value);
+    const allRedeemedChecks = document.querySelectorAll('.filterRedeemedCheck');
+    const redeemedFilters = [...allRedeemedChecks].filter((cb) => cb.checked).map((cb) => cb.value);
     const allSlotChecks = document.querySelectorAll('.filterSlotCheck');
     const checkedSlots = [...allSlotChecks].filter((cb) => cb.checked).map((cb) => cb.value);
+    // כל הזמנים מסומנים = בלי סינון בכלל (כמו "כל הזמנים" הישן).
+    const slotFilterActive = checkedSlots.length < allSlotChecks.length;
     currentFiltered = customers.filter((c) => {
       if (q && !c.customerName.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
       if (!c.orders.some((o) => paidFilters.some((cat) => orderMatchesPaidCategory(o, cat)))) return false;
-      if (!(c.fullyRedeemed ? redeemedFilters.includes('full') : redeemedFilters.includes('partial'))) return false;
-      // כל הזמנים מסומנים = בלי סינון בכלל (כמו "כל הזמנים" הישן) — אחרת
       // הלקוח חייב פריט בלפחות אחד מהזמנים שנשארו מסומנים.
-      if (checkedSlots.length < allSlotChecks.length && !c.bySlot.some((s) => checkedSlots.includes(String(s.slotId)))) return false;
+      if (slotFilterActive && !c.bySlot.some((s) => checkedSlots.includes(String(s.slotId)))) return false;
+      const fullyRedeemed = isFullyRedeemedForSlots(c, checkedSlots, slotFilterActive);
+      if (!(fullyRedeemed ? redeemedFilters.includes('full') : redeemedFilters.includes('partial'))) return false;
       return true;
     });
+    const filtersActive = !!q || paidFilters.length < allPaidChecks.length || redeemedFilters.length < allRedeemedChecks.length || slotFilterActive;
+    updateOrdersHeader(currentFiltered.length, customers.length, filtersActive);
     renderList(currentFiltered);
   }
 
