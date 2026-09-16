@@ -162,6 +162,11 @@ CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_order_transaction
   ON payments(order_id, nedarim_transaction_id) WHERE nedarim_transaction_id IS NOT NULL;
 
+-- מרחיב CHECK ישן (amount > 0 בלבד) כדי לאפשר גם תשלום שלילי (זיכוי/תיקון
+-- ידני, למשל ללקוח ששילם על הזמנה שתוקנה אח"כ למטה במחיר) — עדיין אוסר 0.
+ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_amount_check;
+ALTER TABLE payments ADD CONSTRAINT payments_amount_check CHECK (amount <> 0);
+
 -- כפתור "תשלום" באזור האישי יוצר כאן שורה אחת (עם token אקראי כ-Param2 מול
 -- נדרים פלוס), לפני קריאת CreateTransaction — כך שכשה-Webhook חוזר אנחנו
 -- יודעים בדיוק לאיזה טלפון ולאיזה סכום מבוקש הוא שייך, ומקצים אותו ל"מפל"

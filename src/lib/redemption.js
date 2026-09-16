@@ -86,6 +86,37 @@ export async function getRedemptionStatus(normalizedPhone) {
 }
 
 /**
+ * היסטוריה כרונולוגית מלאה של כל אירועי המימוש של לקוח (טבלת redemptions —
+ * מעודכנת גם ממימוש רגיל וגם מעריכה ידנית של "נמשך בפועל", ראו
+ * setItemRedeemedQuantity ב-adminOps.js) — לתצוגה בכרטיס הלקוח, כולל
+ * תאריך+שעה ואיך בוצע (מערכת/ידני ע"י מנהל).
+ */
+export async function getRedemptionHistoryForPhone(normalizedPhone) {
+  const { rows } = await pool.query(
+    `SELECT r.id, r.quantity, r.confirmation_code, r.redeemed_by, r.redeemed_at,
+            oi.gender, s.name AS slot_name, s.color AS slot_color
+       FROM redemptions r
+       JOIN order_items oi ON oi.id = r.order_item_id
+       JOIN orders o ON o.id = oi.order_id
+       JOIN distribution_slots s ON s.id = oi.slot_id
+      WHERE o.normalized_phone = $1
+      ORDER BY r.redeemed_at DESC`,
+    [normalizedPhone]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    quantity: r.quantity,
+    confirmationCode: r.confirmation_code,
+    redeemedBy: r.redeemed_by,
+    redeemedAt: r.redeemed_at,
+    isManual: r.confirmation_code === 'ADMIN-MANUAL',
+    gender: r.gender,
+    slotName: r.slot_name,
+    slotColor: r.slot_color,
+  }));
+}
+
+/**
  * מימוש משולב לזמן חלוקה שלם: כמות זכרים + כמות נקבות (כל אחת יכולה להיות 0),
  * נלקחות מכל שורות ההזמנה הזמינות (משולמות, פתוחות לחלוקה) של אותו טלפון
  * ואותו זמן חלוקה, מהישנה לחדשה, עד שהכמות המבוקשת מתמלאת. פעולה אחת,

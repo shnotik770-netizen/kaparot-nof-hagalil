@@ -24,7 +24,9 @@ export async function recordIvrNedarimPayment(orderId, amount, note) {
 
 export async function recordManualPayment(orderId, amount, method, recordedBy, note) {
   const amt = Number(amount);
-  if (!Number.isFinite(amt) || amt <= 0) {
+  // סכום שלילי מותר בכוונה — זיכוי/תיקון ידני עבור לקוח ששילם על הזמנה
+  // שתוקנה אח"כ למטה במחיר (ראו גם payments_amount_check בסכימה).
+  if (!Number.isFinite(amt) || amt === 0) {
     const err = new Error('סכום לא תקין.');
     err.status = 400;
     throw err;
@@ -62,6 +64,9 @@ export async function listAllPayments() {
  * תשלום ידני מהפאנל, ברמת הלקוח (לא הזמנה בודדת) — "מפל" בדיוק כמו נדרים
  * פלוס: מקצה את הסכום שהמנהל הקליד על ההזמנות הפתוחות של הטלפון, הישנה
  * ביותר קודם, ורושם שורת payments לכל הזמנה שנפרעה/נפרעה חלקית.
+ * בכוונה נשאר דורש סכום חיובי בלבד — "מפל" על הזמנות עם יתרת חוב פתוחה לא
+ * הגיוני לזיכוי/תיקון; לזה יש להשתמש ב-recordManualPayment ברמת הזמנה בודדת
+ * (ההזמנה הספציפית ששולמה ביתר).
  */
 export async function recordManualPaymentForCustomer(normalizedPhone, amount, method, recordedBy, note) {
   const amt = Number(amount);
@@ -126,7 +131,7 @@ function assertManualPayment(payment) {
 /** עריכת תשלום שהוזן ידנית (תיקון טעות הקלדה) — לא נוגעים בתשלומי נדרים פלוס האמיתיים. */
 export async function updateManualPayment(paymentId, { amount, method, note }, adminName) {
   const amt = Number(amount);
-  if (!Number.isFinite(amt) || amt <= 0) {
+  if (!Number.isFinite(amt) || amt === 0) {
     const err = new Error('סכום לא תקין.');
     err.status = 400;
     throw err;

@@ -243,6 +243,33 @@ export async function setOrderPaymentCoordinated(orderId, coordinated, adminName
   return { success: true };
 }
 
+/**
+ * כמו setOrderPaymentCoordinated, אבל על כל ההזמנות הפתוחות (לא 'paid')
+ * של לקוח יחד — כדי שתיאום תשלום יחול על הלקוח כולו ולא רק על הזמנה
+ * בודדת, שדורש סימון נפרד לכל הזמנה.
+ */
+export async function setCustomerPaymentCoordinated(normalizedPhone, coordinated, adminName) {
+  const { rows } = await pool.query(
+    `SELECT o.id, o.customer_name
+       FROM orders o
+       JOIN order_balances b ON b.order_id = o.id
+      WHERE o.normalized_phone = $1 AND NOT o.is_deleted AND b.payment_status <> 'paid'`,
+    [normalizedPhone]
+  );
+  if (!rows.length) {
+    const err = new Error('אין ללקוח זה הזמנות שאינן משולמות במלואן.');
+    err.status = 400;
+    throw err;
+  }
+  const orderIds = rows.map((r) => r.id);
+  await pool.query(`UPDATE orders SET payment_coordinated = $2 WHERE id = ANY($1::int[])`, [orderIds, !!coordinated]);
+  await logAction('payment_coordinated_set', {
+    phone: normalizedPhone, customerName: rows[0].customer_name, orderIds,
+    coordinated: !!coordinated, adminName,
+  });
+  return { success: true, orderIds };
+}
+
 // מוריד `excess` מיומן המשיכות (redemptions) של שורת הזמנה נתונה, מהאירועים
 // העדכניים ביותר קודם (LIFO), כולל פיצול אירוע חלקית אם צריך. משמש גם
 // כשמנהל מבטל/מקטין מימוש (setItemRedeemedQuantity) וגם בניקוי חד-פעמי של
