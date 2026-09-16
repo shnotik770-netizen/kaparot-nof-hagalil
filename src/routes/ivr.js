@@ -7,7 +7,8 @@
 import { Router } from 'express';
 import { normalizePhone } from '../lib/normalize.js';
 import { listOrdersForPhone } from '../lib/orders.js';
-import { textSegment, idListMessage } from '../lib/ivrFormat.js';
+import { getIvrRegistrationSlots } from '../lib/slots.js';
+import { textSegment, idListMessage, readAction } from '../lib/ivrFormat.js';
 
 const router = Router();
 
@@ -50,6 +51,44 @@ router.all('/order-status', wrap(async (req, res) => {
     ));
   }
   res.send(idListMessage(segments));
+}));
+
+/**
+ * שלוחת "רישום הזמנה חדשה" (9/1) — כרגע רק צעד ראשון: קורא בקול את זמני
+ * החלוקה הפתוחים להרשמה כרגע *ושמוגדר להם קוד+טקסט הקראה*, ישירות מה-DB
+ * (חי, לא רשימה קבועה), ותופס את הבחירה. בדיקת "זמן הרשמה פעיל" נגזרת
+ * מאותה לוגיקה בדיוק כמו טופס ההרשמה באתר (getOpenSlotsForRegistration).
+ * המשך התהליך (מגדר/כמות/תשלום) עוד לא בנוי — נקודת עצירה מכוונת לבדיקה.
+ */
+router.all('/registration-menu', wrap(async (req, res) => {
+  const params = { ...req.query, ...req.body };
+  res.type('text/plain');
+
+  if (params.hangup === 'yes') return res.send('ok');
+
+  const slots = await getIvrRegistrationSlots();
+
+  // סבב שני: כבר הקישו קוד זמן חלוקה בסבב הקודם.
+  if (params.SlotChoice) {
+    const chosen = slots.find((s) => s.ivrCode === params.SlotChoice);
+    if (!chosen) {
+      return res.send(idListMessage([textSegment('הבחירה שהוקשה כבר לא זמינה, אנא התקשרו שוב')]));
+    }
+    return res.send(idListMessage([textSegment(`בחרתם ${chosen.ivrAnnouncement}, בקרוב נמשיך משם`)]));
+  }
+
+  if (!slots.length) {
+    return res.send(idListMessage([textSegment('ההרשמה סגורה כרגע, אנא נסו שוב מאוחר יותר')]));
+  }
+
+  const promptSegments = [
+    textSegment('ברוכים הבאים להרשמה'),
+    ...slots.map((s) => textSegment(`להזמנת ${s.ivrAnnouncement} הקישו ${s.ivrCode}`)),
+  ];
+  const allowedKeys = slots.map((s) => s.ivrCode).join('');
+  res.send(readAction(promptSegments, [
+    'SlotChoice', '', 1, 1, 10, 'NO', '', '', '', allowedKeys, '', '', '', '', 'no',
+  ]));
 }));
 
 export default router;

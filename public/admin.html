@@ -597,6 +597,10 @@ function slotFormHtml(prefix, s) {
     <input type="datetime-local" id="${prefix}CloseAt" value="${toLocalDatetimeInputValue(s.registrationCloseAt)}">
     <div class="toggle-row"><span>פתוח ידנית להרשמה גם אחרי זמן הסגירה</span><input type="checkbox" id="${prefix}Override" ${s.manualOpenOverride ? 'checked' : ''}></div>
     <div class="toggle-row"><span>פתוח כעת לאספקה (משיכת עופות)</span><input type="checkbox" id="${prefix}Pickup" ${s.openForPickup ? 'checked' : ''}></div>
+    <label>קוד לשלוחה הטלפונית (ספרה 1-9, ריק = לא מופיע בתפריט הטלפוני)</label>
+    <input type="text" id="${prefix}IvrCode" inputmode="numeric" maxlength="1" placeholder="לדוגמה: 1" value="${esc(s.ivrCode)}">
+    <label>טקסט הקראה לשלוחה הטלפונית (ריק = לא יופיע בתפריט הטלפוני גם אם יש קוד)</label>
+    <input type="text" id="${prefix}IvrAnnouncement" placeholder="לדוגמה: יום חמישי אחר הצהריים" value="${esc(s.ivrAnnouncement)}">
   `;
 }
 
@@ -612,6 +616,8 @@ function readSlotForm(prefix) {
     registrationCloseAt: fromLocalDatetimeInputValue(document.getElementById(`${prefix}CloseAt`).value),
     manualOpenOverride: document.getElementById(`${prefix}Override`).checked,
     openForPickup: document.getElementById(`${prefix}Pickup`).checked,
+    ivrCode: document.getElementById(`${prefix}IvrCode`).value.trim(),
+    ivrAnnouncement: document.getElementById(`${prefix}IvrAnnouncement`).value.trim(),
   };
 }
 
@@ -625,6 +631,7 @@ function slotCompactRowHtml(s) {
       </div>
       <span class="pill ${s.isOpenForRegistration ? 'paid' : 'unpaid'}">${s.isOpenForRegistration ? 'פתוח להרשמה' : 'סגור להרשמה'}</span>
       <span class="pill ${s.isOpenForPickup ? 'paid' : 'unpaid'}">${s.isOpenForPickup ? 'פתוח לאספקה' : 'סגור לאספקה'}</span>
+      ${s.ivrCode ? `<span class="pill partial">☎️ ${esc(s.ivrCode)}</span>` : ''}
       <button class="ghost" data-toggle-slot="${s.id}">עריכה</button>
     </div>
   `;

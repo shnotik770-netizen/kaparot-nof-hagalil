@@ -48,6 +48,14 @@ CREATE TABLE IF NOT EXISTS distribution_slots (
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- קוד+שם ייעודיים לתפריט השלוחה הטלפונית (IVR): ivr_code הוא הספרה הבודדת
+-- (1-9) שהמתקשר מקיש לבחירת הזמן הזה, ivr_announcement הוא הטקסט שיוקרא לו
+-- בהקראה ממוחשבת — נפרד מ-name/day_label/hours_label שמיועדים לתצוגה
+-- באתר ועשויים להכיל מקפים/נקודות שלא מתאימים לפורמט ההקראה של ימות המשיח.
+-- זמן ללא ivr_code לא מוצג בתפריט הטלפוני כלל, גם אם פתוח להרשמה באתר.
+ALTER TABLE distribution_slots ADD COLUMN IF NOT EXISTS ivr_code TEXT;
+ALTER TABLE distribution_slots ADD COLUMN IF NOT EXISTS ivr_announcement TEXT;
+
 DROP TABLE IF EXISTS price_rules;
 
 -- ================= מנהלים: כל אחד עם טלפון+סיסמה+הרשאות משלו =================
