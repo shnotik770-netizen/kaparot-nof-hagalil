@@ -87,7 +87,7 @@ router.all('/registration-menu', wrap(async (req, res) => {
 
   const slots = await getIvrRegistrationSlots();
   if (!slots.length) {
-    return res.send(idListMessage([textSegment('ההרשמה סגורה כרגע, אנא נסו שוב מאוחר יותר')]));
+    return res.send(idListMessage([textSegment('ההרשמה נסגרה')]));
   }
   const slotsByCode = new Map(slots.map((s) => [s.ivrCode, s]));
 
@@ -150,7 +150,7 @@ router.all('/registration-menu', wrap(async (req, res) => {
             textSegment('ההזמנה שלכם'),
             ...summarySegments,
             textSegment(`סך הכל לתשלום ${total} שקלים`),
-            textSegment('לרישום ההזמנה, אנא אמרו בקול ברור את שמכם המלא'),
+            textSegment('לסיום ההזמנה ולתשלום חובה לשלם כעת, אנא אמרו בקול ברור את שמכם המלא'),
           ],
           ['CustomerName', '', 'voice', 'he-IL', 'no', '', 'record', 3, 8],
         ));
@@ -194,7 +194,7 @@ router.all('/registration-menu', wrap(async (req, res) => {
 
           return res.send(idListMessage([
             textSegment(`תודה ${params.CustomerName}`),
-            textSegment(`ההזמנה שלכם מספר ${order.orderNumber} נקלטה ושולמה בהצלחה`),
+            textSegment('ההזמנה שלכם נקלטה ושולמה בהצלחה'),
           ]));
         } catch (err) {
           console.error('[ivr] CHARGED BUT ORDER CREATION FAILED — needs manual follow-up:', JSON.stringify(params), err);
