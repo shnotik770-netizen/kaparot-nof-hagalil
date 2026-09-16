@@ -173,6 +173,42 @@ export async function updateOrderItemQuantity(orderId, itemId, newQuantity, admi
   });
 }
 
+/**
+ * כשהזמנה נמחקת (ישירות, או אוטומטית כי כל השורות שלה הוסרו — למשל "העברת"
+ * לקוח מזמן חלוקה אחד לאחר ע"י הקטנת הישן להעלאת החדש), כל תשלום שכבר
+ * נרשם נגדה נשאר טכנית קיים (payments.order_id הוא NOT NULL FK, אי אפשר
+ * "לרחף") אבל order_balances/listAllOrders מסננים out o.is_deleted — כלומר
+ * הכסף שכבר שולם בפועל נעלם מהיתרה/סטטוס של הלקוח, והוא מוצג כ"לא שולם"
+ * למרות ששילם. הפונקציה הזו מעבירה תשלומים כאלה להזמנה פעילה אחרת של
+ * אותו לקוח (מעדיפה אחת עם יתרת חוב, אחרת החדשה ביותר) כדי שהכסף ימשיך
+ * להיספר. נקראת גם מנקודות המחיקה החיות וגם מ-reconcileOrphanedPayments
+ * (ניקוי חד-פעמי למקרים היסטוריים מלפני התיקון הזה).
+ */
+async function reassignOrphanedPayments(client, orderId, normalizedPhone, adminName) {
+  const { rows: payments } = await client.query(`SELECT id, amount FROM payments WHERE order_id = $1`, [orderId]);
+  if (!payments.length) return { moved: false };
+
+  const { rows: candidates } = await client.query(
+    `SELECT o.id
+       FROM orders o
+       JOIN order_balances b ON b.order_id = o.id
+      WHERE o.normalized_phone = $1 AND o.id <> $2 AND NOT o.is_deleted
+      ORDER BY (b.balance_due > 0) DESC, o.order_sequence DESC
+      FOR UPDATE OF o`,
+    [normalizedPhone, orderId]
+  );
+  if (!candidates.length) {
+    return { moved: false, reason: 'no_active_orders', orphanedAmount: payments.reduce((s, p) => s + Number(p.amount), 0) };
+  }
+  const targetOrderId = candidates[0].id;
+  await client.query(`UPDATE payments SET order_id = $1 WHERE order_id = $2`, [targetOrderId, orderId]);
+  const totalAmount = payments.reduce((s, p) => s + Number(p.amount), 0);
+  await logAction('payments_reassigned_from_deleted_order', {
+    fromOrderId: orderId, toOrderId: targetOrderId, paymentIds: payments.map((p) => p.id), totalAmount, adminName,
+  }, client);
+  return { moved: true, targetOrderId, totalAmount };
+}
+
 /** מחיקת שורת הזמנה — רק אם עוד לא נמשך ממנה כלום (אחרת יש למחוק את ההזמנה כולה, ראו deleteOrder). */
 export async function deleteOrderItem(orderId, itemId, adminName) {
   return withTransaction(async (client) => {
@@ -198,6 +234,8 @@ export async function deleteOrderItem(orderId, itemId, adminName) {
     );
     await client.query(`UPDATE orders SET total_amount = $2, updated_at = now() WHERE id = $1`, [orderId, remaining[0].total]);
     if (remaining[0].n === 0) {
+      const { rows: orderRows } = await client.query(`SELECT normalized_phone FROM orders WHERE id = $1`, [orderId]);
+      await reassignOrphanedPayments(client, orderId, orderRows[0].normalized_phone, adminName);
       await client.query(`UPDATE orders SET is_deleted = true WHERE id = $1`, [orderId]);
     }
     await logAction('order_item_deleted', {
@@ -210,15 +248,44 @@ export async function deleteOrderItem(orderId, itemId, adminName) {
 
 /** מחיקת הזמנה שלמה (הסתרה רכה, is_deleted) — פעולת מנהל, בלתי הפיכה מבחינת הלקוח. */
 export async function deleteOrder(orderId, adminName) {
-  const { rows } = await pool.query(`SELECT order_number, customer_name, phone FROM orders WHERE id = $1`, [orderId]);
-  if (!rows.length) {
-    const err = new Error('הזמנה לא נמצאה.');
-    err.status = 404;
-    throw err;
+  return withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `SELECT order_number, customer_name, phone, normalized_phone FROM orders WHERE id = $1 FOR UPDATE`,
+      [orderId]
+    );
+    if (!rows.length) {
+      const err = new Error('הזמנה לא נמצאה.');
+      err.status = 404;
+      throw err;
+    }
+    await reassignOrphanedPayments(client, orderId, rows[0].normalized_phone, adminName);
+    await client.query(`UPDATE orders SET is_deleted = true WHERE id = $1`, [orderId]);
+    await logAction('order_deleted', { orderId, orderNumber: rows[0].order_number, customerName: rows[0].customer_name, phone: rows[0].phone, adminName }, client);
+    return { success: true };
+  });
+}
+
+/**
+ * ניקוי חד-פעמי (בטוח להרצה חוזרת) למקרים היסטוריים מלפני שנכתב הטיפול
+ * ב-reassignOrphanedPayments: מאתר תשלומים שנשארו תקועים על הזמנות שנמחקו
+ * (is_deleted), ומעביר אותם להזמנה פעילה אחרת של אותו לקוח. רץ אוטומטית
+ * בכל דיפלוי (ראו migrate.js).
+ */
+export async function reconcileOrphanedPayments() {
+  const { rows: orphanedOrders } = await pool.query(
+    `SELECT DISTINCT o.id, o.normalized_phone
+       FROM payments p
+       JOIN orders o ON o.id = p.order_id
+      WHERE o.is_deleted`
+  );
+  let fixedCount = 0;
+  let unresolvedCount = 0;
+  for (const row of orphanedOrders) {
+    const result = await withTransaction((client) => reassignOrphanedPayments(client, row.id, row.normalized_phone, 'system_reconcile'));
+    if (result.moved) fixedCount++;
+    else if (result.reason === 'no_active_orders') unresolvedCount++;
   }
-  await pool.query(`UPDATE orders SET is_deleted = true WHERE id = $1`, [orderId]);
-  await logAction('order_deleted', { orderId, orderNumber: rows[0].order_number, customerName: rows[0].customer_name, phone: rows[0].phone, adminName });
-  return { success: true };
+  return { fixedCount, unresolvedCount };
 }
 
 /**

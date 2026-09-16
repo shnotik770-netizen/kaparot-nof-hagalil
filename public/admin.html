@@ -2190,6 +2190,7 @@ const ACTION_LABELS = {
   order_item_edited: 'שורת הזמנה עודכנה',
   order_item_deleted: 'שורת הזמנה נמחקה',
   order_deleted: 'הזמנה נמחקה',
+  payments_reassigned_from_deleted_order: 'תשלומים הועברו מהזמנה שנמחקה להזמנה פעילה',
   order_cancelled_by_customer: 'הזמנה בוטלה ע"י הלקוח (לא שולם)',
   payment_coordinated_set: 'סטטוס "תיאום תשלום" עודכן',
   sms_bulk_sent: 'סמס קבוצתי נשלח',
@@ -2234,6 +2235,8 @@ function actionSummaryHtml(a) {
       return `הזמנה #${d.orderId ?? ''} · ${esc(d.gender === 'female' ? 'נקבות' : 'זכרים')} × ${d.quantity ?? ''} · ע"י ${esc(d.adminName || '')}`;
     case 'order_deleted':
       return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ע"י ${esc(d.adminName || '')}`;
+    case 'payments_reassigned_from_deleted_order':
+      return `<span style="color:var(--sage)">הזמנה #${d.fromOrderId ?? ''} ← הזמנה #${d.toOrderId ?? ''} · ${money(d.totalAmount || 0)} (${(d.paymentIds || []).length} תשלומים) · ${esc(d.adminName || '')}</span>`;
     case 'order_cancelled_by_customer':
       return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ${esc(d.phone || '')}`;
     case 'payment_coordinated_set':

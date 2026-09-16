@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import 'dotenv/config';
 import { pool } from './pool.js';
-import { reconcileRedemptionLog } from '../lib/adminOps.js';
+import { reconcileRedemptionLog, reconcileOrphanedPayments } from '../lib/adminOps.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -15,6 +15,14 @@ async function main() {
   const { itemsFixed } = await reconcileRedemptionLog();
   if (itemsFixed > 0) {
     console.log(`✅ יומן מימושים נוקה: ${itemsFixed} שורות הזמנה תוקנו (מימושים שבוטלו והמשיכו להופיע ביומן).`);
+  }
+
+  const { fixedCount, unresolvedCount } = await reconcileOrphanedPayments();
+  if (fixedCount > 0) {
+    console.log(`✅ תשלומים שנתקעו על הזמנות מחוקות תוקנו: ${fixedCount} הזמנות מחוקות, התשלומים הועברו להזמנה פעילה.`);
+  }
+  if (unresolvedCount > 0) {
+    console.log(`⚠️ ${unresolvedCount} הזמנות מחוקות עם תשלומים שלא ניתן היה להעביר (ללקוח אין אף הזמנה פעילה אחרת) — דורש בדיקה ידנית.`);
   }
 
   await pool.end();
