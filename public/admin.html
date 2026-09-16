@@ -1452,6 +1452,41 @@ function updateOrdersHeader(filteredCount, totalCount, isFiltered) {
   lastOrdersHeaderState = { isFiltered };
 }
 
+// הופך <div class="multiselect" id="..."> עם כפתור + פאנל checkboxes לתפריט
+// נפתח: לחיצה על הכפתור פותחת/סוגרת, לחיצה מחוץ לפאנל סוגרת, ותקציר
+// "(2/3)" מתעדכן על הכפתור בכל שינוי. משמש גם בטאב ההזמנות וגם ביומן הפעולות.
+function wireMultiSelectDropdown(containerId, checkboxSelector, onChange) {
+  const container = document.getElementById(containerId);
+  const btn = container.querySelector('[data-ms-toggle]');
+  const panel = container.querySelector('.multiselect-panel');
+  const countEl = container.querySelector('[data-ms-count]');
+  function updateCount() {
+    const all = container.querySelectorAll(checkboxSelector);
+    const checked = [...all].filter((cb) => cb.checked).length;
+    countEl.textContent = `(${checked}/${all.length})`;
+  }
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.multiselect-panel').forEach((p) => { if (p !== panel) p.hidden = true; });
+    panel.hidden = !panel.hidden;
+  };
+  container.querySelectorAll(checkboxSelector).forEach((cb) => {
+    cb.onchange = () => { updateCount(); onChange(); };
+  });
+  updateCount();
+
+  // נרשם פעם אחת גלובלית (לא בכל קריאה ל-wireMultiSelectDropdown/רינדור
+  // מחדש של הטאב) כדי לא לצבור מאזינים כפולים על document.
+  if (!multiSelectOutsideClickWired) {
+    multiSelectOutsideClickWired = true;
+    document.addEventListener('click', (e) => {
+      document.querySelectorAll('.multiselect-panel').forEach((p) => {
+        if (!p.hidden && !p.closest('.multiselect').contains(e.target)) p.hidden = true;
+      });
+    });
+  }
+}
+
 // ============== מימוש מהיר ליום החלוקה — בתוך טאב ההזמנות בלבד ==============
 // מסך מצומצם: בלי כפתורי סינון/הזמנה חדשה, רק חיפוש חופשי, ורשימת לקוחות
 // שיש להם עוד כמות למימוש בזמן החלוקה הפתוח כרגע. שולם → פאנל המימוש המהיר
@@ -1747,41 +1782,6 @@ async function renderOrdersTab() {
       ? list.map((c) => `<div id="custcard-${panelSafeId(c.phone)}">${customerCardHtml(c)}</div>`).join('')
       : `<div class="card"><p class="hint">לא נמצאו לקוחות תואמים.</p></div>`;
     wireCustomerCardButtons(wrap);
-  }
-
-  // הופך <div class="multiselect" id="..."> עם כפתור + פאנל checkboxes לתפריט
-  // נפתח: לחיצה על הכפתור פותחת/סוגרת, לחיצה מחוץ לפאנל סוגרת, ותקציר
-  // "(2/3)" מתעדכן על הכפתור בכל שינוי.
-  function wireMultiSelectDropdown(containerId, checkboxSelector, onChange) {
-    const container = document.getElementById(containerId);
-    const btn = container.querySelector('[data-ms-toggle]');
-    const panel = container.querySelector('.multiselect-panel');
-    const countEl = container.querySelector('[data-ms-count]');
-    function updateCount() {
-      const all = container.querySelectorAll(checkboxSelector);
-      const checked = [...all].filter((cb) => cb.checked).length;
-      countEl.textContent = `(${checked}/${all.length})`;
-    }
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      document.querySelectorAll('.multiselect-panel').forEach((p) => { if (p !== panel) p.hidden = true; });
-      panel.hidden = !panel.hidden;
-    };
-    container.querySelectorAll(checkboxSelector).forEach((cb) => {
-      cb.onchange = () => { updateCount(); onChange(); };
-    });
-    updateCount();
-
-    // נרשם פעם אחת גלובלית (לא בכל קריאה ל-wireMultiSelectDropdown/רינדור
-    // מחדש של הטאב) כדי לא לצבור מאזינים כפולים על document.
-    if (!multiSelectOutsideClickWired) {
-      multiSelectOutsideClickWired = true;
-      document.addEventListener('click', (e) => {
-        document.querySelectorAll('.multiselect-panel').forEach((p) => {
-          if (!p.hidden && !p.closest('.multiselect').contains(e.target)) p.hidden = true;
-        });
-      });
-    }
   }
 
   document.getElementById('orderSearch').oninput = applyFilters;
@@ -2148,24 +2148,93 @@ function actionSummaryHtml(a) {
   }
 }
 
+function actionLogRowHtml(a) {
+  return `
+    <tr>
+      <td style="white-space:nowrap;color:var(--ink-dim);font-size:12px">${new Date(a.createdAt).toLocaleString('he-IL')}</td>
+      <td><b>${esc(ACTION_LABELS[a.actionType] || a.actionType)}</b><br><span class="meta">${actionSummaryHtml(a)}</span></td>
+    </tr>
+  `;
+}
+
+const ACTION_LOG_PAGE_SIZE = 200;
+
 async function renderActionLogTab() {
-  const actions = await api('/admin/action-log?limit=200');
+  let loadedActions = await api(`/admin/action-log?limit=${ACTION_LOG_PAGE_SIZE}&offset=0`);
+  let hasMore = loadedActions.length === ACTION_LOG_PAGE_SIZE;
+  // רק סוגי פעולות שבאמת מופיעים בעמוד שנטען (לא כל הסוגים האפשריים
+  // במערכת) — כדי שהפאנל לא יתמלא באפשרויות סינון ריקות. כשטוענים עוד
+  // (טען עוד) מוסיפים לפאנל סוגים חדשים שעוד לא הופיעו, ראו addMissingActionTypeCheckboxes.
+  const initialTypes = [...new Set(loadedActions.map((a) => a.actionType))];
+
   document.getElementById('tabContent').innerHTML = `
     <div class="card">
-      <h2>יומן פעולות</h2>
-      <p class="hint">200 הפעולות האחרונות במערכת, מהחדשה לישנה.</p>
+      <div class="tab-header-row">
+        <div>
+          <h2 style="margin:0">יומן פעולות</h2>
+          <p class="hint" style="margin:4px 0 0" id="actionLogCountHint"></p>
+        </div>
+      </div>
+      <div class="filter-row">
+        <div class="multiselect" id="msActionType">
+          <button type="button" class="multiselect-btn" data-ms-toggle>סוג פעולה <span class="ms-count" data-ms-count></span></button>
+          <div class="multiselect-panel" hidden>
+            ${initialTypes.map((t) => `<label><input type="checkbox" class="filterActionTypeCheck" value="${esc(t)}" checked> ${esc(ACTION_LABELS[t] || t)}</label>`).join('')}
+          </div>
+        </div>
+      </div>
     </div>
     <div class="card">
-      <table class="compact-table">
-        ${actions.length ? actions.map((a) => `
-          <tr>
-            <td style="white-space:nowrap;color:var(--ink-dim);font-size:12px">${new Date(a.createdAt).toLocaleString('he-IL')}</td>
-            <td><b>${esc(ACTION_LABELS[a.actionType] || a.actionType)}</b><br><span class="meta">${actionSummaryHtml(a)}</span></td>
-          </tr>
-        `).join('') : `<tr><td class="hint">אין עדיין פעולות רשומות.</td></tr>`}
-      </table>
+      <table class="compact-table" id="actionLogTable"></table>
+      <button class="secondary" type="button" id="actionLogLoadMore" style="width:100%;margin-top:10px" ${hasMore ? '' : 'hidden'}>טען עוד</button>
     </div>
   `;
+
+  function updateCountHint() {
+    document.getElementById('actionLogCountHint').textContent = `${loadedActions.length} פעולות נטענו, מהחדשה לישנה.`;
+  }
+
+  function renderRows(list) {
+    document.getElementById('actionLogTable').innerHTML = list.length
+      ? list.map(actionLogRowHtml).join('')
+      : `<tr><td class="hint">${loadedActions.length ? 'לא נמצאו פעולות תואמות לסינון.' : 'אין עדיין פעולות רשומות.'}</td></tr>`;
+  }
+
+  function applyActionLogFilter() {
+    const checked = [...document.querySelectorAll('.filterActionTypeCheck:checked')].map((cb) => cb.value);
+    renderRows(loadedActions.filter((a) => checked.includes(a.actionType)));
+  }
+
+  function addMissingActionTypeCheckboxes(types) {
+    const panel = document.querySelector('#msActionType .multiselect-panel');
+    const existing = new Set([...panel.querySelectorAll('.filterActionTypeCheck')].map((cb) => cb.value));
+    const missing = types.filter((t) => !existing.has(t));
+    if (!missing.length) return;
+    panel.insertAdjacentHTML('beforeend', missing.map((t) => `<label><input type="checkbox" class="filterActionTypeCheck" value="${esc(t)}" checked> ${esc(ACTION_LABELS[t] || t)}</label>`).join(''));
+    wireMultiSelectDropdown('msActionType', '.filterActionTypeCheck', applyActionLogFilter);
+  }
+
+  document.getElementById('actionLogLoadMore').onclick = async () => {
+    const btn = document.getElementById('actionLogLoadMore');
+    btn.disabled = true;
+    btn.textContent = 'טוען...';
+    try {
+      const next = await api(`/admin/action-log?limit=${ACTION_LOG_PAGE_SIZE}&offset=${loadedActions.length}`);
+      loadedActions = loadedActions.concat(next);
+      hasMore = next.length === ACTION_LOG_PAGE_SIZE;
+      addMissingActionTypeCheckboxes([...new Set(next.map((a) => a.actionType))]);
+      updateCountHint();
+      applyActionLogFilter();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'טען עוד';
+      btn.hidden = !hasMore;
+    }
+  };
+
+  updateCountHint();
+  renderRows(loadedActions);
+  wireMultiSelectDropdown('msActionType', '.filterActionTypeCheck', applyActionLogFilter);
 }
 
 // ============== אתחול ==============

@@ -11,10 +11,10 @@ export async function logAction(actionType, details = {}, client = pool) {
   );
 }
 
-export async function listActions({ limit = 200 } = {}) {
+export async function listActions({ limit = 200, offset = 0 } = {}) {
   const { rows } = await pool.query(
-    `SELECT id, action_type, details, created_at FROM admin_actions ORDER BY created_at DESC LIMIT $1`,
-    [Math.min(Number(limit) || 200, 500)]
+    `SELECT id, action_type, details, created_at FROM admin_actions ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+    [Math.min(Number(limit) || 200, 500), Math.max(Number(offset) || 0, 0)]
   );
   return rows.map((r) => ({
     id: r.id,
