@@ -1,8 +1,9 @@
-// נקודות קצה שנקראות ישירות ע"י ימות המשיח (מודול type=api של שלוחה 9/2 —
-// "שמיעת מצב הזמנה קיימת"). לא דרך /api ולא מאומתות בסשן: הזיהוי כאן הוא
-// ApiPhone (מספר הטלפון המתקשר, לפי Caller ID) בלבד — מודל אמון כמקובל
-// בשלוחות IVR טלפוניות, ולא זהה לאימות ה-OTP שבאתר. תגובה חייבת להיות
-// טקסט פשוט בלבד (ראו סקיל yemot-hamashiach-api) — לעולם לא JSON.
+// נקודות קצה שנקראות ישירות ע"י ימות המשיח (מודול type=api): שלוחה 9/2
+// "שמיעת מצב הזמנה קיימת" ושלוחה 9/1 "רישום הזמנה חדשה". לא דרך /api
+// ולא מאומתות בסשן: הזיהוי כאן הוא ApiPhone (מספר הטלפון המתקשר, לפי
+// Caller ID) בלבד — מודל אמון כמקובל בשלוחות IVR טלפוניות, ולא זהה
+// לאימות ה-OTP שבאתר. תגובה חייבת להיות טקסט פשוט בלבד (ראו סקיל
+// yemot-hamashiach-api) — לעולם לא JSON.
 
 import { Router } from 'express';
 import { normalizePhone } from '../lib/normalize.js';
@@ -125,8 +126,10 @@ router.all('/registration-menu', wrap(async (req, res) => {
     }
 
     if (moreItems === '2') {
-      const summarySegments = [];
+      // אחרי שסיימנו לאסוף פריטים, עוד לפני שם/תשלום — מחשבים את הסכום
+      // הכולל בכל סבב מחדש (לא נשמר בשום מקום, נגזר מהנתונים המצטברים).
       let total = 0;
+      const summarySegments = [];
       for (let j = 1; j <= i; j++) {
         const s = slotsByCode.get(params[`SlotChoice${j}`]);
         const genderField = GENDER_KEY_TO_FIELD[params[`Gender${j}`]];
@@ -136,11 +139,25 @@ router.all('/registration-menu', wrap(async (req, res) => {
         total += lineTotal;
         summarySegments.push(textSegment(`${qty} ${genderLabel} ל${s?.ivrAnnouncement || ''}, מחיר ${lineTotal} שקלים`));
       }
+
+      if (!params.CustomerName) {
+        // read= לא ניתן לשרשור עם פעולה אחרת — לכן הסיכום עצמו הוא חלק
+        // מה-prompt של אותו read=, לא הודעה נפרדת לפניו.
+        return res.send(readAction(
+          [
+            textSegment('ההזמנה שלכם'),
+            ...summarySegments,
+            textSegment(`סך הכל לתשלום ${total} שקלים`),
+            textSegment('לרישום ההזמנה, אנא אמרו בקול ברור את שמכם המלא'),
+          ],
+          ['CustomerName', '', 'voice', 'he-IL', 'no', '', 'record', 3, 8],
+        ));
+      }
+
+      // שם נקלט — נקודת עצירה מכוונת לבדיקה, לפני שממשיכים לחיוב בפועל.
       return res.send(idListMessage([
-        textSegment('ההזמנה שלכם'),
-        ...summarySegments,
-        textSegment(`סך הכל לתשלום ${total} שקלים`),
-        textSegment('בקרוב נמשיך לרישום השם והתשלום'),
+        textSegment(`תודה ${params.CustomerName}`),
+        textSegment(`בקרוב נמשיך לחיוב בסך ${total} שקלים`),
       ]));
     }
     // moreItems === '1' — ממשיכים ללולאה הבאה (פריט i+1)
