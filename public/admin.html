@@ -24,6 +24,7 @@
   .perm-checks input{width:auto}
   .slot-card{border-inline-start:5px solid var(--accent);position:relative}
   .cols2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .cols3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
   .filter-row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
   .filter-row > div{flex:1 1 130px;min-width:0}
   .filter-row label{font-size:11px;margin:0 0 3px}
@@ -293,6 +294,16 @@ async function showTab(tab) {
   if (tab === 'orders') return renderOrdersTab();
   if (tab === 'dashboard') return renderDashboardTab();
   if (tab === 'actionLog') return renderActionLogTab();
+}
+
+// פתיחת טאב היומן עם חיפוש ממולא מראש לפי טלפון — משמש מכפתור "היסטוריית
+// שינויים" בכרטיס לקוח (ראו wireCustomerCardButtons).
+async function openActionLogForPhone(phone) {
+  currentTab = 'actionLog';
+  markActiveTab('actionLog');
+  quickEventModeOn = false;
+  document.getElementById('tabContent').innerHTML = '<div class="loading">טוען…</div>';
+  await renderActionLogTab(phone);
 }
 
 // ============== הגדרות ==============
@@ -776,6 +787,7 @@ function customerCardHtml(c) {
         <button class="secondary" data-cust-pay data-phone="${esc(c.phone)}">💳 תשלומים</button>
         <button class="secondary" data-cust-redeem data-phone="${esc(c.phone)}">🎟️ מימוש</button>
         <button class="secondary" data-cust-edit data-phone="${esc(c.phone)}">✏️ עריכת הזמנה</button>
+        ${myPermissions.settings ? `<button class="secondary" data-cust-history data-phone="${esc(c.phone)}">🕘 היסטוריית שינויים</button>` : ''}
       </div>
       <div class="total-row">
         <span>לתשלום ${money(c.totalAmount)}</span>
@@ -797,9 +809,12 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
   const box = document.getElementById(containerId);
   if (!box) return;
   box.innerHTML = `<div class="loading">טוען…</div>`;
-  let status;
+  let status, redemptionLog;
   try {
-    status = await api(`/admin/redeem/status?phone=${encodeURIComponent(phone)}`);
+    [status, redemptionLog] = await Promise.all([
+      api(`/admin/redeem/status?phone=${encodeURIComponent(phone)}`),
+      showHistory ? api(`/admin/customers/${encodeURIComponent(phone)}/redemption-history`) : Promise.resolve([]),
+    ]);
   } catch (err) {
     box.innerHTML = `<div class="error">${err.message}</div>`;
     return;
@@ -872,6 +887,15 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
             <button type="button" class="ghost" data-hist-save="${it.id}">שמירה</button>
             <button type="button" class="ghost" data-hist-cancel="${it.id}" style="color:var(--wine)" ${it.quantityRedeemed === 0 ? 'disabled' : ''}>ביטול מימוש</button>
           </span>
+        </div>
+      `).join('')}
+    ` : ''}
+    ${redemptionLog && redemptionLog.length ? `
+      <h3 style="margin:18px 0 8px;font-size:14px">יומן מימושים מפורט (תאריך ושעה)</h3>
+      ${redemptionLog.map((r) => `
+        <div class="item-row" style="flex-wrap:wrap;gap:8px">
+          <span>${esc(r.slotName)} · ${GENDER_LABEL[r.gender]} × ${r.quantity}</span>
+          <span class="meta">${new Date(r.redeemedAt).toLocaleString('he-IL')} · ${r.isManual ? `ידני ע"י מנהל (${esc(r.redeemedBy)})` : `מערכת · קוד ${esc(r.confirmationCode)}`}</span>
         </div>
       `).join('')}
     ` : ''}
@@ -1155,30 +1179,34 @@ function customerPanelHtml(c) {
     ${aggregatedEditRowsHtml(c)}
     <div id="${pid}-msg"></div>
     <div class="agg-row" style="border-top:1.5px dashed var(--line);padding-top:12px;flex-direction:column;align-items:stretch">
-      <b style="font-size:13px">+ הוספת שורה חדשה (זמן חלוקה שעוד אין ללקוח)</b>
-      <div class="cols2">
-        <div>
-          <label>זמן חלוקה</label>
-          <select id="${pid}-newline-slot">
-            ${allSlotsForFilter.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
-          </select>
+      <button class="secondary" type="button" data-newline-toggle>+ הוספת זמן חלוקה שלא ברשימה</button>
+      <div id="${pid}-newline-form" hidden style="margin-top:10px">
+        <div class="cols3">
+          <div>
+            <label>זמן חלוקה</label>
+            <select id="${pid}-newline-slot">
+              ${allSlotsForFilter.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label>סוג</label>
+            <select id="${pid}-newline-gender">
+              <option value="male">זכרים</option>
+              <option value="female">נקבות</option>
+            </select>
+          </div>
+          <div>
+            <label>כמות</label>
+            <div class="stepper">
+              <button type="button" data-newline-step="-1">−</button>
+              <span id="${pid}-newline-qty">1</span>
+              <button type="button" data-newline-step="1">+</button>
+            </div>
+          </div>
         </div>
-        <div>
-          <label>סוג</label>
-          <select id="${pid}-newline-gender">
-            <option value="male">זכרים</option>
-            <option value="female">נקבות</option>
-          </select>
-        </div>
+        <button class="secondary" type="button" data-newline-add style="margin-top:8px">+ הוספת שורה</button>
+        <div id="${pid}-newline-msg"></div>
       </div>
-      <label>כמות</label>
-      <div class="stepper">
-        <button type="button" data-newline-step="-1">−</button>
-        <span id="${pid}-newline-qty">1</span>
-        <button type="button" data-newline-step="1">+</button>
-      </div>
-      <button class="secondary" type="button" data-newline-add style="margin-top:8px">+ הוספת שורה</button>
-      <div id="${pid}-newline-msg"></div>
     </div>
 
     <h3 style="margin:16px 0 8px;font-size:14px">מבנה ההזמנות</h3>
@@ -1266,6 +1294,13 @@ async function wireCustomerPanel(c, refetch) {
       }
     };
   });
+  const newlineToggleBtn = panel.querySelector('[data-newline-toggle]');
+  if (newlineToggleBtn) {
+    newlineToggleBtn.onclick = () => {
+      const form = document.getElementById(`${pid}-newline-form`);
+      form.hidden = !form.hidden;
+    };
+  }
   let newlineQty = 1;
   const newlineQtyEl = document.getElementById(`${pid}-newline-qty`);
   panel.querySelectorAll('[data-newline-step]').forEach((b) => {
@@ -1373,6 +1408,9 @@ function wireCustomerCardButtons(root) {
       panel.hidden = false;
       wireCustomerPanel(c);
     };
+  });
+  root.querySelectorAll('[data-cust-history]').forEach((b) => {
+    b.onclick = () => openActionLogForPhone(b.dataset.phone);
   });
   root.querySelectorAll('[data-dismiss-pending]').forEach((b) => {
     b.onclick = async () => {
@@ -2159,7 +2197,11 @@ function actionLogRowHtml(a) {
 
 const ACTION_LOG_PAGE_SIZE = 200;
 
-async function renderActionLogTab() {
+function actionLogSearchText(a) {
+  return `${ACTION_LABELS[a.actionType] || a.actionType} ${JSON.stringify(a.details || {})}`.toLowerCase();
+}
+
+async function renderActionLogTab(presetQuery = '') {
   let loadedActions = await api(`/admin/action-log?limit=${ACTION_LOG_PAGE_SIZE}&offset=0`);
   let hasMore = loadedActions.length === ACTION_LOG_PAGE_SIZE;
   // רק סוגי פעולות שבאמת מופיעים בעמוד שנטען (לא כל הסוגים האפשריים
@@ -2175,6 +2217,8 @@ async function renderActionLogTab() {
           <p class="hint" style="margin:4px 0 0" id="actionLogCountHint"></p>
         </div>
       </div>
+      <label for="actionLogSearch">חיפוש (טלפון, שם, מספר הזמנה וכו')</label>
+      <input type="text" id="actionLogSearch" placeholder="הקלידו טלפון, שם, מספר הזמנה..." value="${esc(presetQuery)}">
       <div class="filter-row">
         <div class="multiselect" id="msActionType">
           <button type="button" class="multiselect-btn" data-ms-toggle>סוג פעולה <span class="ms-count" data-ms-count></span></button>
@@ -2202,7 +2246,8 @@ async function renderActionLogTab() {
 
   function applyActionLogFilter() {
     const checked = [...document.querySelectorAll('.filterActionTypeCheck:checked')].map((cb) => cb.value);
-    renderRows(loadedActions.filter((a) => checked.includes(a.actionType)));
+    const q = document.getElementById('actionLogSearch').value.trim().toLowerCase();
+    renderRows(loadedActions.filter((a) => checked.includes(a.actionType) && (!q || actionLogSearchText(a).includes(q))));
   }
 
   function addMissingActionTypeCheckboxes(types) {
@@ -2232,8 +2277,9 @@ async function renderActionLogTab() {
     }
   };
 
+  document.getElementById('actionLogSearch').oninput = applyActionLogFilter;
   updateCountHint();
-  renderRows(loadedActions);
+  applyActionLogFilter();
   wireMultiSelectDropdown('msActionType', '.filterActionTypeCheck', applyActionLogFilter);
 }
 

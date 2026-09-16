@@ -12,7 +12,7 @@ import {
 import {
   countOrdersForPhone, createOrder, listOrdersForPhone, getCustomerName, updateCustomerName, cancelUnpaidOrder,
 } from '../lib/orders.js';
-import { getRedemptionStatus, confirmSlotRedemption } from '../lib/redemption.js';
+import { getRedemptionStatus, confirmSlotRedemption, getRedemptionHistoryForPhone } from '../lib/redemption.js';
 import {
   recordManualPayment, recordManualPaymentForCustomer, listPaymentsForOrder, listAllPayments,
   createPaymentSession, confirmClientReportedPayment, cancelPaymentSession,
@@ -407,6 +407,13 @@ router.put('/admin/order-items/:id/redeemed', requireAdmin, requirePermission('o
 router.get('/admin/redeem/status', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   const normalized = normalizePhone(req.query.phone);
   res.json(await getRedemptionStatus(normalized));
+}));
+
+// היסטוריית מימושים כרונולוגית מלאה של לקוח (תאריך+שעה, ומערכת מול ידני
+// ע"י מנהל) — לתצוגה בכרטיס הלקוח, ראו getRedemptionHistoryForPhone.
+router.get('/admin/customers/:phone/redemption-history', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  const normalized = normalizePhone(req.params.phone);
+  res.json(await getRedemptionHistoryForPhone(normalized));
 }));
 
 router.post('/admin/redeem/confirm-slot', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
