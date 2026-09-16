@@ -7,8 +7,10 @@
 
 import { Router } from 'express';
 import { normalizePhone } from '../lib/normalize.js';
-import { listOrdersForPhone } from '../lib/orders.js';
+import { listOrdersForPhone, createOrder } from '../lib/orders.js';
 import { getIvrRegistrationSlots, priceForGender } from '../lib/slots.js';
+import { recordIvrNedarimPayment } from '../lib/payments.js';
+import { logAction } from '../lib/actionLog.js';
 import { textSegment, idListMessage, readAction } from '../lib/ivrFormat.js';
 
 const router = Router();
@@ -154,22 +156,63 @@ router.all('/registration-menu', wrap(async (req, res) => {
         ));
       }
 
-      // סבב חזרה מנדרים פלוס אחרי ניסיון חיוב — עדיין לא יודעים באיזה
-      // קוד מסמנים הצלחה, אז כרגע רק רושמים ללוג של Railway (לבדיקה
-      // ידנית) ומקריאים את הקוד הגולמי למתקשר, בלי לקבוע עדיין הצלחה/כישלון.
+      // סבב חזרה מנדרים פלוס אחרי ניסיון חיוב. אומת מול חיוב אמיתי (מוסד
+      // בדיקות של נדרים פלוס): הצלחה מסומנת ב-CreditCard_CODE==="OK" בדיוק
+      // (ראו סקיל yemot-hamashiach-api). כל דבר אחר = לא שולם, לא יוצרים
+      // הזמנה בכלל — אין "הזמנה רפאים" ללא תשלום מאושר.
+      // הערה: אין כאן הגנת אידמפוטנטיות מפני קריאה כפולה מימות המשיח על
+      // אותו CreditCard_CODE — לא צפוי בהתנהגות התקנית של מודול ה-API.
       if (params.CreditCard_CODE) {
         console.log('[ivr] CreditCard follow-up received:', JSON.stringify(params));
-        return res.send(idListMessage([
-          textSegment(`קוד תוצאה שהתקבל ${params.CreditCard_CODE}`),
-          textSegment('בדיקה זו הסתיימה, תודה'),
-        ]));
+
+        if (params.CreditCard_CODE !== 'OK') {
+          return res.send(idListMessage([
+            textSegment('החיוב לא הצליח, ההזמנה לא נשמרה'),
+            textSegment('אנא נסו שוב או צרו קשר עם המשרד'),
+          ]));
+        }
+
+        // מהנקודה הזו הלקוח כבר חויב בפועל אצל נדרים פלוס — אסור בשום
+        // מצב שכשל כאן יוצג כ"שגיאה זמנית" סתמית בלי לתעד את זה בקול
+        // רם, אחרת יש חיוב בלי הזמנה ובלי שאף אחד ידע לחפש אותו.
+        try {
+          const items = [];
+          for (let j = 1; j <= i; j++) {
+            const s = slotsByCode.get(params[`SlotChoice${j}`]);
+            items.push({
+              slotId: s.id,
+              gender: GENDER_KEY_TO_FIELD[params[`Gender${j}`]],
+              quantity: Number(params[`Quantity${j}`]),
+            });
+          }
+
+          const order = await createOrder(
+            { phone: params.ApiPhone, customerName: params.CustomerName, items },
+            { changedBy: 'ivr_phone' }
+          );
+          await recordIvrNedarimPayment(order.id, order.totalAmount, `שלוחה טלפונית, שיחה ${params.ApiCallId || ''}`);
+
+          return res.send(idListMessage([
+            textSegment(`תודה ${params.CustomerName}`),
+            textSegment(`ההזמנה שלכם מספר ${order.orderNumber} נקלטה ושולמה בהצלחה`),
+          ]));
+        } catch (err) {
+          console.error('[ivr] CHARGED BUT ORDER CREATION FAILED — needs manual follow-up:', JSON.stringify(params), err);
+          // חייב להופיע ביומן הפעולות שהמנהל רואה בפאנל — לא רק בלוג של
+          // Railway שרק אני יכול לגשת אליו. זה כסף אמיתי שהתקבל בלי הזמנה.
+          await logAction('ivr_payment_orphaned', {
+            phone: params.ApiPhone, customerName: params.CustomerName,
+            apiCallId: params.ApiCallId || null, error: err.message || String(err),
+          }).catch((logErr) => console.error('[ivr] logAction itself also failed:', logErr));
+          return res.send(idListMessage([
+            textSegment('התשלום התקבל אך אירעה תקלה ברישום ההזמנה'),
+            textSegment('אנא צרו קשר עם המשרד בהקדם עם מספר הטלפון שממנו התקשרתם'),
+          ]));
+        }
       }
 
-      // בדיקה זמנית בלבד: מחייבים שקל אחד סמלי, לא את הסכום האמיתי (total),
-      // כדי לראות מה בדיוק חוזר ב-CreditCard_CODE לפני שקובעים לוגיקת
-      // הצלחה/כישלון אמיתית. TODO: להחליף billing_sum ל-total אחרי אימות.
-      console.log(`[ivr] Triggering TEST credit_card charge (1 ILS, real total would be ${total}) for phone ${params.ApiPhone}, name "${params.CustomerName}"`);
-      return res.send(`${idListMessage([textSegment('מעבירים אתכם לבדיקת חיוב בסך שקל אחד')])}&credit_card=nedarim_plus,1,,1,1`);
+      console.log(`[ivr] Triggering credit_card charge (${total} ILS) for phone ${params.ApiPhone}, name "${params.CustomerName}"`);
+      return res.send(`${idListMessage([textSegment('מעבירים אתכם לתשלום')])}&credit_card=nedarim_plus,${total},,1,1`);
     }
     // moreItems === '1' — ממשיכים ללולאה הבאה (פריט i+1)
   }

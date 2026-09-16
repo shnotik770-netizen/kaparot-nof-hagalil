@@ -974,7 +974,7 @@ function customerViewPanelHtml(c) {
     ${c.orders.map((o) => `
       <div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px">
         <div class="order-row-header">
-          <b>הזמנה מספר ${o.orderSequence} (מס' ${o.orderNumber})</b>
+          <b>הזמנה מספר ${o.orderSequence} (מס' ${o.orderNumber})</b>${o.source === 'ivr_phone' ? ' <span class="pill partial">☎️ הוזמן בטלפון</span>' : ''}
           <span class="meta">${new Date(o.createdAt).toLocaleString('he-IL')}</span>
         </div>
         ${o.notes ? `<div class="notice">הערות: ${esc(o.notes)}</div>` : ''}
@@ -1185,7 +1185,7 @@ function customerPanelHtml(c) {
     ${c.orders.map((o) => `
       <div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px">
         <div class="order-row-header">
-          <b>הזמנה מספר ${o.orderSequence} (מס' ${o.orderNumber})</b>
+          <b>הזמנה מספר ${o.orderSequence} (מס' ${o.orderNumber})</b>${o.source === 'ivr_phone' ? ' <span class="pill partial">☎️ הוזמן בטלפון</span>' : ''}
           <span class="meta">${new Date(o.createdAt).toLocaleString('he-IL')}</span>
         </div>
         ${o.notes ? `<div class="notice">הערות: ${esc(o.notes)}</div>` : ''}
@@ -2029,6 +2029,8 @@ const ACTION_LABELS = {
   payment_edited: 'תשלום ידני נערך',
   payment_deleted: 'תשלום ידני נמחק',
   payment_received_nedarim: 'תשלום התקבל (נדרים פלוס, Webhook)',
+  payment_received_nedarim_ivr: 'תשלום התקבל (נדרים פלוס, שלוחה טלפונית)',
+  ivr_payment_orphaned: '⚠️ תשלום טלפוני התקבל אך ההזמנה לא נשמרה — דורש בדיקה ידנית',
   payment_client_confirmed: 'תשלום אושר לפי הדפדפן (טרם אומת Webhook)',
   redemption_confirmed: 'מימוש עופות',
   redemption_manual_override: 'מימוש עודכן ידנית ע"י מנהל',
@@ -2065,6 +2067,10 @@ function actionSummaryHtml(a) {
       return `הזמנה #${d.orderId ?? ''} · ${money(d.amount || 0)} · ${esc(d.method || '')} · ע"י ${esc(d.adminName || '')}`;
     case 'payment_received_nedarim':
       return `${esc(d.phone || '')} · ${money(d.paidAmount || 0)} · עסקה ${esc(d.transactionId || '')}`;
+    case 'payment_received_nedarim_ivr':
+      return `הזמנה #${d.orderId ?? ''} · ${money(d.amount || 0)}${d.note ? ` · ${esc(d.note)}` : ''}`;
+    case 'ivr_payment_orphaned':
+      return `<span style="color:var(--wine)">${esc(d.customerName || '')} · ${esc(d.phone || '')} · שגיאה: ${esc(d.error || '')}${d.apiCallId ? ` · שיחה ${esc(d.apiCallId)}` : ''}</span>`;
     case 'payment_client_confirmed':
       return `${esc(d.phone || '')} · ${money(d.amount || 0)} · עסקה ${esc(d.transactionId || '')}`;
     case 'redemption_manual_override':

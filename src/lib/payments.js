@@ -5,6 +5,23 @@ import crypto from 'node:crypto';
 import { pool, withTransaction } from '../db/pool.js';
 import { logAction } from './actionLog.js';
 
+/**
+ * תשלום שהתקבל בפועל מנדרים פלוס דרך מודול הסליקה הטלפוני של ימות המשיח
+ * (ערוץ נפרד לגמרי מה-Webhook של האתר — ראו docs/nedarim-plus-integration.md
+ * ו-src/routes/ivr.js: שם ימות המשיח מדבר ישירות מול נדרים פלוס ומחזיר לנו
+ * רק CreditCard_CODE). ההזמנה כבר נוצרה ברגע הזה עם הסכום המדויק שחויב —
+ * זו שורת תשלום בודדת שסוגרת אותה במלואה, בלי צורך ב"מפל" כמו בתשלום ידני-כללי.
+ */
+export async function recordIvrNedarimPayment(orderId, amount, note) {
+  const { rows } = await pool.query(
+    `INSERT INTO payments(order_id, amount, method, recorded_by, note)
+     VALUES ($1,$2,'nedarim_plus','customer',$3) RETURNING *`,
+    [orderId, amount, note || null]
+  );
+  await logAction('payment_received_nedarim_ivr', { orderId, amount: Number(amount), note: note || null });
+  return rows[0];
+}
+
 export async function recordManualPayment(orderId, amount, method, recordedBy, note) {
   const amt = Number(amount);
   if (!Number.isFinite(amt) || amt <= 0) {

@@ -21,6 +21,7 @@ function rowToOrder(row) {
     totalAmount: Number(row.total_amount),
     createdAt: row.created_at,
     paymentCoordinated: row.payment_coordinated,
+    source: row.source,
   };
 }
 
@@ -153,9 +154,9 @@ export async function createOrder(payload, { changedBy = 'customer' } = {}) {
     const orderNumber = numRows[0].n;
 
     const { rows: inserted } = await client.query(
-      `INSERT INTO orders(order_number, phone, normalized_phone, customer_name, notes, order_sequence, access_token, total_amount)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [orderNumber, phone, normalizedPhone, customerName, notes, orderSequence, accessToken, totalAmount]
+      `INSERT INTO orders(order_number, phone, normalized_phone, customer_name, notes, order_sequence, access_token, total_amount, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [orderNumber, phone, normalizedPhone, customerName, notes, orderSequence, accessToken, totalAmount, changedBy]
     );
     const orderRow = inserted[0];
 
