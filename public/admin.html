@@ -1778,8 +1778,16 @@ async function renderOrdersTab() {
         </div>
       </div>
       <div id="bulkSmsCard" hidden style="margin-top:10px">
+        <label><input type="checkbox" id="bulkSmsManualMode"> בחירה ידנית של נמענים (במקום כל הרשימה המסוננת)</label>
+        <div id="bulkSmsManualWrap" hidden style="margin:8px 0">
+          <div class="row">
+            <button class="mini-btn" type="button" id="bulkSmsSelectAll">בחר הכל</button>
+            <button class="mini-btn" type="button" id="bulkSmsSelectNone">נקה הכל</button>
+          </div>
+          <div id="bulkSmsManualList" style="max-height:240px;overflow-y:auto;margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:8px"></div>
+        </div>
         <label for="bulkSmsText">תוכן ההודעה</label>
-        <textarea id="bulkSmsText" placeholder="ההודעה שתישלח לכל מי שמופיע ברשימה המסוננת כרגע..."></textarea>
+        <textarea id="bulkSmsText" placeholder="ההודעה שתישלח לנמענים שנבחרו..."></textarea>
         <div class="spacer"></div>
         <button class="primary big-action" id="bulkSmsSend" style="width:100%">שליחה</button>
         <div id="bulkSmsMsg"></div>
@@ -1878,14 +1886,41 @@ async function renderOrdersTab() {
     const card = document.getElementById('bulkSmsCard');
     card.hidden = !card.hidden;
   };
+
+  // בחירה ידנית: מצלמים "תמונת מצב" של הרשימה המסוננת כרגע לתוך רשימת
+  // צ'קבוקסים (כולם מסומנים כברירת מחדל) — משם המנהל מסמן/מבטל לפי רצונו,
+  // בלי שהרשימה תתאפס אם הוא ממשיך לשנות את הסינון למעלה אחרי זה.
+  function bulkSmsManualListHtml(list) {
+    return list.length
+      ? list.map((c) => `<label style="display:block;padding:4px 0"><input type="checkbox" class="bulkSmsManualCheck" value="${esc(c.phone)}" checked> ${esc(c.customerName)} · ${esc(c.phone)}</label>`).join('')
+      : `<p class="hint">אין לקוחות ברשימה המסוננת כרגע.</p>`;
+  }
+  document.getElementById('bulkSmsManualMode').onchange = (e) => {
+    document.getElementById('bulkSmsManualWrap').hidden = !e.target.checked;
+    if (e.target.checked) {
+      document.getElementById('bulkSmsManualList').innerHTML = bulkSmsManualListHtml(currentFiltered);
+    }
+  };
+  document.getElementById('bulkSmsSelectAll').onclick = () => {
+    document.querySelectorAll('.bulkSmsManualCheck').forEach((cb) => { cb.checked = true; });
+  };
+  document.getElementById('bulkSmsSelectNone').onclick = () => {
+    document.querySelectorAll('.bulkSmsManualCheck').forEach((cb) => { cb.checked = false; });
+  };
+
   document.getElementById('bulkSmsSend').onclick = async () => {
     const message = document.getElementById('bulkSmsText').value.trim();
     if (!message) return;
-    if (!confirm(`לשלוח את ההודעה ל-${currentFiltered.length} לקוחות מסוננים?`)) return;
+    const manualMode = document.getElementById('bulkSmsManualMode').checked;
+    const recipients = manualMode
+      ? [...document.querySelectorAll('.bulkSmsManualCheck:checked')].map((cb) => cb.value)
+      : currentFiltered.map((c) => c.phone);
+    if (!recipients.length) { alert('לא נבחרו נמענים לשליחה.'); return; }
+    if (!confirm(`לשלוח את ההודעה ל-${recipients.length} נמענים?`)) return;
     try {
-      const result = await api('/admin/sms/bulk', { method: 'POST', body: { phones: currentFiltered.map((c) => c.phone), message } });
+      const result = await api('/admin/sms/bulk', { method: 'POST', body: { phones: recipients, message } });
       const failedNote = result.failedCount ? ` (נכשל עבור ${result.failedCount} נמענים)` : '';
-      document.getElementById('bulkSmsMsg').innerHTML = `<div class="success">נשלח ל-${result.recipientCount ?? currentFiltered.length} נמענים.${failedNote}</div>`;
+      document.getElementById('bulkSmsMsg').innerHTML = `<div class="success">נשלח ל-${result.recipientCount ?? recipients.length} נמענים.${failedNote}</div>`;
     } catch (err) {
       document.getElementById('bulkSmsMsg').innerHTML = `<div class="error">${err.message}</div>`;
     }
