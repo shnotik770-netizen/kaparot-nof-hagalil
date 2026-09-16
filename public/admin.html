@@ -787,7 +787,6 @@ function customerCardHtml(c) {
         <button class="secondary" data-cust-pay data-phone="${esc(c.phone)}">💳 תשלומים</button>
         <button class="secondary" data-cust-redeem data-phone="${esc(c.phone)}">🎟️ מימוש</button>
         <button class="secondary" data-cust-edit data-phone="${esc(c.phone)}">✏️ עריכת הזמנה</button>
-        ${myPermissions.settings ? `<button class="secondary" data-cust-history data-phone="${esc(c.phone)}">🕘 היסטוריית שינויים</button>` : ''}
       </div>
       <div class="total-row">
         <span>לתשלום ${money(c.totalAmount)}</span>
@@ -1012,7 +1011,15 @@ function customerViewPanelHtml(c) {
     `).join('')}
     <h3 style="margin:16px 0 8px;font-size:14px">תשלומים</h3>
     <div id="${pid}-viewpayments"><div class="loading">טוען…</div></div>
+    ${myPermissions.settings ? `
+      <button class="secondary" type="button" data-cust-history data-phone="${esc(c.phone)}" style="width:100%;margin-top:14px">🕘 היסטוריית שינויים</button>
+    ` : ''}
   `;
+}
+
+function wireCustomerViewPanel(panel) {
+  const btn = panel.querySelector('[data-cust-history]');
+  if (btn) btn.onclick = () => openActionLogForPhone(btn.dataset.phone);
 }
 
 async function loadCustomerViewPayments(c) {
@@ -1042,28 +1049,14 @@ function customerPaymentsPanelHtml(c) {
         <option value="manual_card">אשראי ידני</option>
         <option value="manual_admin">אחר</option>
       </select>
-      <button class="primary" data-cpay-submit="${esc(c.phone)}">רישום תשלום</button>
     </div>
+    <label style="margin-top:8px;display:flex;align-items:center;gap:6px;font-weight:normal">
+      <input type="checkbox" id="${pid}-pcredit" style="width:auto">
+      זיכוי (הסכום יירשם במינוס — לתיקון עודף תשלום, למשל אחרי תיקון הזמנה ידני)
+    </label>
     <input type="text" id="${pid}-pnote" placeholder="פרטו מהו אופן התשלום..." hidden style="margin-top:8px">
+    <button class="primary" data-cpay-submit="${esc(c.phone)}" style="margin-top:8px;width:100%">רישום תשלום</button>
     <div id="${pid}-pmsg"></div>
-
-    <h3 style="margin:16px 0 8px;font-size:14px">רישום זיכוי/תיקון (עבור הזמנה ספציפית ששולמה ביתר, למשל אחרי תיקון ידני)</h3>
-    <div class="row">
-      <select id="${pid}-credit-order">
-        ${c.orders.map((o) => `<option value="${o.id}">הזמנה מס' ${o.orderSequence} (${o.orderNumber}) · יתרה נוכחית: ${money(o.balanceDue)}${o.balanceDue < 0 ? ' 💰' : ''}</option>`).join('')}
-      </select>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <input type="number" min="0" placeholder="סכום לזיכוי" id="${pid}-credit-amt">
-      <select id="${pid}-credit-method">
-        <option value="manual_cash">מזומן</option>
-        <option value="manual_card">אשראי ידני</option>
-        <option value="manual_admin">אחר</option>
-      </select>
-    </div>
-    <input type="text" id="${pid}-credit-note" placeholder="פרטו את הסיבה לזיכוי (חובה)..." style="margin-top:8px">
-    <button class="secondary" type="button" data-credit-submit style="margin-top:8px">רישום זיכוי (יירשם כתשלום שלילי)</button>
-    <div id="${pid}-creditmsg"></div>
 
     ${c.orders.some((o) => o.paymentStatus !== 'paid') ? (() => {
       const openOrders = c.orders.filter((o) => o.paymentStatus !== 'paid');
@@ -1092,7 +1085,9 @@ async function wireCustomerPaymentsPanel(c) {
   pmethodSelect.onchange = () => { pnoteInput.hidden = pmethodSelect.value !== 'manual_admin'; };
 
   panel.querySelector('[data-cpay-submit]').onclick = async () => {
-    const amount = Number(document.getElementById(`${pid}-pamt`).value);
+    const rawAmount = Number(document.getElementById(`${pid}-pamt`).value);
+    const isCredit = document.getElementById(`${pid}-pcredit`).checked;
+    const amount = isCredit ? -Math.abs(rawAmount) : rawAmount;
     const method = pmethodSelect.value;
     const note = pnoteInput.hidden ? undefined : pnoteInput.value.trim() || undefined;
     try {
@@ -1100,28 +1095,6 @@ async function wireCustomerPaymentsPanel(c) {
       refreshCustomerCard(c.phone, { keepPayOpen: true });
     } catch (err) {
       document.getElementById(`${pid}-pmsg`).innerHTML = `<div class="error">${err.message}</div>`;
-    }
-  };
-
-  panel.querySelector('[data-credit-submit]').onclick = async () => {
-    const orderId = document.getElementById(`${pid}-credit-order`).value;
-    const rawAmount = Number(document.getElementById(`${pid}-credit-amt`).value);
-    const method = document.getElementById(`${pid}-credit-method`).value;
-    const note = document.getElementById(`${pid}-credit-note`).value.trim();
-    const msgEl = document.getElementById(`${pid}-creditmsg`);
-    if (!Number.isFinite(rawAmount) || rawAmount <= 0) {
-      msgEl.innerHTML = `<div class="error">יש להזין סכום זיכוי חיובי.</div>`;
-      return;
-    }
-    if (!note) {
-      msgEl.innerHTML = `<div class="error">יש לפרט את הסיבה לזיכוי.</div>`;
-      return;
-    }
-    try {
-      await api(`/admin/orders/${orderId}/payments`, { method: 'POST', body: { amount: -rawAmount, method, note } });
-      refreshCustomerCard(c.phone, { keepPayOpen: true });
-    } catch (err) {
-      msgEl.innerHTML = `<div class="error">${err.message}</div>`;
     }
   };
 
@@ -1176,9 +1149,9 @@ async function wireCustomerPaymentsPanel(c) {
             <option value="manual_card" ${p.method === 'manual_card' ? 'selected' : ''}>אשראי ידני</option>
             <option value="manual_admin" ${p.method === 'manual_admin' ? 'selected' : ''}>אחר</option>
           </select>
-          <button class="primary" type="button" data-pay-save="${p.id}">שמירה</button>
         </div>
         <input type="text" id="${pid}-paynote-${p.id}" placeholder="פרטו מהו אופן התשלום..." value="${esc(p.note || '')}" ${p.method === 'manual_admin' ? '' : 'hidden'} style="margin-top:8px">
+        <button class="primary" type="button" data-pay-save="${p.id}" style="margin-top:8px;width:100%">שמירה</button>
         <div id="${pid}-paymsg-${p.id}"></div>
       `;
       const editMethodSelect = document.getElementById(`${pid}-paymethod-${p.id}`);
@@ -1410,6 +1383,7 @@ function wireCustomerCardButtons(root) {
       const c = allCustomersCache.find((x) => x.phone === phone);
       panel.innerHTML = customerViewPanelHtml(c);
       panel.hidden = false;
+      wireCustomerViewPanel(panel);
       loadCustomerViewPayments(c);
     };
   });
@@ -1449,9 +1423,6 @@ function wireCustomerCardButtons(root) {
       panel.hidden = false;
       wireCustomerPanel(c);
     };
-  });
-  root.querySelectorAll('[data-cust-history]').forEach((b) => {
-    b.onclick = () => openActionLogForPhone(b.dataset.phone);
   });
   root.querySelectorAll('[data-dismiss-pending]').forEach((b) => {
     b.onclick = async () => {
@@ -1497,6 +1468,7 @@ async function refreshCustomerCard(phone, { keepViewOpen = false, keepPayOpen = 
     const panel = document.getElementById(`${panelSafeId(phone)}-view`);
     panel.innerHTML = customerViewPanelHtml(c);
     panel.hidden = false;
+    wireCustomerViewPanel(panel);
     loadCustomerViewPayments(c);
   }
   if (keepPayOpen) {
@@ -1609,9 +1581,9 @@ function quickEventPayFormHtml(phone) {
         <option value="manual_card">אשראי ידני</option>
         <option value="manual_admin">אחר</option>
       </select>
-      <button class="primary" type="button" data-qe-pay-submit>רישום תשלום</button>
     </div>
     <input type="text" id="qe-note-${pid}" placeholder="פרטו מהו אופן התשלום..." hidden style="margin-top:8px">
+    <button class="primary" type="button" data-qe-pay-submit style="margin-top:8px;width:100%">רישום תשלום</button>
     <div id="qe-msg-${pid}"></div>
   `;
 }
@@ -1735,6 +1707,17 @@ async function renderOrdersTab() {
     return renderQuickEventModeScreen(customers, slots);
   }
 
+  // אילו אמצעי תשלום שימשו את הלקוח בפועל (לפחות תשלום אחד) — לסינון "אופן
+  // תשלום". לקוח יכול להופיע במספר אמצעים (למשל שילם חלק במזומן וחלק באשראי).
+  // נטען רק כאן (לא במסך מימוש יום החלוקה) כדי לא להעמיס בקשת רשת נוספת
+  // בדיוק ברגע העומס הכי גבוה.
+  const payments = await api('/admin/payments');
+  const paymentMethodsByPhone = new Map();
+  payments.forEach((p) => {
+    if (!paymentMethodsByPhone.has(p.phone)) paymentMethodsByPhone.set(p.phone, new Set());
+    paymentMethodsByPhone.get(p.phone).add(p.method);
+  });
+
   document.getElementById('tabContent').innerHTML = `
     <div class="card">
       <div class="tab-header-row">
@@ -1774,6 +1757,12 @@ async function renderOrdersTab() {
           <button type="button" class="multiselect-btn" data-ms-toggle>זמן חלוקה <span class="ms-count" data-ms-count></span></button>
           <div class="multiselect-panel" hidden>
             ${slots.map((s) => `<label><input type="checkbox" class="filterSlotCheck" value="${s.id}" checked> ${esc(s.name)}</label>`).join('')}
+          </div>
+        </div>
+        <div class="multiselect" id="msMethod">
+          <button type="button" class="multiselect-btn" data-ms-toggle>אופן תשלום <span class="ms-count" data-ms-count></span></button>
+          <div class="multiselect-panel" hidden>
+            ${Object.entries(METHOD_LABEL).map(([val, label]) => `<label><input type="checkbox" class="filterMethodCheck" value="${val}" checked> ${esc(label)}</label>`).join('')}
           </div>
         </div>
       </div>
@@ -1851,6 +1840,9 @@ async function renderOrdersTab() {
     const checkedSlots = [...allSlotChecks].filter((cb) => cb.checked).map((cb) => cb.value);
     // כל הזמנים מסומנים = בלי סינון בכלל (כמו "כל הזמנים" הישן).
     const slotFilterActive = checkedSlots.length < allSlotChecks.length;
+    const allMethodChecks = document.querySelectorAll('.filterMethodCheck');
+    const methodFilters = [...allMethodChecks].filter((cb) => cb.checked).map((cb) => cb.value);
+    const methodFilterActive = methodFilters.length < allMethodChecks.length;
     currentFiltered = customers.filter((c) => {
       if (q && !c.customerName.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
       if (!c.orders.some((o) => paidFilters.some((cat) => orderMatchesPaidCategory(o, cat)))) return false;
@@ -1858,9 +1850,14 @@ async function renderOrdersTab() {
       if (slotFilterActive && !c.bySlot.some((s) => checkedSlots.includes(String(s.slotId)))) return false;
       const fullyRedeemed = isFullyRedeemedForSlots(c, checkedSlots, slotFilterActive);
       if (!(fullyRedeemed ? redeemedFilters.includes('full') : redeemedFilters.includes('partial'))) return false;
+      // הלקוח חייב לפחות תשלום אחד באחד מאמצעי התשלום שנשארו מסומנים.
+      if (methodFilterActive) {
+        const usedMethods = paymentMethodsByPhone.get(c.phone);
+        if (!usedMethods || !methodFilters.some((m) => usedMethods.has(m))) return false;
+      }
       return true;
     });
-    const filtersActive = !!q || paidFilters.length < allPaidChecks.length || redeemedFilters.length < allRedeemedChecks.length || slotFilterActive;
+    const filtersActive = !!q || paidFilters.length < allPaidChecks.length || redeemedFilters.length < allRedeemedChecks.length || slotFilterActive || methodFilterActive;
     updateOrdersHeader(currentFiltered.length, customers.length, filtersActive);
     renderList(currentFiltered);
   }
@@ -1877,6 +1874,7 @@ async function renderOrdersTab() {
   wireMultiSelectDropdown('msPaid', '.filterPaidCheck', applyFilters);
   wireMultiSelectDropdown('msRedeemed', '.filterRedeemedCheck', applyFilters);
   wireMultiSelectDropdown('msSlot', '.filterSlotCheck', applyFilters);
+  wireMultiSelectDropdown('msMethod', '.filterMethodCheck', applyFilters);
   document.getElementById('toggleQuickEventMode').onclick = () => {
     quickEventModeOn = true;
     renderOrdersTab();
@@ -2148,7 +2146,7 @@ async function renderDashboardTab() {
           <table>
             <tbody>
               ${stats.paidByMethod.map((r) => `
-                <tr><td>${esc(METHOD_LABEL[r.method] || r.method)}</td><td>${money(r.total)}</td></tr>
+                <tr><td>${esc(METHOD_LABEL[r.method] || r.method)}${r.method === 'manual_admin' ? `: ${r.note ? esc(r.note) : 'ללא פירוט'}` : ''}</td><td>${money(r.total)}</td></tr>
               `).join('')}
             </tbody>
           </table>
