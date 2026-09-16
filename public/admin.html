@@ -1217,7 +1217,7 @@ function customerPanelHtml(c) {
             </div>
           </div>
         </div>
-        <button class="secondary" type="button" data-newline-add style="margin-top:8px">+ הוספת שורה</button>
+        <button type="button" data-newline-add style="margin-top:8px;background:var(--sage);color:#fff">רישום הזמנה</button>
         <div id="${pid}-newline-msg"></div>
       </div>
     </div>
@@ -1329,7 +1329,7 @@ async function wireCustomerPanel(c, refetch) {
       const gender = document.getElementById(`${pid}-newline-gender`).value;
       try {
         await api('/admin/orders', { method: 'POST', body: { phone: c.phone, items: [{ slotId, gender, quantity: newlineQty }] } });
-        document.getElementById(`${pid}-newline-msg`).innerHTML = `<div class="success">✓ השורה נוספה בהצלחה</div>`;
+        document.getElementById(`${pid}-newline-msg`).innerHTML = `<div class="success">✓ ההזמנה נרשמה בהצלחה</div>`;
         setTimeout(() => refreshCustomerCard(c.phone, { keepEditOpen: true }), 900);
       } catch (err) {
         document.getElementById(`${pid}-newline-msg`).innerHTML = `<div class="error">${err.message}</div>`;

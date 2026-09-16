@@ -145,10 +145,13 @@ export async function createOrder(payload, { changedBy = 'customer' } = {}) {
 
   const order = await withTransaction(async (client) => {
     const { rows: existing } = await client.query(
-      `SELECT id FROM orders WHERE normalized_phone = $1 AND NOT is_deleted FOR UPDATE`,
+      `SELECT order_sequence FROM orders WHERE normalized_phone = $1 AND NOT is_deleted FOR UPDATE`,
       [normalizedPhone]
     );
-    const orderSequence = existing.length + 1;
+    // MAX ולא COUNT: אם הזמנה ישנה יותר נמחקה (is_deleted), הספירה של
+    // ההזמנות הפעילות "מפגרת" מאחורי המספור בפועל ומחשבת מספר סידורי
+    // שכבר תפוס ע"י הזמנה פעילה קיימת — מה שפגע ב-uq_orders_phone_sequence.
+    const orderSequence = existing.reduce((max, r) => Math.max(max, r.order_sequence), 0) + 1;
 
     const { rows: numRows } = await client.query(`SELECT nextval('order_number_seq') AS n`);
     const orderNumber = numRows[0].n;
