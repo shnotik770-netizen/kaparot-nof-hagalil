@@ -154,11 +154,22 @@ router.all('/registration-menu', wrap(async (req, res) => {
         ));
       }
 
-      // שם נקלט — נקודת עצירה מכוונת לבדיקה, לפני שממשיכים לחיוב בפועל.
-      return res.send(idListMessage([
-        textSegment(`תודה ${params.CustomerName}`),
-        textSegment(`בקרוב נמשיך לחיוב בסך ${total} שקלים`),
-      ]));
+      // סבב חזרה מנדרים פלוס אחרי ניסיון חיוב — עדיין לא יודעים באיזה
+      // קוד מסמנים הצלחה, אז כרגע רק רושמים ללוג של Railway (לבדיקה
+      // ידנית) ומקריאים את הקוד הגולמי למתקשר, בלי לקבוע עדיין הצלחה/כישלון.
+      if (params.CreditCard_CODE) {
+        console.log('[ivr] CreditCard follow-up received:', JSON.stringify(params));
+        return res.send(idListMessage([
+          textSegment(`קוד תוצאה שהתקבל ${params.CreditCard_CODE}`),
+          textSegment('בדיקה זו הסתיימה, תודה'),
+        ]));
+      }
+
+      // בדיקה זמנית בלבד: מחייבים שקל אחד סמלי, לא את הסכום האמיתי (total),
+      // כדי לראות מה בדיוק חוזר ב-CreditCard_CODE לפני שקובעים לוגיקת
+      // הצלחה/כישלון אמיתית. TODO: להחליף billing_sum ל-total אחרי אימות.
+      console.log(`[ivr] Triggering TEST credit_card charge (1 ILS, real total would be ${total}) for phone ${params.ApiPhone}, name "${params.CustomerName}"`);
+      return res.send(`${idListMessage([textSegment('מעבירים אתכם לבדיקת חיוב בסך שקל אחד')])}&credit_card=nedarim_plus,1,,1,1`);
     }
     // moreItems === '1' — ממשיכים ללולאה הבאה (פריט i+1)
   }
