@@ -1707,6 +1707,17 @@ async function renderOrdersTab() {
     return renderQuickEventModeScreen(customers, slots);
   }
 
+  // אילו אמצעי תשלום שימשו את הלקוח בפועל (לפחות תשלום אחד) — לסינון "אופן
+  // תשלום". לקוח יכול להופיע במספר אמצעים (למשל שילם חלק במזומן וחלק באשראי).
+  // נטען רק כאן (לא במסך מימוש יום החלוקה) כדי לא להעמיס בקשת רשת נוספת
+  // בדיוק ברגע העומס הכי גבוה.
+  const payments = await api('/admin/payments');
+  const paymentMethodsByPhone = new Map();
+  payments.forEach((p) => {
+    if (!paymentMethodsByPhone.has(p.phone)) paymentMethodsByPhone.set(p.phone, new Set());
+    paymentMethodsByPhone.get(p.phone).add(p.method);
+  });
+
   document.getElementById('tabContent').innerHTML = `
     <div class="card">
       <div class="tab-header-row">
@@ -1746,6 +1757,12 @@ async function renderOrdersTab() {
           <button type="button" class="multiselect-btn" data-ms-toggle>זמן חלוקה <span class="ms-count" data-ms-count></span></button>
           <div class="multiselect-panel" hidden>
             ${slots.map((s) => `<label><input type="checkbox" class="filterSlotCheck" value="${s.id}" checked> ${esc(s.name)}</label>`).join('')}
+          </div>
+        </div>
+        <div class="multiselect" id="msMethod">
+          <button type="button" class="multiselect-btn" data-ms-toggle>אופן תשלום <span class="ms-count" data-ms-count></span></button>
+          <div class="multiselect-panel" hidden>
+            ${Object.entries(METHOD_LABEL).map(([val, label]) => `<label><input type="checkbox" class="filterMethodCheck" value="${val}" checked> ${esc(label)}</label>`).join('')}
           </div>
         </div>
       </div>
@@ -1823,6 +1840,9 @@ async function renderOrdersTab() {
     const checkedSlots = [...allSlotChecks].filter((cb) => cb.checked).map((cb) => cb.value);
     // כל הזמנים מסומנים = בלי סינון בכלל (כמו "כל הזמנים" הישן).
     const slotFilterActive = checkedSlots.length < allSlotChecks.length;
+    const allMethodChecks = document.querySelectorAll('.filterMethodCheck');
+    const methodFilters = [...allMethodChecks].filter((cb) => cb.checked).map((cb) => cb.value);
+    const methodFilterActive = methodFilters.length < allMethodChecks.length;
     currentFiltered = customers.filter((c) => {
       if (q && !c.customerName.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
       if (!c.orders.some((o) => paidFilters.some((cat) => orderMatchesPaidCategory(o, cat)))) return false;
@@ -1830,9 +1850,14 @@ async function renderOrdersTab() {
       if (slotFilterActive && !c.bySlot.some((s) => checkedSlots.includes(String(s.slotId)))) return false;
       const fullyRedeemed = isFullyRedeemedForSlots(c, checkedSlots, slotFilterActive);
       if (!(fullyRedeemed ? redeemedFilters.includes('full') : redeemedFilters.includes('partial'))) return false;
+      // הלקוח חייב לפחות תשלום אחד באחד מאמצעי התשלום שנשארו מסומנים.
+      if (methodFilterActive) {
+        const usedMethods = paymentMethodsByPhone.get(c.phone);
+        if (!usedMethods || !methodFilters.some((m) => usedMethods.has(m))) return false;
+      }
       return true;
     });
-    const filtersActive = !!q || paidFilters.length < allPaidChecks.length || redeemedFilters.length < allRedeemedChecks.length || slotFilterActive;
+    const filtersActive = !!q || paidFilters.length < allPaidChecks.length || redeemedFilters.length < allRedeemedChecks.length || slotFilterActive || methodFilterActive;
     updateOrdersHeader(currentFiltered.length, customers.length, filtersActive);
     renderList(currentFiltered);
   }
@@ -1849,6 +1874,7 @@ async function renderOrdersTab() {
   wireMultiSelectDropdown('msPaid', '.filterPaidCheck', applyFilters);
   wireMultiSelectDropdown('msRedeemed', '.filterRedeemedCheck', applyFilters);
   wireMultiSelectDropdown('msSlot', '.filterSlotCheck', applyFilters);
+  wireMultiSelectDropdown('msMethod', '.filterMethodCheck', applyFilters);
   document.getElementById('toggleQuickEventMode').onclick = () => {
     quickEventModeOn = true;
     renderOrdersTab();
@@ -2120,7 +2146,7 @@ async function renderDashboardTab() {
           <table>
             <tbody>
               ${stats.paidByMethod.map((r) => `
-                <tr><td>${esc(METHOD_LABEL[r.method] || r.method)}</td><td>${money(r.total)}</td></tr>
+                <tr><td>${esc(METHOD_LABEL[r.method] || r.method)}${r.method === 'manual_admin' ? `: ${r.note ? esc(r.note) : 'ללא פירוט'}` : ''}</td><td>${money(r.total)}</td></tr>
               `).join('')}
             </tbody>
           </table>

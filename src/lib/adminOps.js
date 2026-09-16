@@ -396,9 +396,16 @@ export async function getDashboardStats() {
     `SELECT COALESCE(SUM(amount),0) AS total_paid FROM payments`
   );
 
-  // פילוח תשלומים לפי אמצעי (נדרים פלוס / מזומן / אשראי ידני / אחר).
+  // פילוח תשלומים לפי אמצעי (נדרים פלוס / מזומן / אשראי ידני / אחר) — "אחר"
+  // מפוצל לשורה נפרדת לכל הערה (note) שונה, כי "אחר" לבדו מסתיר פרטים
+  // חשובים (למשל "העברה בנקאית" מול "ביט"); שאר האמצעים נשארים שורה אחת כרגיל.
   const { rows: paidByMethodRows } = await pool.query(
-    `SELECT method, COALESCE(SUM(amount),0) AS total FROM payments GROUP BY method`
+    `SELECT method,
+            CASE WHEN method = 'manual_admin' THEN note ELSE NULL END AS note,
+            COALESCE(SUM(amount),0) AS total
+       FROM payments
+      GROUP BY method, CASE WHEN method = 'manual_admin' THEN note ELSE NULL END
+      ORDER BY method`
   );
 
   // כמה עוד לא שולם: בכסף — סכום היתרות הפתוחות בפועל (balance_due), לא שווי
@@ -468,7 +475,7 @@ export async function getDashboardStats() {
     bySlotSecured: securedRows.map(mapSlotRow),
     totalPaid: Number(paidRows[0].total_paid),
     paidBirds: paidBirdsRows[0].paid_birds,
-    paidByMethod: paidByMethodRows.map((r) => ({ method: r.method, total: Number(r.total) })),
+    paidByMethod: paidByMethodRows.map((r) => ({ method: r.method, note: r.note, total: Number(r.total) })),
     unpaidMoney: Number(unpaidMoneyRows[0].unpaid_money),
     unpaidBirds: unpaidBirdsRows[0].unpaid_birds,
     ordersByDate: ordersByDateRows.map((r) => ({ date: r.date, total: r.total })),
