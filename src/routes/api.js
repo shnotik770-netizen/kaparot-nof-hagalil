@@ -21,7 +21,7 @@ import {
 } from '../lib/payments.js';
 import {
   listAllOrders, listCustomersSummary, getDashboardStats, hardReset,
-  updateOrderItemQuantity, deleteOrderItem, deleteOrder, setItemRedeemedQuantity, setOrderPaymentCoordinated,
+  updateOrderItemQuantity, deleteOrderItem, deleteOrder, setItemRedeemedQuantity, setOrderPaymentCoordinated, setCustomerPaymentCoordinated,
 } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
 import { listActions, logAction } from '../lib/actionLog.js';
@@ -384,6 +384,12 @@ router.delete('/admin/orders/:id', requireAdmin, requirePermission('orders'), wr
 
 router.put('/admin/orders/:id/payment-coordinated', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   res.json(await setOrderPaymentCoordinated(Number(req.params.id), req.body?.coordinated, req.session.adminName || 'admin'));
+}));
+
+// כמו למעלה, אבל על כל ההזמנות הפתוחות של הלקוח יחד — ראו setCustomerPaymentCoordinated.
+router.put('/admin/customers/:phone/payment-coordinated', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  const normalized = normalizePhone(req.params.phone);
+  res.json(await setCustomerPaymentCoordinated(normalized, req.body?.coordinated, req.session.adminName || 'admin'));
 }));
 
 router.put('/admin/orders/:orderId/items/:itemId', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
