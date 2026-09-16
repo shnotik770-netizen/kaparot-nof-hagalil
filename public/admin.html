@@ -792,7 +792,7 @@ function customerCardHtml(c) {
       <div class="total-row">
         <span>לתשלום ${money(c.totalAmount)}</span>
         <span>שולם ${money(c.amountPaid)}</span>
-        <span style="color:${c.balanceDue > 0 ? 'var(--wine)' : 'inherit'};font-weight:800">חוב ${money(c.balanceDue)}</span>
+        <span style="color:${c.balanceDue > 0 ? 'var(--wine)' : c.balanceDue < 0 ? 'var(--sage)' : 'inherit'};font-weight:800">${c.balanceDue < 0 ? `זכות ${money(-c.balanceDue)}` : `חוב ${money(c.balanceDue)}`}</span>
       </div>
       <div class="edit-panel" id="${panelSafeId(c.phone)}-view" hidden></div>
       <div class="edit-panel" id="${panelSafeId(c.phone)}-pay" hidden></div>
@@ -1047,6 +1047,24 @@ function customerPaymentsPanelHtml(c) {
     <input type="text" id="${pid}-pnote" placeholder="פרטו מהו אופן התשלום..." hidden style="margin-top:8px">
     <div id="${pid}-pmsg"></div>
 
+    <h3 style="margin:16px 0 8px;font-size:14px">רישום זיכוי/תיקון (עבור הזמנה ספציפית ששולמה ביתר, למשל אחרי תיקון ידני)</h3>
+    <div class="row">
+      <select id="${pid}-credit-order">
+        ${c.orders.map((o) => `<option value="${o.id}">הזמנה מס' ${o.orderSequence} (${o.orderNumber}) · יתרה נוכחית: ${money(o.balanceDue)}${o.balanceDue < 0 ? ' 💰' : ''}</option>`).join('')}
+      </select>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input type="number" min="0" placeholder="סכום לזיכוי" id="${pid}-credit-amt">
+      <select id="${pid}-credit-method">
+        <option value="manual_cash">מזומן</option>
+        <option value="manual_card">אשראי ידני</option>
+        <option value="manual_admin">אחר</option>
+      </select>
+    </div>
+    <input type="text" id="${pid}-credit-note" placeholder="פרטו את הסיבה לזיכוי (חובה)..." style="margin-top:8px">
+    <button class="secondary" type="button" data-credit-submit style="margin-top:8px">רישום זיכוי (יירשם כתשלום שלילי)</button>
+    <div id="${pid}-creditmsg"></div>
+
     ${c.orders.some((o) => o.paymentStatus !== 'paid') ? `
       <h3 style="margin:16px 0 8px;font-size:14px">תיאום תשלום (ננעל מעריכה עצמית של הלקוח, לא משנה יתרה/מימוש)</h3>
       ${c.orders.filter((o) => o.paymentStatus !== 'paid').map((o) => `
@@ -1085,6 +1103,28 @@ async function wireCustomerPaymentsPanel(c) {
     }
   };
 
+  panel.querySelector('[data-credit-submit]').onclick = async () => {
+    const orderId = document.getElementById(`${pid}-credit-order`).value;
+    const rawAmount = Number(document.getElementById(`${pid}-credit-amt`).value);
+    const method = document.getElementById(`${pid}-credit-method`).value;
+    const note = document.getElementById(`${pid}-credit-note`).value.trim();
+    const msgEl = document.getElementById(`${pid}-creditmsg`);
+    if (!Number.isFinite(rawAmount) || rawAmount <= 0) {
+      msgEl.innerHTML = `<div class="error">יש להזין סכום זיכוי חיובי.</div>`;
+      return;
+    }
+    if (!note) {
+      msgEl.innerHTML = `<div class="error">יש לפרט את הסיבה לזיכוי.</div>`;
+      return;
+    }
+    try {
+      await api(`/admin/orders/${orderId}/payments`, { method: 'POST', body: { amount: -rawAmount, method, note } });
+      refreshCustomerCard(c.phone, { keepPayOpen: true });
+    } catch (err) {
+      msgEl.innerHTML = `<div class="error">${err.message}</div>`;
+    }
+  };
+
   panel.querySelectorAll('[data-coord-toggle]').forEach((btn) => {
     btn.onclick = async () => {
       const orderId = btn.dataset.coordToggle;
@@ -1108,7 +1148,7 @@ async function wireCustomerPaymentsPanel(c) {
         const isManual = p.method.startsWith('manual_');
         return `
           <div class="item-row">
-            <span>${money(p.amount)} · ${METHOD_LABEL[p.method] || p.method}${p.note ? ` · ${esc(p.note)}` : ''}</span>
+            <span>${p.amount < 0 ? `<span style="color:var(--sage);font-weight:700">זיכוי ${money(-p.amount)}</span>` : money(p.amount)} · ${METHOD_LABEL[p.method] || p.method}${p.note ? ` · ${esc(p.note)}` : ''}</span>
             <span class="meta" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
               <span>${new Date(p.createdAt).toLocaleString('he-IL')} · ע"י ${esc(p.recordedBy)}</span>
               ${isManual ? `
@@ -1130,7 +1170,7 @@ async function wireCustomerPaymentsPanel(c) {
       editBox.hidden = false;
       editBox.innerHTML = `
         <div class="row">
-          <input type="number" min="0" value="${p.amount}" id="${pid}-payamt-${p.id}">
+          <input type="number" value="${p.amount}" id="${pid}-payamt-${p.id}">
           <select id="${pid}-paymethod-${p.id}">
             <option value="manual_cash" ${p.method === 'manual_cash' ? 'selected' : ''}>מזומן</option>
             <option value="manual_card" ${p.method === 'manual_card' ? 'selected' : ''}>אשראי ידני</option>
@@ -1316,7 +1356,8 @@ async function wireCustomerPanel(c, refetch) {
       const gender = document.getElementById(`${pid}-newline-gender`).value;
       try {
         await api('/admin/orders', { method: 'POST', body: { phone: c.phone, items: [{ slotId, gender, quantity: newlineQty }] } });
-        refreshCustomerCard(c.phone, { keepEditOpen: true });
+        document.getElementById(`${pid}-newline-msg`).innerHTML = `<div class="success">✓ השורה נוספה בהצלחה</div>`;
+        setTimeout(() => refreshCustomerCard(c.phone, { keepEditOpen: true }), 900);
       } catch (err) {
         document.getElementById(`${pid}-newline-msg`).innerHTML = `<div class="error">${err.message}</div>`;
       }
@@ -1719,6 +1760,7 @@ async function renderOrdersTab() {
             <label><input type="checkbox" class="filterPaidCheck" value="partial_coordinated" checked> שולם חלקית ונסגרה ההזמנה</label>
             <label><input type="checkbox" class="filterPaidCheck" value="partial_open" checked> שולם חלקית ולא נסגרה ההזמנה</label>
             <label><input type="checkbox" class="filterPaidCheck" value="unpaid_none" checked> לא שולם כלל</label>
+            <label><input type="checkbox" class="filterPaidCheck" value="credit" checked> יש זכות (שולם ביתר)</label>
           </div>
         </div>
         <div class="multiselect" id="msRedeemed">
@@ -1776,6 +1818,7 @@ async function renderOrdersTab() {
       case 'unpaid_none': return o.paymentStatus === 'unpaid' && !o.paymentCoordinated;
       case 'partial_coordinated': return o.paymentStatus === 'partial' && !!o.paymentCoordinated;
       case 'partial_open': return o.paymentStatus === 'partial' && !o.paymentCoordinated;
+      case 'credit': return o.balanceDue < 0;
       default: return false;
     }
   }
