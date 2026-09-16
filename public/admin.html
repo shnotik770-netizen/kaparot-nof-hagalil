@@ -787,7 +787,6 @@ function customerCardHtml(c) {
         <button class="secondary" data-cust-pay data-phone="${esc(c.phone)}">💳 תשלומים</button>
         <button class="secondary" data-cust-redeem data-phone="${esc(c.phone)}">🎟️ מימוש</button>
         <button class="secondary" data-cust-edit data-phone="${esc(c.phone)}">✏️ עריכת הזמנה</button>
-        ${myPermissions.settings ? `<button class="secondary" data-cust-history data-phone="${esc(c.phone)}">🕘 היסטוריית שינויים</button>` : ''}
       </div>
       <div class="total-row">
         <span>לתשלום ${money(c.totalAmount)}</span>
@@ -1012,7 +1011,15 @@ function customerViewPanelHtml(c) {
     `).join('')}
     <h3 style="margin:16px 0 8px;font-size:14px">תשלומים</h3>
     <div id="${pid}-viewpayments"><div class="loading">טוען…</div></div>
+    ${myPermissions.settings ? `
+      <button class="secondary" type="button" data-cust-history data-phone="${esc(c.phone)}" style="width:100%;margin-top:14px">🕘 היסטוריית שינויים</button>
+    ` : ''}
   `;
+}
+
+function wireCustomerViewPanel(panel) {
+  const btn = panel.querySelector('[data-cust-history]');
+  if (btn) btn.onclick = () => openActionLogForPhone(btn.dataset.phone);
 }
 
 async function loadCustomerViewPayments(c) {
@@ -1410,6 +1417,7 @@ function wireCustomerCardButtons(root) {
       const c = allCustomersCache.find((x) => x.phone === phone);
       panel.innerHTML = customerViewPanelHtml(c);
       panel.hidden = false;
+      wireCustomerViewPanel(panel);
       loadCustomerViewPayments(c);
     };
   });
@@ -1449,9 +1457,6 @@ function wireCustomerCardButtons(root) {
       panel.hidden = false;
       wireCustomerPanel(c);
     };
-  });
-  root.querySelectorAll('[data-cust-history]').forEach((b) => {
-    b.onclick = () => openActionLogForPhone(b.dataset.phone);
   });
   root.querySelectorAll('[data-dismiss-pending]').forEach((b) => {
     b.onclick = async () => {
@@ -1497,6 +1502,7 @@ async function refreshCustomerCard(phone, { keepViewOpen = false, keepPayOpen = 
     const panel = document.getElementById(`${panelSafeId(phone)}-view`);
     panel.innerHTML = customerViewPanelHtml(c);
     panel.hidden = false;
+    wireCustomerViewPanel(panel);
     loadCustomerViewPayments(c);
   }
   if (keepPayOpen) {
