@@ -52,12 +52,18 @@ app.use(session({
 
 app.use('/api', apiRouter);
 
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// no-cache (לא no-store) על כל הקבצים הסטטיים: הדפדפן עדיין עושה בקשה
+// מותנית (If-None-Match) בכל טעינה ומקבל 304 זול אם שום דבר לא השתנה, אבל
+// לא ממשיך "לזכור" גרסה ישנה של admin.html/index.html/kiosk.html בלי לבדוק
+// מול השרת בכלל — שהיה גורם לשינויים בקוד להיראות כאילו לא נכנסו עד שעושים
+// רענון קשיח (Ctrl+Shift+R) ידנית.
+const staticOptions = { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') };
+app.use(express.static(path.join(__dirname, '..', 'public'), staticOptions));
 
 // שלוש חזיתות נפרדות: לקוח (index.html), קיוסק חלוקה (kiosk.html), מנהל (admin.html)
-app.get('/kiosk*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'kiosk.html')));
-app.get('/admin*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'admin.html')));
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+app.get('/kiosk*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'kiosk.html')));
+app.get('/admin*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'admin.html')));
+app.get('*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
