@@ -474,7 +474,7 @@ router.post('/admin/ivr/test-call', requireAdmin, requirePermission('settings'),
 // ---- יומן פעולות ----
 
 router.get('/admin/action-log', requireAdmin, requirePermission('settings'), wrap(async (req, res) => {
-  res.json(await listActions({ limit: req.query.limit }));
+  res.json(await listActions({ limit: req.query.limit, offset: req.query.offset }));
 }));
 
 export default router;

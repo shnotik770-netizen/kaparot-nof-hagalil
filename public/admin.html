@@ -2157,46 +2157,83 @@ function actionLogRowHtml(a) {
   `;
 }
 
+const ACTION_LOG_PAGE_SIZE = 200;
+
 async function renderActionLogTab() {
-  const actions = await api('/admin/action-log?limit=200');
-  // רק סוגי פעולות שבאמת מופיעים ב-200 הפעולות האחרונות (לא כל הסוגים
-  // האפשריים במערכת) — כדי שהפאנל לא יתמלא באפשרויות סינון ריקות.
-  const presentTypes = [...new Set(actions.map((a) => a.actionType))];
+  let loadedActions = await api(`/admin/action-log?limit=${ACTION_LOG_PAGE_SIZE}&offset=0`);
+  let hasMore = loadedActions.length === ACTION_LOG_PAGE_SIZE;
+  // רק סוגי פעולות שבאמת מופיעים בעמוד שנטען (לא כל הסוגים האפשריים
+  // במערכת) — כדי שהפאנל לא יתמלא באפשרויות סינון ריקות. כשטוענים עוד
+  // (טען עוד) מוסיפים לפאנל סוגים חדשים שעוד לא הופיעו, ראו addMissingActionTypeCheckboxes.
+  const initialTypes = [...new Set(loadedActions.map((a) => a.actionType))];
 
   document.getElementById('tabContent').innerHTML = `
     <div class="card">
       <div class="tab-header-row">
         <div>
           <h2 style="margin:0">יומן פעולות</h2>
-          <p class="hint" style="margin:4px 0 0">200 הפעולות האחרונות במערכת, מהחדשה לישנה.</p>
+          <p class="hint" style="margin:4px 0 0" id="actionLogCountHint"></p>
         </div>
       </div>
       <div class="filter-row">
         <div class="multiselect" id="msActionType">
           <button type="button" class="multiselect-btn" data-ms-toggle>סוג פעולה <span class="ms-count" data-ms-count></span></button>
           <div class="multiselect-panel" hidden>
-            ${presentTypes.map((t) => `<label><input type="checkbox" class="filterActionTypeCheck" value="${esc(t)}" checked> ${esc(ACTION_LABELS[t] || t)}</label>`).join('')}
+            ${initialTypes.map((t) => `<label><input type="checkbox" class="filterActionTypeCheck" value="${esc(t)}" checked> ${esc(ACTION_LABELS[t] || t)}</label>`).join('')}
           </div>
         </div>
       </div>
     </div>
     <div class="card">
       <table class="compact-table" id="actionLogTable"></table>
+      <button class="secondary" type="button" id="actionLogLoadMore" style="width:100%;margin-top:10px" ${hasMore ? '' : 'hidden'}>טען עוד</button>
     </div>
   `;
+
+  function updateCountHint() {
+    document.getElementById('actionLogCountHint').textContent = `${loadedActions.length} פעולות נטענו, מהחדשה לישנה.`;
+  }
 
   function renderRows(list) {
     document.getElementById('actionLogTable').innerHTML = list.length
       ? list.map(actionLogRowHtml).join('')
-      : `<tr><td class="hint">${actions.length ? 'לא נמצאו פעולות תואמות לסינון.' : 'אין עדיין פעולות רשומות.'}</td></tr>`;
+      : `<tr><td class="hint">${loadedActions.length ? 'לא נמצאו פעולות תואמות לסינון.' : 'אין עדיין פעולות רשומות.'}</td></tr>`;
   }
 
   function applyActionLogFilter() {
     const checked = [...document.querySelectorAll('.filterActionTypeCheck:checked')].map((cb) => cb.value);
-    renderRows(actions.filter((a) => checked.includes(a.actionType)));
+    renderRows(loadedActions.filter((a) => checked.includes(a.actionType)));
   }
 
-  renderRows(actions);
+  function addMissingActionTypeCheckboxes(types) {
+    const panel = document.querySelector('#msActionType .multiselect-panel');
+    const existing = new Set([...panel.querySelectorAll('.filterActionTypeCheck')].map((cb) => cb.value));
+    const missing = types.filter((t) => !existing.has(t));
+    if (!missing.length) return;
+    panel.insertAdjacentHTML('beforeend', missing.map((t) => `<label><input type="checkbox" class="filterActionTypeCheck" value="${esc(t)}" checked> ${esc(ACTION_LABELS[t] || t)}</label>`).join(''));
+    wireMultiSelectDropdown('msActionType', '.filterActionTypeCheck', applyActionLogFilter);
+  }
+
+  document.getElementById('actionLogLoadMore').onclick = async () => {
+    const btn = document.getElementById('actionLogLoadMore');
+    btn.disabled = true;
+    btn.textContent = 'טוען...';
+    try {
+      const next = await api(`/admin/action-log?limit=${ACTION_LOG_PAGE_SIZE}&offset=${loadedActions.length}`);
+      loadedActions = loadedActions.concat(next);
+      hasMore = next.length === ACTION_LOG_PAGE_SIZE;
+      addMissingActionTypeCheckboxes([...new Set(next.map((a) => a.actionType))]);
+      updateCountHint();
+      applyActionLogFilter();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'טען עוד';
+      btn.hidden = !hasMore;
+    }
+  };
+
+  updateCountHint();
+  renderRows(loadedActions);
   wireMultiSelectDropdown('msActionType', '.filterActionTypeCheck', applyActionLogFilter);
 }
 
