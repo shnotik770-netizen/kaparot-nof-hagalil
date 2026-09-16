@@ -28,7 +28,42 @@ function rowToSlot(row) {
     openForPickup: row.open_for_pickup,
     isOpenForRegistration,
     isOpenForPickup,
+    ivrCode: row.ivr_code,
+    ivrAnnouncement: row.ivr_announcement,
   };
+}
+
+/** ivrCode ריק = לא מוצג בתפריט הטלפוני; אם מוגדר, חייב להיות ספרה בודדת 1-9. */
+function normalizeIvrCode(rawIvrCode) {
+  const trimmed = String(rawIvrCode ?? '').trim();
+  if (!trimmed) return null;
+  if (!/^[1-9]$/.test(trimmed)) {
+    const err = new Error('קוד לשלוחה הטלפונית חייב להיות ספרה בודדת בין 1 ל-9.');
+    err.status = 400;
+    throw err;
+  }
+  return trimmed;
+}
+
+/**
+ * מונע תפריט טלפוני דו-משמעי: שתי הזמנות שפתוחות להרשמה בו-זמנית לא יכולות
+ * לחלוק אותה ספרת בחירה. בדיקה מקורבת (active + פתוח להרשמה כרגע), לא
+ * ייחודיות מוחלטת על פני כל הזמנים שאי-פעם היו — אירועים ישנים/סגורים
+ * מותר להם לחזור על אותה ספרה.
+ */
+async function assertIvrCodeAvailable(ivrCode, excludeId) {
+  if (!ivrCode) return;
+  const { rows } = await query(
+    `SELECT id FROM distribution_slots
+      WHERE active = true AND ivr_code = $1 AND id <> $2
+        AND (manual_open_override OR registration_close_at IS NULL OR registration_close_at > now())`,
+    [ivrCode, excludeId || 0]
+  );
+  if (rows.length) {
+    const err = new Error(`הספרה ${ivrCode} כבר תפוסה ע"י זמן חלוקה אחר שפתוח להרשמה כרגע.`);
+    err.status = 409;
+    throw err;
+  }
 }
 
 /** הצעה ראשונית ל"יום" בעברית, לפי תאריך — הלקוח (טופס ניהול) יכול לערוך את הטקסט לפני שמירה. */
@@ -48,6 +83,16 @@ export async function getOpenSlotsForRegistration() {
   return all.filter((s) => s.isOpenForRegistration);
 }
 
+/**
+ * רק זמנים פתוחים להרשמה כרגע *וגם* מוגדר להם קוד לשלוחה הטלפונית —
+ * בדיוק מה שתפריט ה-IVR (9/1) צריך להקריא, ממוין לפי הספרה. זמן שפתוח
+ * להרשמה באתר אבל בלי ivr_code לא נחשף בטלפון בכלל.
+ */
+export async function getIvrRegistrationSlots() {
+  const open = await getOpenSlotsForRegistration();
+  return open.filter((s) => s.ivrCode && s.ivrAnnouncement).sort((a, b) => a.ivrCode.localeCompare(b.ivrCode));
+}
+
 /** רק זמנים פתוחים בפועל לאספקה (משיכה) כרגע — לתג "החלוקה פתוחה" ולכפתור "מימוש הזמנה". */
 export async function getOpenSlotsForPickup() {
   const all = await getAllSlots();
@@ -60,13 +105,16 @@ export async function getSlotById(id) {
 }
 
 export async function createSlot(data) {
+  const ivrCode = normalizeIvrCode(data.ivrCode);
+  await assertIvrCodeAvailable(ivrCode, null);
   const { rows } = await query(
-    `INSERT INTO distribution_slots(name, supply_date, day_label, hours_label, color, price_male, price_female, registration_close_at, manual_open_override, open_for_pickup, active)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    `INSERT INTO distribution_slots(name, supply_date, day_label, hours_label, color, price_male, price_female, registration_close_at, manual_open_override, open_for_pickup, active, ivr_code, ivr_announcement)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
     [
       data.name, data.supplyDate, data.dayLabel, data.hoursLabel || '', data.color || '#a5741f',
       data.priceMale, data.priceFemale, data.registrationCloseAt || null,
       !!data.manualOpenOverride, !!data.openForPickup, data.active !== false,
+      ivrCode, data.ivrAnnouncement?.trim() || null,
     ]
   );
   const slot = rowToSlot(rows[0]);
@@ -75,17 +123,21 @@ export async function createSlot(data) {
 }
 
 export async function updateSlot(id, data) {
+  const ivrCode = normalizeIvrCode(data.ivrCode);
+  await assertIvrCodeAvailable(ivrCode, id);
   const { rows } = await query(
     `UPDATE distribution_slots SET
        name = $2, supply_date = $3, day_label = $4, hours_label = $5, color = $6,
        price_male = $7, price_female = $8, registration_close_at = $9,
        manual_open_override = $10, open_for_pickup = $11, active = $12,
+       ivr_code = $13, ivr_announcement = $14,
        updated_at = now()
      WHERE id = $1 RETURNING *`,
     [
       id, data.name, data.supplyDate, data.dayLabel, data.hoursLabel || '', data.color || '#a5741f',
       data.priceMale, data.priceFemale, data.registrationCloseAt || null,
       !!data.manualOpenOverride, !!data.openForPickup, data.active !== false,
+      ivrCode, data.ivrAnnouncement?.trim() || null,
     ]
   );
   if (!rows.length) {

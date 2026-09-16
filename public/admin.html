@@ -114,14 +114,14 @@ function esc(s) { return String(s ?? '').replace(/"/g, '&quot;'); }
 function escHtml(s) {
   return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
-// תצוגה משותפת לתוצאות קריאות ימות המשיח (בניית שלוחות + בדיקות חופשיות):
-// לכל שלב — מה נשלח (בלי token) ומה חזר, כולל קוד HTTP.
-function yemotResultsHtml(results, labelField) {
+// תצוגת תוצאות קריאות בדיקה חופשיות לימות המשיח: לכל שורה — מה נשלח
+// (בלי token) ומה חזר, כולל קוד HTTP.
+function yemotResultsHtml(results) {
   return results.map((r) => {
     const ok = r.response?.responseStatus === 'OK';
     return `
       <div class="notice${ok ? '' : ' critical'}" style="margin-top:10px;text-align:right">
-        ${r[labelField] ? `<div><b>${labelField === 'webService' ? 'שירות' : 'שלוחה'}:</b> ${escHtml(r[labelField])}</div>` : ''}
+        ${r.webService ? `<div><b>שירות:</b> ${escHtml(r.webService)}</div>` : ''}
         <div style="margin-top:6px"><b>נשלח:</b></div>
         <pre style="white-space:pre-wrap;word-break:break-all;font-size:12px;margin:4px 0">${escHtml(JSON.stringify(r.sentParams, null, 2))}</pre>
         <div style="margin-top:6px"><b>תגובת ימות המשיח (HTTP ${r.httpStatus ?? '—'}):</b></div>
@@ -375,13 +375,6 @@ async function renderSettingsCore() {
     </div>
 
     <div class="card">
-      <h2>בניית שלוחות IVR (ימות המשיח)</h2>
-      <p class="hint">יוצר/מעדכן דרך ה-API את שלוחת התפריט 9 (הזמנה/בירור) ואת תתי-השלוחות 9/1 ו-9/2. מציג לכל שלב בדיוק מה נשלח וגם מה ימות המשיח החזיר.</p>
-      <button class="primary" id="setupIvrExtensions">בניית השלוחות</button>
-      <div id="ivrSetupResults"></div>
-    </div>
-
-    <div class="card">
       <h2>בדיקת קריאות API חופשיות לימות המשיח</h2>
       <p class="hint">כל שורה = קריאה בפורמט WebServiceName?param1=val1&param2=val2 (בדיוק כמו בכתובת ה-API עצמה, בלי הכתובת הבסיסית ובלי token — הטוקן מתווסף אוטומטית מהשרת ולעולם לא נלקח ממה שכתוב כאן). אפשר כמה שורות בבת אחת.</p>
       <textarea id="ivrTestCode" rows="4" placeholder="GetIVR2Dir?path=/&#10;GetCustomerData"></textarea>
@@ -427,20 +420,6 @@ async function renderSettingsCore() {
     }});
     flash('נשמר.');
   };
-  document.getElementById('setupIvrExtensions').onclick = async () => {
-    const btn = document.getElementById('setupIvrExtensions');
-    const out = document.getElementById('ivrSetupResults');
-    btn.disabled = true;
-    out.innerHTML = `<p class="hint">בונה שלוחות…</p>`;
-    try {
-      const { results } = await api('/admin/ivr/setup-extensions', { method: 'POST' });
-      out.innerHTML = yemotResultsHtml(results, 'path');
-    } catch (err) {
-      out.innerHTML = `<div class="notice critical" style="margin-top:10px">${escHtml(err.message)}</div>`;
-    } finally {
-      btn.disabled = false;
-    }
-  };
   document.getElementById('runIvrTest').onclick = async () => {
     const btn = document.getElementById('runIvrTest');
     const out = document.getElementById('ivrTestResults');
@@ -449,7 +428,7 @@ async function renderSettingsCore() {
     out.innerHTML = `<p class="hint">שולח…</p>`;
     try {
       const { results } = await api('/admin/ivr/test-call', { method: 'POST', body: { code } });
-      out.innerHTML = yemotResultsHtml(results, 'webService');
+      out.innerHTML = yemotResultsHtml(results);
     } catch (err) {
       out.innerHTML = `<div class="notice critical" style="margin-top:10px">${escHtml(err.message)}</div>`;
     } finally {
@@ -618,6 +597,10 @@ function slotFormHtml(prefix, s) {
     <input type="datetime-local" id="${prefix}CloseAt" value="${toLocalDatetimeInputValue(s.registrationCloseAt)}">
     <div class="toggle-row"><span>פתוח ידנית להרשמה גם אחרי זמן הסגירה</span><input type="checkbox" id="${prefix}Override" ${s.manualOpenOverride ? 'checked' : ''}></div>
     <div class="toggle-row"><span>פתוח כעת לאספקה (משיכת עופות)</span><input type="checkbox" id="${prefix}Pickup" ${s.openForPickup ? 'checked' : ''}></div>
+    <label>קוד לשלוחה הטלפונית (ספרה 1-9, ריק = לא מופיע בתפריט הטלפוני)</label>
+    <input type="text" id="${prefix}IvrCode" inputmode="numeric" maxlength="1" placeholder="לדוגמה: 1" value="${esc(s.ivrCode)}">
+    <label>טקסט הקראה לשלוחה הטלפונית (ריק = לא יופיע בתפריט הטלפוני גם אם יש קוד)</label>
+    <input type="text" id="${prefix}IvrAnnouncement" placeholder="לדוגמה: יום חמישי אחר הצהריים" value="${esc(s.ivrAnnouncement)}">
   `;
 }
 
@@ -633,6 +616,8 @@ function readSlotForm(prefix) {
     registrationCloseAt: fromLocalDatetimeInputValue(document.getElementById(`${prefix}CloseAt`).value),
     manualOpenOverride: document.getElementById(`${prefix}Override`).checked,
     openForPickup: document.getElementById(`${prefix}Pickup`).checked,
+    ivrCode: document.getElementById(`${prefix}IvrCode`).value.trim(),
+    ivrAnnouncement: document.getElementById(`${prefix}IvrAnnouncement`).value.trim(),
   };
 }
 
@@ -646,6 +631,7 @@ function slotCompactRowHtml(s) {
       </div>
       <span class="pill ${s.isOpenForRegistration ? 'paid' : 'unpaid'}">${s.isOpenForRegistration ? 'פתוח להרשמה' : 'סגור להרשמה'}</span>
       <span class="pill ${s.isOpenForPickup ? 'paid' : 'unpaid'}">${s.isOpenForPickup ? 'פתוח לאספקה' : 'סגור לאספקה'}</span>
+      ${s.ivrCode ? `<span class="pill partial">☎️ ${esc(s.ivrCode)}</span>` : ''}
       <button class="ghost" data-toggle-slot="${s.id}">עריכה</button>
     </div>
   `;
