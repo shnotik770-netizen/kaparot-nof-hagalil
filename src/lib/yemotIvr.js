@@ -1,6 +1,6 @@
-// עטיפה לקריאות ל-API של ימות המשיח — בונה שלוחות IVR (UpdateExtension)
-// ומריצה קריאות בדיקה חופשיות לכל web service, בלי לחשוף את הטוקן. אותו
-// YEMOT_SMS_API_KEY שמשמש לשליחת SMS משמש גם כאן — טוקן API יחיד לחשבון.
+// עטיפה לקריאות בדיקה חופשיות ל-API של ימות המשיח (כל web service), בלי
+// לחשוף את הטוקן ללקוח. אותו YEMOT_SMS_API_KEY שמשמש לשליחת SMS משמש גם
+// כאן — טוקן API יחיד לחשבון.
 
 const YEMOT_API_BASE = 'https://www.call2all.co.il/ym/api';
 
@@ -33,30 +33,6 @@ async function callYemotApi(webService, params) {
 
   // sentParams בכוונה בלי token בכלל (לא רק מוסתר) — זה מה שמוצג למנהל במסך.
   return { webService, sentParams: params, httpStatus, response };
-}
-
-async function callUpdateExtension(params) {
-  const result = await callYemotApi('UpdateExtension', params);
-  return { ...result, path: params.path };
-}
-
-/**
- * בונה את מבנה השלוחות לכפרות: 9 (תפריט) -> 9/1 (רישום הזמנה) / 9/2 (בירור
- * הזמנה קיימת). מריץ את שלוש הקריאות ברצף ומחזיר את תוצאת כל אחת בנפרד,
- * גם אם חלקן נכשלות — כך שהמנהל רואה בדיוק מה נשלח ומה ימות המשיח החזיר
- * לכל שלב, ולא רק הצלחה/כישלון מצטבר.
- */
-export async function setupKapparotIvrExtensions() {
-  const steps = [
-    { path: 'ivr2:9', type: 'menu', title: 'כפרות - הזמנה ובירור' },
-    { path: 'ivr2:9/1', title: 'רישום הזמנה חדשה' },
-    { path: 'ivr2:9/2', title: 'שמיעת מצב הזמנה קיימת' },
-  ];
-  const results = [];
-  for (const step of steps) {
-    results.push(await callUpdateExtension(step));
-  }
-  return results;
 }
 
 /**
