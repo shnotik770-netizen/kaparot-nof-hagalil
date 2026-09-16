@@ -7,7 +7,7 @@
 import { Router } from 'express';
 import { normalizePhone } from '../lib/normalize.js';
 import { listOrdersForPhone } from '../lib/orders.js';
-import { getIvrRegistrationSlots } from '../lib/slots.js';
+import { getIvrRegistrationSlots, priceForGender } from '../lib/slots.js';
 import { textSegment, idListMessage, readAction } from '../lib/ivrFormat.js';
 
 const router = Router();
@@ -54,6 +54,7 @@ router.all('/order-status', wrap(async (req, res) => {
 }));
 
 const GENDER_KEY_LABEL = { 1: 'זכרים', 2: 'נקבות' };
+const GENDER_KEY_TO_FIELD = { 1: 'male', 2: 'female' };
 const MAX_ORDER_ITEMS = 6; // הגנה מפני לולאה אינסופית — לא צפוי שמישהו יזמין יותר מ-6 שורות בשיחה אחת
 
 function slotMenuAction(paramName, slots, introText) {
@@ -125,14 +126,20 @@ router.all('/registration-menu', wrap(async (req, res) => {
 
     if (moreItems === '2') {
       const summarySegments = [];
+      let total = 0;
       for (let j = 1; j <= i; j++) {
         const s = slotsByCode.get(params[`SlotChoice${j}`]);
+        const genderField = GENDER_KEY_TO_FIELD[params[`Gender${j}`]];
         const genderLabel = GENDER_KEY_LABEL[params[`Gender${j}`]] || params[`Gender${j}`];
-        summarySegments.push(textSegment(`${params[`Quantity${j}`]} ${genderLabel} ל${s?.ivrAnnouncement || ''}`));
+        const qty = Number(params[`Quantity${j}`]) || 0;
+        const lineTotal = s ? qty * priceForGender(s, genderField) : 0;
+        total += lineTotal;
+        summarySegments.push(textSegment(`${qty} ${genderLabel} ל${s?.ivrAnnouncement || ''}, מחיר ${lineTotal} שקלים`));
       }
       return res.send(idListMessage([
         textSegment('ההזמנה שלכם'),
         ...summarySegments,
+        textSegment(`סך הכל לתשלום ${total} שקלים`),
         textSegment('בקרוב נמשיך לרישום השם והתשלום'),
       ]));
     }
