@@ -30,6 +30,7 @@ const ACTION_LABELS = {
   payment_edited: 'תשלום ידני נערך',
   payment_deleted: 'תשלום ידני נמחק',
   payment_received_nedarim: 'תשלום התקבל (נדרים פלוס, Webhook)',
+  payment_received_nedarim_ivr: 'תשלום התקבל (נדרים פלוס, שלוחה טלפונית)',
   payment_client_confirmed: 'תשלום אושר לפי הדפדפן (טרם אומת Webhook)',
   redemption_confirmed: 'מימוש עופות',
   redemption_manual_override: 'מימוש עודכן ידנית ע"י מנהל',

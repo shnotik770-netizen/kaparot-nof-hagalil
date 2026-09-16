@@ -2029,6 +2029,7 @@ const ACTION_LABELS = {
   payment_edited: 'תשלום ידני נערך',
   payment_deleted: 'תשלום ידני נמחק',
   payment_received_nedarim: 'תשלום התקבל (נדרים פלוס, Webhook)',
+  payment_received_nedarim_ivr: 'תשלום התקבל (נדרים פלוס, שלוחה טלפונית)',
   payment_client_confirmed: 'תשלום אושר לפי הדפדפן (טרם אומת Webhook)',
   redemption_confirmed: 'מימוש עופות',
   redemption_manual_override: 'מימוש עודכן ידנית ע"י מנהל',
@@ -2065,6 +2066,8 @@ function actionSummaryHtml(a) {
       return `הזמנה #${d.orderId ?? ''} · ${money(d.amount || 0)} · ${esc(d.method || '')} · ע"י ${esc(d.adminName || '')}`;
     case 'payment_received_nedarim':
       return `${esc(d.phone || '')} · ${money(d.paidAmount || 0)} · עסקה ${esc(d.transactionId || '')}`;
+    case 'payment_received_nedarim_ivr':
+      return `הזמנה #${d.orderId ?? ''} · ${money(d.amount || 0)}${d.note ? ` · ${esc(d.note)}` : ''}`;
     case 'payment_client_confirmed':
       return `${esc(d.phone || '')} · ${money(d.amount || 0)} · עסקה ${esc(d.transactionId || '')}`;
     case 'redemption_manual_override':
