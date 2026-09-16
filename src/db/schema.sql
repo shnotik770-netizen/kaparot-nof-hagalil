@@ -114,6 +114,10 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS notes TEXT;
 -- אין לזה השפעה על payment_status/יתרות/משיכה בפועל — ראו cancelUnpaidOrder
 -- ב-orders.js ו-setOrderPaymentCoordinated ב-adminOps.js.
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_coordinated BOOLEAN NOT NULL DEFAULT FALSE;
+-- מקור ההזמנה: 'customer' (טופס באתר), 'admin' (נוצרה ידנית בפאנל הניהול),
+-- 'ivr_phone' (שלוחת רישום טלפונית 9/1) — אותו ערך שכבר מועבר כ-changedBy
+-- ל-createOrder, נשמר כאן כדי שיהיה גלוי בטאב ההזמנות ולא רק ביומן הפעולות.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'customer';
 
 -- ================= שורות הזמנה: זמן חלוקה + מגדר + כמות =================
 -- כל שורה נמשכת/נשלמת בנפרד — quantity_redeemed מתעדכן בעסקה נעולה (FOR UPDATE)

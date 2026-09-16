@@ -30,6 +30,7 @@ export async function listAllOrders() {
     balanceDue: Number(o.balance_due),
     paymentStatus: o.payment_status,
     paymentCoordinated: o.payment_coordinated,
+    source: o.source,
     createdAt: o.created_at,
     items: itemRows
       .filter((it) => it.order_id === o.id)

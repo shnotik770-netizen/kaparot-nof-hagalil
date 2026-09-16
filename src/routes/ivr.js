@@ -10,6 +10,7 @@ import { normalizePhone } from '../lib/normalize.js';
 import { listOrdersForPhone, createOrder } from '../lib/orders.js';
 import { getIvrRegistrationSlots, priceForGender } from '../lib/slots.js';
 import { recordIvrNedarimPayment } from '../lib/payments.js';
+import { logAction } from '../lib/actionLog.js';
 import { textSegment, idListMessage, readAction } from '../lib/ivrFormat.js';
 
 const router = Router();
@@ -197,6 +198,12 @@ router.all('/registration-menu', wrap(async (req, res) => {
           ]));
         } catch (err) {
           console.error('[ivr] CHARGED BUT ORDER CREATION FAILED — needs manual follow-up:', JSON.stringify(params), err);
+          // חייב להופיע ביומן הפעולות שהמנהל רואה בפאנל — לא רק בלוג של
+          // Railway שרק אני יכול לגשת אליו. זה כסף אמיתי שהתקבל בלי הזמנה.
+          await logAction('ivr_payment_orphaned', {
+            phone: params.ApiPhone, customerName: params.CustomerName,
+            apiCallId: params.ApiCallId || null, error: err.message || String(err),
+          }).catch((logErr) => console.error('[ivr] logAction itself also failed:', logErr));
           return res.send(idListMessage([
             textSegment('התשלום התקבל אך אירעה תקלה ברישום ההזמנה'),
             textSegment('אנא צרו קשר עם המשרד בהקדם עם מספר הטלפון שממנו התקשרתם'),
