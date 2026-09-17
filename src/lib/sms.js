@@ -167,6 +167,7 @@ export async function getSmsHistoryForPhone(normalizedPhone) {
       .map((row) => ({ direction: 'outgoing', phone: row.To, message: row.Message, time: row.Time, deliveryStatus: row.DeliveryReport })),
   ].filter((m) => new Date(m.time).getTime() >= cutoff);
 
-  messages.sort((a, b) => new Date(a.time) - new Date(b.time));
+  // החדש ביותר ראשון (מוצג למעלה בפאנל), הישן ביותר אחרון (למטה).
+  messages.sort((a, b) => new Date(b.time) - new Date(a.time));
   return messages;
 }

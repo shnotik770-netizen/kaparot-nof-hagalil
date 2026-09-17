@@ -863,7 +863,7 @@ async function loadCustomerSmsHistory(phone, containerId) {
   const threadHtml = !messages.length
     ? `<p class="hint">אין היסטוריית SMS עם הלקוח הזה בשבועיים האחרונים.</p>`
     : messages.map((m) => `
-        <div style="display:flex;flex-direction:column;align-items:${m.direction === 'outgoing' ? 'flex-start' : 'flex-end'};margin-bottom:10px">
+        <div style="display:flex;flex-direction:column;align-items:${m.direction === 'incoming' ? 'flex-start' : 'flex-end'};margin-bottom:10px">
           <div style="max-width:85%;padding:8px 12px;border-radius:10px;background:${m.direction === 'outgoing' ? 'var(--surface-2)' : 'var(--accent-soft)'};font-size:13.5px;white-space:pre-wrap;word-break:break-word">${esc(m.message || '')}</div>
           <span class="meta" style="font-size:11px;margin-top:3px">${m.time ? new Date(m.time).toLocaleString('he-IL') : ''}${m.deliveryStatus ? ' · ' + esc(m.deliveryStatus) : ''}</span>
         </div>
