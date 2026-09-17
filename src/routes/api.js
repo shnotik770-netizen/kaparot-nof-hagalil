@@ -10,7 +10,7 @@ import {
   getOpenSlotsForRegistration, getAllSlots, createSlot, updateSlot, deleteSlot, suggestDayLabel,
 } from '../lib/slots.js';
 import {
-  countOrdersForPhone, createOrder, listOrdersForPhone, getCustomerName, updateCustomerName, cancelUnpaidOrder,
+  countOrdersForPhone, createOrder, listOrdersForPhone, getCustomerName, updateCustomerName, updateCustomerPhone, cancelUnpaidOrder,
 } from '../lib/orders.js';
 import { getRedemptionStatus, confirmSlotRedemption, getRedemptionHistoryForPhone } from '../lib/redemption.js';
 import {
@@ -390,6 +390,12 @@ router.put('/admin/orders/:id/payment-coordinated', requireAdmin, requirePermiss
 router.put('/admin/customers/:phone/payment-coordinated', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   const normalized = normalizePhone(req.params.phone);
   res.json(await setCustomerPaymentCoordinated(normalized, req.body?.coordinated, req.session.adminName || 'admin'));
+}));
+
+// שינוי מספר הטלפון של לקוח — מעביר את כל ההזמנות שלו למספר החדש.
+router.put('/admin/customers/:phone/phone', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  const normalized = normalizePhone(req.params.phone);
+  res.json(await updateCustomerPhone(normalized, req.body?.newPhone));
 }));
 
 router.put('/admin/orders/:orderId/items/:itemId', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {

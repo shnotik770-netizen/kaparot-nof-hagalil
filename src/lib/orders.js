@@ -62,6 +62,59 @@ export async function updateCustomerName(normalizedPhone, customerName) {
   return { customerName: name };
 }
 
+/**
+ * מעביר את כל ההזמנות (כולל מחוקות) ו-payment_sessions הפתוחים של לקוח
+ * למספר טלפון חדש — למשל טעות הקלדה בהרשמה, או שהלקוח החליף מספר. אין
+ * טבלת "לקוחות" נפרדת, אז זה בעצם שינוי normalized_phone על כל השורות
+ * הרלוונטיות בעסקה אחת. חוסם אם המספר החדש כבר משויך ללקוח אחר — מיזוג
+ * שני לקוחות לא נתמך כאן, זו פעולה נפרדת ומכוונת יותר.
+ */
+export async function updateCustomerPhone(oldNormalizedPhone, newPhoneRaw) {
+  const newPhone = String(newPhoneRaw || '').trim();
+  const newNormalizedPhone = normalizePhone(newPhone);
+  if (!isValidIsraeliPhone(newNormalizedPhone)) {
+    const err = new Error('מספר טלפון חדש לא תקין.');
+    err.status = 400;
+    throw err;
+  }
+  if (newNormalizedPhone === oldNormalizedPhone) {
+    const err = new Error('זהו כבר מספר הטלפון הנוכחי.');
+    err.status = 400;
+    throw err;
+  }
+
+  return withTransaction(async (client) => {
+    const { rows: collision } = await client.query(
+      `SELECT 1 FROM orders WHERE normalized_phone = $1 LIMIT 1`,
+      [newNormalizedPhone]
+    );
+    if (collision.length) {
+      const err = new Error('מספר הטלפון החדש כבר משויך ללקוח קיים במערכת — לא ניתן למזג לקוחות בדרך זו.');
+      err.status = 409;
+      throw err;
+    }
+
+    const { rowCount } = await client.query(
+      `UPDATE orders SET phone = $1, normalized_phone = $2, updated_at = now() WHERE normalized_phone = $3`,
+      [newPhone, newNormalizedPhone, oldNormalizedPhone]
+    );
+    if (!rowCount) {
+      const err = new Error('לא נמצאו הזמנות עבור מספר טלפון זה.');
+      err.status = 404;
+      throw err;
+    }
+    await client.query(
+      `UPDATE payment_sessions SET normalized_phone = $1 WHERE normalized_phone = $2`,
+      [newNormalizedPhone, oldNormalizedPhone]
+    );
+
+    await logAction('customer_phone_changed', {
+      oldNormalizedPhone, newNormalizedPhone, ordersUpdated: rowCount,
+    });
+    return { phone: newPhone, normalizedPhone: newNormalizedPhone, ordersUpdated: rowCount };
+  });
+}
+
 export async function createOrder(payload, { changedBy = 'customer' } = {}) {
   // אין יותר מתג-על גלובלי — כל בדיקת "האם ההרשמה פתוחה" נעשית פר-זמן-חלוקה,
   // ראו הבדיקה על slot.isOpenForRegistration בכל שורת פריט למטה.
