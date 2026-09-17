@@ -403,6 +403,12 @@ function screenPersonalArea() {
       <p class="hint">טלפון: ${state.normalizedPhone}</p>
       <div id="customerNameSection"></div>
     </div>
+    ${s.distributionOpen ? `
+      <div class="success" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <span>🎉 האיסוף פתוח כעת — אפשר לגשת ישר לאיסוף ההזמנה.</span>
+        <button class="secondary" id="btnRedeemNow" style="width:auto">מעבר לאיסוף</button>
+      </div>
+    ` : ''}
     <div class="grid4">
       <button class="big-btn" id="btnShow"><span class="ico">📋</span>הצג הזמנה שלי</button>
       <button class="big-btn" id="btnMore" ${!s.registrationOpen ? 'disabled' : ''}><span class="ico">➕</span>${state.isFirstTime ? 'ביצוע הזמנה' : 'ביצוע הזמנה נוספת'}</button>
@@ -420,6 +426,7 @@ function screenPersonalArea() {
   document.getElementById('btnShow').onclick = () => { goToScreen('myOrders'); screenMyOrders(); };
   document.getElementById('btnMore').onclick = () => { state.registerItems = []; goToScreen('register'); screenRegister(); };
   document.getElementById('btnRedeem').onclick = () => { goToScreen('redeem'); screenRedeem(); };
+  document.getElementById('btnRedeemNow')?.addEventListener('click', () => { goToScreen('redeem'); screenRedeem(); });
   document.getElementById('btnPay').onclick = () => { goToScreen('payment'); screenPayment(); };
   document.getElementById('btnLogout').onclick = async () => {
     await api('/session/end', { method: 'POST' }).catch(() => {});
