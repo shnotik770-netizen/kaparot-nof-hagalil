@@ -86,6 +86,10 @@
 
 <script>
 const GENDER_LABEL = { male: 'זכרים', female: 'נקבות' };
+// אותם צבעים בדיוק כמו .gender-square.male/.female ב-shared.css (מסך "הצגה
+// למחלק העופות") — לסימון צבעוני עקבי לפי סוג ההזמנה (זכרים/נקבות) בכל
+// מקום שמציג פריטי איסוף (בקרות איסוף ידני, היסטוריה, יומן).
+const GENDER_COLOR = { male: '#3b82f6', female: '#f472b6' };
 const STATUS_LABEL = { paid: 'שולם', partial: 'חלקי', unpaid: 'לא שולם' };
 
 // תג סטטוס תשלום ללקוח: אם "לא שולם" אבל כל ההזמנות הפתוחות שלו תואמו מול
@@ -464,6 +468,9 @@ async function renderSettingsCore() {
       <input type="text" id="partialMsg" value="${esc(s.partialPaymentNotice)}">
       <label>תבנית הודעת SMS לקוד אימות (חייבת להכיל {code})</label>
       <input type="text" id="otpTemplate" value="${esc(s.smsOtpTemplate)}">
+      <label>הודעת "מחיר עשוי להיות שונה" — מוצגת כשיש זמן חלוקה שנפתח ידנית ("V") אחרי שזמן הרישום הרגיל שלו כבר נגמר</label>
+      <input type="text" id="lateRegNotice" value="${esc(s.lateRegistrationPriceNotice)}">
+      <div class="toggle-row"><span>הצגת ההתראה הזו</span><input type="checkbox" id="lateRegNoticeEnabled" ${s.lateRegistrationPriceNoticeEnabled ? 'checked' : ''}></div>
       <div class="spacer"></div>
       <button class="primary" id="saveTexts">שמירת טקסטים</button>
     </div>
@@ -544,6 +551,8 @@ async function renderSettingsCore() {
       unpaid_block_message: document.getElementById('unpaidMsg').value,
       partial_payment_notice: document.getElementById('partialMsg').value,
       sms_otp_template: document.getElementById('otpTemplate').value,
+      late_registration_price_notice: document.getElementById('lateRegNotice').value,
+      late_registration_price_notice_enabled: document.getElementById('lateRegNoticeEnabled').checked,
     }});
     flash('נשמר.');
   };
@@ -914,7 +923,7 @@ function customerCardHtml(c) {
       <div class="grid4" style="margin-top:10px">
         <button class="secondary" data-cust-view data-phone="${esc(c.phone)}">📋 הצג פירוט</button>
         <button class="secondary" data-cust-pay data-phone="${esc(c.phone)}">💳 תשלומים</button>
-        <button class="secondary" data-cust-redeem data-phone="${esc(c.phone)}">🎟️ איסוף</button>
+        <button class="secondary" data-cust-redeem data-phone="${esc(c.phone)}">🎟️ איסוף <span style="font-size:11px">(${c.fullyRedeemed ? 'אין פריטים' : 'יש פריטים'})</span></button>
         <button class="secondary" data-cust-edit data-phone="${esc(c.phone)}">✏️ עריכת הזמנה</button>
       </div>
       <div class="total-row">
@@ -1028,7 +1037,7 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
     if (g[gender] <= 0) return '';
     const label = gender === 'male' ? 'זכרים' : 'נקבות';
     return `
-      <div class="gender-line">
+      <div class="gender-line" style="border-inline-start:4px solid ${GENDER_COLOR[gender]};padding-inline-start:8px">
         <span>${label} · נותרו ${g[gender]}</span>
         <div class="stepper">
           <button type="button" data-cqstep="-1" data-slot="${g.slotId}" data-gender="${gender}">−</button>
@@ -1048,9 +1057,22 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
     });
   }
 
+  function groupActionsHtml(g) {
+    const c = chosen[g.slotId];
+    const hasIndividual = c.male > 0 || c.female > 0;
+    if (!hasIndividual) {
+      return `<button type="button" class="primary" style="background:var(--sage)" data-cqallconfirm="${g.slotId}">איסוף הכל</button>`;
+    }
+    return `
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button type="button" class="primary" data-cqconfirm="${g.slotId}">איסוף בודדים</button>
+        <button type="button" class="primary" style="background:var(--sage)" data-cqallconfirm="${g.slotId}">איסוף הכל</button>
+      </div>
+    `;
+  }
+
   box.innerHTML = `
     ${!groups.size ? `<p class="hint">אין פריטים זמינים לאיסוף כרגע עבור לקוח זה.</p>` : ''}
-    ${groups.size >= 1 ? `<button type="button" class="primary" style="margin-bottom:10px;background:var(--sage)" id="${prefix}-redeemAll">איסוף הכל (כל הפריטים הזמינים, בלחיצה אחת)</button>` : ''}
     ${[...groups.values()].map((g) => `
       <div class="card redeem-group-card" style="border-inline-start-color:${esc(g.slotColor)}">
         <div class="order-row-header">
@@ -1061,13 +1083,13 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
         ${genderLineHtml(g, 'female')}
         <div class="spacer"></div>
         <div id="${prefix}-msg-${g.slotId}"></div>
-        <button type="button" class="primary" data-cqconfirm="${g.slotId}">איסוף</button>
+        <div id="${prefix}-actions-${g.slotId}">${groupActionsHtml(g)}</div>
       </div>
     `).join('')}
     ${historyItems.length ? `
       <h3 style="margin:18px 0 8px;font-size:14px">היסטוריית איסופים ועריכה</h3>
       ${historyItems.map((it) => `
-        <div class="item-row" style="flex-wrap:wrap;gap:8px">
+        <div class="item-row" style="flex-wrap:wrap;gap:8px;border-inline-start:4px solid ${GENDER_COLOR[it.gender]};padding-inline-start:8px">
           <span>${esc(it.slotName)} · ${GENDER_LABEL[it.gender]} · הוזמנו ${it.quantity}</span>
           <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span class="meta">נמשך בפועל:</span>
@@ -1081,7 +1103,7 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
     ${redemptionLog && redemptionLog.length ? `
       <h3 style="margin:18px 0 8px;font-size:14px">יומן איסופים מפורט (תאריך ושעה)</h3>
       ${redemptionLog.map((r) => `
-        <div class="item-row" style="flex-wrap:wrap;gap:8px">
+        <div class="item-row" style="flex-wrap:wrap;gap:8px;border-inline-start:4px solid ${GENDER_COLOR[r.gender]};padding-inline-start:8px">
           <span>${esc(r.slotName)} · ${GENDER_LABEL[r.gender]} × ${r.quantity}</span>
           <span class="meta">${new Date(r.redeemedAt).toLocaleString('he-IL')} · ${r.isManual ? `ידני ע"י מנהל (${esc(r.redeemedBy)})` : `מערכת · קוד ${esc(r.confirmationCode)}`}</span>
         </div>
@@ -1112,6 +1134,26 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
       } catch (err) { alert(err.message); }
     };
   });
+  function wireGroupActions(g) {
+    const actionsBox = document.getElementById(`${prefix}-actions-${g.slotId}`);
+    if (!actionsBox) return;
+    actionsBox.innerHTML = groupActionsHtml(g);
+    const cqBtn = actionsBox.querySelector('[data-cqconfirm]');
+    if (cqBtn) {
+      cqBtn.onclick = () => {
+        const c = chosen[g.slotId];
+        if (c.male <= 0 && c.female <= 0) return;
+        attemptQuickRedeem(phone, g.slotId, c.male, c.female, false, `${prefix}-msg-${g.slotId}`, () => refreshCustomerCard(phone, { keepRedeemOpen: true }));
+      };
+    }
+    const cqAllBtn = actionsBox.querySelector('[data-cqallconfirm]');
+    if (cqAllBtn) {
+      cqAllBtn.onclick = () => {
+        if (g.male <= 0 && g.female <= 0) return;
+        attemptQuickRedeem(phone, g.slotId, g.male, g.female, false, `${prefix}-msg-${g.slotId}`, () => refreshCustomerCard(phone, { keepRedeemOpen: true }));
+      };
+    }
+  }
   box.querySelectorAll('[data-cqstep]').forEach((b) => {
     b.onclick = () => {
       const slotId = b.dataset.slot, gender = b.dataset.gender;
@@ -1120,6 +1162,7 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
       const cur = chosen[slotId][gender];
       chosen[slotId][gender] = Math.max(0, Math.min(g[gender], cur + delta));
       document.getElementById(`${prefix}-qty-${slotId}-${gender}`).textContent = chosen[slotId][gender];
+      wireGroupActions(g);
     };
   });
   box.querySelectorAll('[data-cqall]').forEach((b) => {
@@ -1128,27 +1171,10 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
       const g = groups.get(Number(slotId));
       chosen[slotId][gender] = g[gender];
       document.getElementById(`${prefix}-qty-${slotId}-${gender}`).textContent = chosen[slotId][gender];
+      wireGroupActions(g);
     };
   });
-  box.querySelectorAll('[data-cqconfirm]').forEach((b) => {
-    b.onclick = () => {
-      const slotId = Number(b.dataset.cqconfirm);
-      const c = chosen[slotId];
-      if (c.male <= 0 && c.female <= 0) return;
-      attemptQuickRedeem(phone, slotId, c.male, c.female, false, `${prefix}-msg-${slotId}`, () => refreshCustomerCard(phone, { keepRedeemOpen: true }));
-    };
-  });
-  const allBtn = document.getElementById(`${prefix}-redeemAll`);
-  if (allBtn) {
-    allBtn.onclick = async () => {
-      if (!confirm('לממש בבת אחת את כל הפריטים הזמינים עבור לקוח זה?')) return;
-      for (const g of groups.values()) {
-        if (g.male <= 0 && g.female <= 0) continue;
-        await attemptQuickRedeem(phone, g.slotId, g.male, g.female, false, `${prefix}-msg-${g.slotId}`, null);
-      }
-      refreshCustomerCard(phone, { keepRedeemOpen: true });
-    };
-  }
+  groups.forEach((g) => wireGroupActions(g));
 }
 
 // שורות עריכת כמות מסוכמות — אחת לכל שילוב זמן-חלוקה+מגדר שיש בו כמות
@@ -1953,7 +1979,10 @@ async function renderOrdersTab() {
   // תשלום". לקוח יכול להופיע במספר אמצעים (למשל שילם חלק במזומן וחלק באשראי).
   // נטען רק כאן (לא במסך איסוף יום החלוקה) כדי לא להעמיס בקשת רשת נוספת
   // בדיוק ברגע העומס הכי גבוה.
-  const payments = await api('/admin/payments');
+  const [payments, lateRegNotice] = await Promise.all([api('/admin/payments'), api('/admin/late-registration-notice')]);
+  const lateRegNoticeText = lateRegNotice.text;
+  const lateRegNoticeEnabled = lateRegNotice.enabled;
+  const hasLateRegSlot = slots.some((s) => s.manualOpenOverride && s.registrationCloseAt && new Date(s.registrationCloseAt).getTime() < Date.now());
   paymentMethodsByPhoneCache = new Map();
   payments.forEach((p) => {
     if (!paymentMethodsByPhoneCache.has(p.phone)) paymentMethodsByPhoneCache.set(p.phone, new Set());
@@ -1978,6 +2007,12 @@ async function renderOrdersTab() {
           <button class="mini-btn" id="toggleQuickEventMode" title="איסוף מהיר ליום החלוקה">🎟️ איסוף יום החלוקה</button>
         </div>
       </div>
+      ${lateRegNoticeEnabled && hasLateRegSlot ? `
+        <div class="notice" id="lateRegBanner" style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <span>⚠️ ${esc(lateRegNoticeText)}</span>
+          <button type="button" class="ghost" id="lateRegBannerDismiss" style="width:auto;padding:2px 8px">✕</button>
+        </div>
+      ` : ''}
       <label for="orderSearch">חיפוש לפי שם או טלפון</label>
       <input type="text" id="orderSearch" placeholder="הקלידו שם או מספר טלפון..." value="${esc(ordersFilterState.search)}">
       <div class="filter-row">
@@ -2039,7 +2074,8 @@ async function renderOrdersTab() {
       <textarea id="newOrderNotes"></textarea>
       <label>פריטים</label>
       <div id="newOrderItems"></div>
-      <button class="secondary" type="button" id="newOrderAddItem">+ הוספת פריט</button>
+      <button type="button" id="newOrderAddItem" style="background:var(--sage);color:#fff" disabled>+ הוספת פריט</button>
+      <div id="newOrderLateRegNotice"></div>
       <div class="total-row"><span>סה"כ</span><span id="newOrderTotal">₪0</span></div>
       <button class="primary big-action" id="newOrderSubmit" style="width:100%;background:var(--sage)">יצירת הזמנה</button>
       <div id="newOrderMsg"></div>
@@ -2101,6 +2137,10 @@ async function renderOrdersTab() {
     wireCustomerCardButtons(wrap);
   }
 
+  const lateRegBannerDismiss = document.getElementById('lateRegBannerDismiss');
+  if (lateRegBannerDismiss) {
+    lateRegBannerDismiss.onclick = () => { document.getElementById('lateRegBanner').remove(); };
+  }
   document.getElementById('orderSearch').oninput = applyFilters;
   wireMultiSelectDropdown('msPaid', '.filterPaidCheck', applyFilters);
   wireMultiSelectDropdown('msRedeemed', '.filterRedeemedCheck', applyFilters);
@@ -2219,7 +2259,7 @@ async function renderOrdersTab() {
   let newOrderItems = [];
   function newOrderPriceFor(item) {
     const slot = slots.find((s) => s.id === item.slotId);
-    if (!slot) return 0;
+    if (!slot || !item.gender) return 0;
     return item.gender === 'female' ? slot.priceFemale : slot.priceMale;
   }
   function renderNewOrderItems() {
@@ -2231,12 +2271,14 @@ async function renderOrdersTab() {
           <div>
             <label>זמן חלוקה</label>
             <select data-new-field="slotId" data-idx="${idx}">
+              <option value="" ${!item.slotId ? 'selected' : ''}>בחר זמן חלוקה</option>
               ${slots.map((s) => `<option value="${s.id}" ${item.slotId === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
             </select>
           </div>
           <div>
             <label>סוג</label>
             <select data-new-field="gender" data-idx="${idx}">
+              <option value="" ${!item.gender ? 'selected' : ''}>בחר</option>
               <option value="male" ${item.gender === 'male' ? 'selected' : ''}>זכרים</option>
               <option value="female" ${item.gender === 'female' ? 'selected' : ''}>נקבות</option>
             </select>
@@ -2252,10 +2294,20 @@ async function renderOrdersTab() {
     `).join('');
     const total = newOrderItems.reduce((sum, it) => sum + newOrderPriceFor(it) * it.quantity, 0);
     document.getElementById('newOrderTotal').textContent = money(total);
+    document.getElementById('newOrderAddItem').disabled = !newOrderItems.every((it) => it.slotId && it.gender);
+    // אזהרה שהמחיר עשוי להיות שונה — רק כשלפחות פריט אחד נבחר על זמן חלוקה
+    // שפתוח כרגע להרשמה אך ורק בגלל "V" ידני (manualOpenOverride) אחרי
+    // שזמן הסגירה הרגיל שלו כבר עבר — כלומר יש פער אמיתי אפשרי במחיר.
+    const hasLateRegItem = newOrderItems.some((it) => {
+      const slot = slots.find((s) => s.id === it.slotId);
+      return slot && slot.manualOpenOverride && slot.registrationCloseAt && new Date(slot.registrationCloseAt).getTime() < Date.now();
+    });
+    document.getElementById('newOrderLateRegNotice').innerHTML = hasLateRegItem && lateRegNoticeEnabled
+      ? `<div class="notice">${lateRegNoticeText}</div>` : '';
     box.querySelectorAll('select').forEach((sel) => {
       sel.onchange = () => {
         const idx = Number(sel.dataset.idx);
-        const value = sel.dataset.newField === 'slotId' ? Number(sel.value) : sel.value;
+        const value = sel.dataset.newField === 'slotId' ? (sel.value ? Number(sel.value) : null) : sel.value;
         newOrderItems[idx][sel.dataset.newField] = value;
         renderNewOrderItems();
       };
@@ -2275,12 +2327,12 @@ async function renderOrdersTab() {
     });
   }
   if (slots.length) {
-    newOrderItems = [{ slotId: slots[0].id, gender: 'male', quantity: 1 }];
+    newOrderItems = [{ slotId: null, gender: '', quantity: 1 }];
     renderNewOrderItems();
   }
   document.getElementById('newOrderAddItem').onclick = () => {
-    if (!slots.length) return;
-    newOrderItems.push({ slotId: slots[0].id, gender: 'male', quantity: 1 });
+    if (!slots.length || !newOrderItems.every((it) => it.slotId && it.gender)) return;
+    newOrderItems.push({ slotId: null, gender: '', quantity: 1 });
     renderNewOrderItems();
   };
   document.getElementById('newOrderSubmit').onclick = async () => {
