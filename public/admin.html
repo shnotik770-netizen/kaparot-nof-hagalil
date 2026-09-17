@@ -464,6 +464,8 @@ async function renderSettingsCore() {
       <input type="text" id="partialMsg" value="${esc(s.partialPaymentNotice)}">
       <label>תבנית הודעת SMS לקוד אימות (חייבת להכיל {code})</label>
       <input type="text" id="otpTemplate" value="${esc(s.smsOtpTemplate)}">
+      <label>הודעת "מחיר עשוי להיות שונה" — מוצגת למנהל בטופס "הזמנה ידנית" כשבוחרים זמן חלוקה שסגור להרשמה</label>
+      <input type="text" id="lateRegNotice" value="${esc(s.lateRegistrationPriceNotice)}">
       <div class="spacer"></div>
       <button class="primary" id="saveTexts">שמירת טקסטים</button>
     </div>
@@ -544,6 +546,7 @@ async function renderSettingsCore() {
       unpaid_block_message: document.getElementById('unpaidMsg').value,
       partial_payment_notice: document.getElementById('partialMsg').value,
       sms_otp_template: document.getElementById('otpTemplate').value,
+      late_registration_price_notice: document.getElementById('lateRegNotice').value,
     }});
     flash('נשמר.');
   };
@@ -1953,7 +1956,8 @@ async function renderOrdersTab() {
   // תשלום". לקוח יכול להופיע במספר אמצעים (למשל שילם חלק במזומן וחלק באשראי).
   // נטען רק כאן (לא במסך איסוף יום החלוקה) כדי לא להעמיס בקשת רשת נוספת
   // בדיוק ברגע העומס הכי גבוה.
-  const payments = await api('/admin/payments');
+  const [payments, lateRegNotice] = await Promise.all([api('/admin/payments'), api('/admin/late-registration-notice')]);
+  const lateRegNoticeText = lateRegNotice.text;
   paymentMethodsByPhoneCache = new Map();
   payments.forEach((p) => {
     if (!paymentMethodsByPhoneCache.has(p.phone)) paymentMethodsByPhoneCache.set(p.phone, new Set());
@@ -2040,6 +2044,7 @@ async function renderOrdersTab() {
       <label>פריטים</label>
       <div id="newOrderItems"></div>
       <button class="secondary" type="button" id="newOrderAddItem">+ הוספת פריט</button>
+      <div id="newOrderLateRegNotice"></div>
       <div class="total-row"><span>סה"כ</span><span id="newOrderTotal">₪0</span></div>
       <button class="primary big-action" id="newOrderSubmit" style="width:100%;background:var(--sage)">יצירת הזמנה</button>
       <div id="newOrderMsg"></div>
@@ -2252,6 +2257,14 @@ async function renderOrdersTab() {
     `).join('');
     const total = newOrderItems.reduce((sum, it) => sum + newOrderPriceFor(it) * it.quantity, 0);
     document.getElementById('newOrderTotal').textContent = money(total);
+    // אזהרה שהמחיר עשוי להיות שונה — כל עוד לפחות פריט אחד נבחר על זמן
+    // חלוקה שסגור כרגע להרשמה רגילה (מחיר הזמן עשוי היה להשתנות מאז).
+    const hasClosedSlotItem = newOrderItems.some((it) => {
+      const slot = slots.find((s) => s.id === it.slotId);
+      return slot && !slot.isOpenForRegistration;
+    });
+    document.getElementById('newOrderLateRegNotice').innerHTML = hasClosedSlotItem
+      ? `<div class="notice">${lateRegNoticeText}</div>` : '';
     box.querySelectorAll('select').forEach((sel) => {
       sel.onchange = () => {
         const idx = Number(sel.dataset.idx);

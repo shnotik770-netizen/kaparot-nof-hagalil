@@ -15,6 +15,7 @@ const DEFAULTS = {
   welcomeNoticeTitle: '',
   welcomeNoticeBody: '',
   sheetsSyncEnabled: true,
+  lateRegistrationPriceNotice: 'שימו לב: זמן החלוקה שנבחר סגור להרשמה רגילה — ייתכן שהמחיר התייקר בעקבות רישום לאחר המועד. ההזמנה תירשם לפי המחיר הנוכחי של הזמן.',
 };
 
 export async function getSettings() {
@@ -37,6 +38,9 @@ export async function getSettings() {
     // מתג ידני להשהיית הגיבוי התקופתי לגוגל שיטס (ראו sheetsSync.js) — בלי
     // צורך בדפלוי/שינוי משתני סביבה. ברירת מחדל: פעיל.
     sheetsSyncEnabled: map.sheets_sync_enabled == null ? DEFAULTS.sheetsSyncEnabled : map.sheets_sync_enabled === 'true',
+    // מוצגת למנהל בטופס "הזמנה ידנית" כשהזמן שנבחר סגור להרשמה — תזכורת
+    // שהמחיר עשוי להיות שונה מזה שהוצג ללקוחות (ראו נתיב /admin/late-registration-notice).
+    lateRegistrationPriceNotice: (map.late_registration_price_notice || '').trim() || DEFAULTS.lateRegistrationPriceNotice,
   };
 }
 
