@@ -25,7 +25,7 @@ import {
 } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
 import { listActions, logAction } from '../lib/actionLog.js';
-import { sendBulkSms } from '../lib/sms.js';
+import { sendBulkSms, getSmsHistoryForPhone } from '../lib/sms.js';
 import { runYemotTestCalls } from '../lib/yemotIvr.js';
 
 const router = Router();
@@ -420,6 +420,12 @@ router.get('/admin/redeem/status', requireAdmin, requirePermission('orders'), wr
 router.get('/admin/customers/:phone/redemption-history', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   const normalized = normalizePhone(req.params.phone);
   res.json(await getRedemptionHistoryForPhone(normalized));
+}));
+
+// התכתבות SMS דו-כיוונית מול ימות המשיח עם הלקוח — לתצוגה בכרטיס הלקוח.
+router.get('/admin/customers/:phone/sms-history', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  const normalized = normalizePhone(req.params.phone);
+  res.json(await getSmsHistoryForPhone(normalized));
 }));
 
 router.post('/admin/redeem/confirm-slot', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
