@@ -1307,6 +1307,17 @@ async function wireCustomerPaymentsPanel(c) {
 function customerPanelHtml(c) {
   const pid = panelSafeId(c.phone);
   return `
+    <h3 style="margin:0 0 8px;font-size:14px">פרטי לקוח</h3>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:6px">
+      <div style="flex:1;min-width:160px">
+        <label for="${pid}-phone-edit" style="margin-top:0">טלפון</label>
+        <input type="tel" id="${pid}-phone-edit" value="${esc(c.phone)}">
+      </div>
+      <button type="button" class="secondary" data-save-phone style="width:auto">שמירת טלפון</button>
+    </div>
+    <p class="hint" style="margin:0 0 8px">שינוי הטלפון מעביר את כל ההזמנות וההיסטוריה של הלקוח למספר החדש. לא ניתן לשנות למספר שכבר משויך ללקוח אחר.</p>
+    <div id="${pid}-phone-msg"></div>
+
     <h3 style="margin:14px 0 8px;font-size:14px">עריכת כמויות</h3>
     <p class="hint" style="margin:0 0 8px">הגדלת כמות פותחת שורת הזמנה חדשה (השלמה) במחיר הנוכחי; הקטנה מצמצמת/מוחקת שורות קיימות שעוד לא נמשכו.</p>
     ${aggregatedEditRowsHtml(c)}
@@ -1402,6 +1413,25 @@ async function shrinkAggregatedQuantity(c, slotId, gender, reduceBy) {
 async function wireCustomerPanel(c, refetch) {
   const pid = panelSafeId(c.phone);
   const panel = document.getElementById(pid);
+
+  const savePhoneBtn = panel.querySelector('[data-save-phone]');
+  if (savePhoneBtn) {
+    savePhoneBtn.onclick = async () => {
+      const newPhone = document.getElementById(`${pid}-phone-edit`).value.trim();
+      const msgBox = document.getElementById(`${pid}-phone-msg`);
+      if (!newPhone || newPhone === c.phone) return;
+      if (!confirm(`לשנות את מספר הטלפון של ${c.customerName} מ-${c.phone} ל-${newPhone}? כל ההזמנות וההיסטוריה יעברו למספר החדש.`)) return;
+      savePhoneBtn.disabled = true;
+      try {
+        await api(`/admin/customers/${encodeURIComponent(c.phone)}/phone`, { method: 'PUT', body: { newPhone } });
+        msgBox.innerHTML = `<div class="success">הטלפון עודכן ל-${esc(newPhone)}.</div>`;
+        renderOrdersTab();
+      } catch (err) {
+        savePhoneBtn.disabled = false;
+        msgBox.innerHTML = `<div class="error">${err.message}</div>`;
+      }
+    };
+  }
 
   panel.querySelectorAll('[data-agg-save]').forEach((b) => {
     b.onclick = async () => {
@@ -2339,7 +2369,9 @@ const ACTION_LABELS = {
   payment_reassign_failed_no_active_order: '⚠️ תשלום נתקע על הזמנה שנמחקה — ללקוח אין הזמנה פעילה להעביר אליה, דורש בדיקה ידנית',
   order_cancelled_by_customer: 'הזמנה בוטלה ע"י הלקוח (לא שולם)',
   payment_coordinated_set: 'סטטוס "תיאום תשלום" עודכן',
+  customer_phone_changed: 'מספר הטלפון של לקוח שונה',
   sms_bulk_sent: 'סמס קבוצתי נשלח',
+  sms_sent: 'סמס אישי נשלח ללקוח',
   payment_alert_dismissed: 'אזהרת תשלום לא-מאושר הוסתרה',
   settings_updated: 'הגדרות עודכנו',
   slot_created: 'זמן חלוקה נוסף',
@@ -2391,6 +2423,8 @@ function actionSummaryHtml(a) {
       return d.orderIds
         ? `${esc(d.customerName || '')} · ${esc(d.phone || '')} · ${d.orderIds.length} הזמנות · ${d.coordinated ? 'סומן כתואם' : 'בוטל תיאום'} · ע"י ${esc(d.adminName || '')}`
         : `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ${d.coordinated ? 'סומן כתואם' : 'בוטל תיאום'} · ע"י ${esc(d.adminName || '')}`;
+    case 'customer_phone_changed':
+      return `${esc(d.oldNormalizedPhone || '')} → ${esc(d.newNormalizedPhone || '')} · ${d.ordersUpdated ?? 0} הזמנות`;
     case 'sms_bulk_sent': {
       if (d.error) {
         return `<span style="color:var(--wine)">כישלון מוחלט (${d.failedCount ?? 0} נמענים) — ${esc(d.error)}</span> · ע"י ${esc(d.sentBy || '')}`;
