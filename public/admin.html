@@ -175,6 +175,15 @@ function esc(s) { return String(s ?? '').replace(/"/g, '&quot;'); }
 function escHtml(s) {
   return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+// חיפוש "חכם" לפי שם — לא תלוי בסדר המילים (חיפוש "סגל יוסף" ימצא גם
+// לקוח בשם "יוסף סגל"). כל מילה בשאילתה חייבת להיות תת-מחרוזת של איזושהי
+// מילה בשם הלקוח, בלי קשר לסדר; ריק תמיד "מתאים".
+function nameMatchesSmartSearch(name, query) {
+  const nameTokens = String(name || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const queryTokens = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!queryTokens.length) return true;
+  return queryTokens.every((qt) => nameTokens.some((nt) => nt.includes(qt)));
+}
 // תצוגת תוצאות קריאות בדיקה חופשיות לימות המשיח: לכל שורה — מה נשלח
 // (בלי token) ומה חזר, כולל קוד HTTP.
 function yemotResultsHtml(results) {
@@ -1820,7 +1829,7 @@ function filterQuickEventList(list, query) {
   list.forEach((c) => {
     const el = document.getElementById(`custcard-${panelSafeId(c.phone)}`);
     if (!el) return;
-    const matches = !q || c.customerName.toLowerCase().includes(q) || c.phone.includes(q);
+    const matches = !q || nameMatchesSmartSearch(c.customerName, q) || c.phone.includes(q);
     el.hidden = !matches;
     if (matches) visibleCount++;
   });
@@ -1956,7 +1965,7 @@ async function renderOrdersTab() {
       <div id="newOrderItems"></div>
       <button class="secondary" type="button" id="newOrderAddItem">+ הוספת פריט</button>
       <div class="total-row"><span>סה"כ</span><span id="newOrderTotal">₪0</span></div>
-      <button class="primary big-action" id="newOrderSubmit" style="width:100%">יצירת הזמנה</button>
+      <button class="primary big-action" id="newOrderSubmit" style="width:100%;background:var(--sage)">יצירת הזמנה</button>
       <div id="newOrderMsg"></div>
     </div>
     <div id="ordersListWrap"></div>
@@ -2005,7 +2014,7 @@ async function renderOrdersTab() {
     const methodFilters = [...allMethodChecks].filter((cb) => cb.checked).map((cb) => cb.value);
     const methodFilterActive = methodFilters.length < allMethodChecks.length;
     currentFiltered = customers.filter((c) => {
-      if (q && !c.customerName.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
+      if (q && !nameMatchesSmartSearch(c.customerName, q) && !c.phone.includes(q)) return false;
       if (!c.orders.some((o) => paidFilters.some((cat) => orderMatchesPaidCategory(o, cat)))) return false;
       // הלקוח חייב פריט בלפחות אחד מהזמנים שנשארו מסומנים.
       if (slotFilterActive && !c.bySlot.some((s) => checkedSlots.includes(String(s.slotId)))) return false;
