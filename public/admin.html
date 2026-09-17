@@ -990,7 +990,7 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
 
   box.innerHTML = `
     ${!groups.size ? `<p class="hint">אין פריטים זמינים לאיסוף כרגע עבור לקוח זה.</p>` : ''}
-    ${groups.size > 1 ? `<button type="button" class="primary" style="margin-bottom:10px" id="${prefix}-redeemAll">איסוף הכל (כל הפריטים הזמינים)</button>` : ''}
+    ${groups.size >= 1 ? `<button type="button" class="primary" style="margin-bottom:10px;background:var(--sage)" id="${prefix}-redeemAll">איסוף הכל (כל הפריטים הזמינים, בלחיצה אחת)</button>` : ''}
     ${[...groups.values()].map((g) => `
       <div class="card redeem-group-card" style="border-inline-start-color:${esc(g.slotColor)}">
         <div class="order-row-header">
