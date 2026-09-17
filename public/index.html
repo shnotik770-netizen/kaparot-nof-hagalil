@@ -232,14 +232,14 @@ function findSlot(slotId) {
 
 function priceForItem(item) {
   const slot = findSlot(item.slotId);
-  if (!slot) return null;
+  if (!slot || !item.gender) return null;
   return item.gender === 'female' ? slot.priceFemale : slot.priceMale;
 }
 
 async function screenRegister() {
   await ensureSlotsLoaded();
   if (!state.registerItems.length && state.slots.length) {
-    state.registerItems.push({ slotId: state.slots[0].id, gender: 'male', quantity: 1 });
+    state.registerItems.push({ slotId: null, gender: '', quantity: 1 });
   }
   renderRegisterScreen();
 }
@@ -257,6 +257,7 @@ function itemRowHtml(item, idx) {
       <div>
         <label>זמן חלוקה</label>
         <select data-field="slotId" data-idx="${idx}">
+          <option value="" ${!item.slotId ? 'selected' : ''}>בחר זמן חלוקה</option>
           ${state.slots.map((s) => `<option value="${s.id}" ${item.slotId === s.id ? 'selected' : ''}>${slotOptionLabel(s)}</option>`).join('')}
         </select>
       </div>
@@ -264,6 +265,7 @@ function itemRowHtml(item, idx) {
         <div>
           <label>סוג</label>
           <select data-field="gender" data-idx="${idx}">
+            <option value="" ${!item.gender ? 'selected' : ''}>בחר</option>
             <option value="male" ${item.gender === 'male' ? 'selected' : ''}>זכרים</option>
             <option value="female" ${item.gender === 'female' ? 'selected' : ''}>נקבות</option>
           </select>
@@ -314,7 +316,7 @@ function renderRegisterScreen(errorMsg) {
       <div class="spacer"></div>
       <label>פריטי הזמנה</label>
       <div id="itemsContainer"></div>
-      <button class="secondary" id="addItemBtn" type="button">+ הוספת פריט נוסף</button>
+      <button id="addItemBtn" type="button" style="background:var(--sage);color:#fff" disabled>+ הוספת פריט נוסף</button>
       <div class="total-row"><span>סה"כ לתשלום</span><span id="totalDisplay">${money(computeTotal())}</span></div>
       <label for="notesInput">הערות (אופציונלי)</label>
       <textarea id="notesInput" placeholder="למשל: בקשה מיוחדת, עדכון פרטים..."></textarea>
@@ -326,7 +328,8 @@ function renderRegisterScreen(errorMsg) {
   `);
   renderItemsContainer();
   document.getElementById('addItemBtn').onclick = () => {
-    state.registerItems.push({ slotId: state.slots[0].id, gender: 'male', quantity: 1 });
+    if (!state.registerItems.every((it) => it.slotId && it.gender)) return;
+    state.registerItems.push({ slotId: null, gender: '', quantity: 1 });
     renderItemsContainer();
   };
   document.getElementById('registerSubmit').onclick = onRegisterSubmit;
@@ -337,10 +340,11 @@ function renderItemsContainer() {
   const container = document.getElementById('itemsContainer');
   container.innerHTML = state.registerItems.map(itemRowHtml).join('');
   document.getElementById('totalDisplay').textContent = money(computeTotal());
+  document.getElementById('addItemBtn').disabled = !state.registerItems.every((it) => it.slotId && it.gender);
   container.querySelectorAll('select').forEach((s) => {
     s.onchange = () => {
       const idx = Number(s.dataset.idx);
-      const value = s.dataset.field === 'slotId' ? Number(s.value) : s.value;
+      const value = s.dataset.field === 'slotId' ? (s.value ? Number(s.value) : null) : s.value;
       state.registerItems[idx][s.dataset.field] = value;
       renderItemsContainer();
     };

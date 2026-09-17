@@ -86,6 +86,10 @@
 
 <script>
 const GENDER_LABEL = { male: 'זכרים', female: 'נקבות' };
+// אותם צבעים בדיוק כמו .gender-square.male/.female ב-shared.css (מסך "הצגה
+// למחלק העופות") — לסימון צבעוני עקבי לפי סוג ההזמנה (זכרים/נקבות) בכל
+// מקום שמציג פריטי איסוף (בקרות איסוף ידני, היסטוריה, יומן).
+const GENDER_COLOR = { male: '#3b82f6', female: '#f472b6' };
 const STATUS_LABEL = { paid: 'שולם', partial: 'חלקי', unpaid: 'לא שולם' };
 
 // תג סטטוס תשלום ללקוח: אם "לא שולם" אבל כל ההזמנות הפתוחות שלו תואמו מול
@@ -1031,7 +1035,7 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
     if (g[gender] <= 0) return '';
     const label = gender === 'male' ? 'זכרים' : 'נקבות';
     return `
-      <div class="gender-line">
+      <div class="gender-line" style="border-inline-start:4px solid ${GENDER_COLOR[gender]};padding-inline-start:8px">
         <span>${label} · נותרו ${g[gender]}</span>
         <div class="stepper">
           <button type="button" data-cqstep="-1" data-slot="${g.slotId}" data-gender="${gender}">−</button>
@@ -1070,7 +1074,7 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
     ${historyItems.length ? `
       <h3 style="margin:18px 0 8px;font-size:14px">היסטוריית איסופים ועריכה</h3>
       ${historyItems.map((it) => `
-        <div class="item-row" style="flex-wrap:wrap;gap:8px">
+        <div class="item-row" style="flex-wrap:wrap;gap:8px;border-inline-start:4px solid ${GENDER_COLOR[it.gender]};padding-inline-start:8px">
           <span>${esc(it.slotName)} · ${GENDER_LABEL[it.gender]} · הוזמנו ${it.quantity}</span>
           <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span class="meta">נמשך בפועל:</span>
@@ -1084,7 +1088,7 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
     ${redemptionLog && redemptionLog.length ? `
       <h3 style="margin:18px 0 8px;font-size:14px">יומן איסופים מפורט (תאריך ושעה)</h3>
       ${redemptionLog.map((r) => `
-        <div class="item-row" style="flex-wrap:wrap;gap:8px">
+        <div class="item-row" style="flex-wrap:wrap;gap:8px;border-inline-start:4px solid ${GENDER_COLOR[r.gender]};padding-inline-start:8px">
           <span>${esc(r.slotName)} · ${GENDER_LABEL[r.gender]} × ${r.quantity}</span>
           <span class="meta">${new Date(r.redeemedAt).toLocaleString('he-IL')} · ${r.isManual ? `ידני ע"י מנהל (${esc(r.redeemedBy)})` : `מערכת · קוד ${esc(r.confirmationCode)}`}</span>
         </div>
@@ -2043,7 +2047,7 @@ async function renderOrdersTab() {
       <textarea id="newOrderNotes"></textarea>
       <label>פריטים</label>
       <div id="newOrderItems"></div>
-      <button class="secondary" type="button" id="newOrderAddItem">+ הוספת פריט</button>
+      <button type="button" id="newOrderAddItem" style="background:var(--sage);color:#fff" disabled>+ הוספת פריט</button>
       <div id="newOrderLateRegNotice"></div>
       <div class="total-row"><span>סה"כ</span><span id="newOrderTotal">₪0</span></div>
       <button class="primary big-action" id="newOrderSubmit" style="width:100%;background:var(--sage)">יצירת הזמנה</button>
@@ -2224,7 +2228,7 @@ async function renderOrdersTab() {
   let newOrderItems = [];
   function newOrderPriceFor(item) {
     const slot = slots.find((s) => s.id === item.slotId);
-    if (!slot) return 0;
+    if (!slot || !item.gender) return 0;
     return item.gender === 'female' ? slot.priceFemale : slot.priceMale;
   }
   function renderNewOrderItems() {
@@ -2236,12 +2240,14 @@ async function renderOrdersTab() {
           <div>
             <label>זמן חלוקה</label>
             <select data-new-field="slotId" data-idx="${idx}">
+              <option value="" ${!item.slotId ? 'selected' : ''}>בחר זמן חלוקה</option>
               ${slots.map((s) => `<option value="${s.id}" ${item.slotId === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
             </select>
           </div>
           <div>
             <label>סוג</label>
             <select data-new-field="gender" data-idx="${idx}">
+              <option value="" ${!item.gender ? 'selected' : ''}>בחר</option>
               <option value="male" ${item.gender === 'male' ? 'selected' : ''}>זכרים</option>
               <option value="female" ${item.gender === 'female' ? 'selected' : ''}>נקבות</option>
             </select>
@@ -2257,6 +2263,7 @@ async function renderOrdersTab() {
     `).join('');
     const total = newOrderItems.reduce((sum, it) => sum + newOrderPriceFor(it) * it.quantity, 0);
     document.getElementById('newOrderTotal').textContent = money(total);
+    document.getElementById('newOrderAddItem').disabled = !newOrderItems.every((it) => it.slotId && it.gender);
     // אזהרה שהמחיר עשוי להיות שונה — כל עוד לפחות פריט אחד נבחר על זמן
     // חלוקה שסגור כרגע להרשמה רגילה (מחיר הזמן עשוי היה להשתנות מאז).
     const hasClosedSlotItem = newOrderItems.some((it) => {
@@ -2268,7 +2275,7 @@ async function renderOrdersTab() {
     box.querySelectorAll('select').forEach((sel) => {
       sel.onchange = () => {
         const idx = Number(sel.dataset.idx);
-        const value = sel.dataset.newField === 'slotId' ? Number(sel.value) : sel.value;
+        const value = sel.dataset.newField === 'slotId' ? (sel.value ? Number(sel.value) : null) : sel.value;
         newOrderItems[idx][sel.dataset.newField] = value;
         renderNewOrderItems();
       };
@@ -2288,12 +2295,12 @@ async function renderOrdersTab() {
     });
   }
   if (slots.length) {
-    newOrderItems = [{ slotId: slots[0].id, gender: 'male', quantity: 1 }];
+    newOrderItems = [{ slotId: null, gender: '', quantity: 1 }];
     renderNewOrderItems();
   }
   document.getElementById('newOrderAddItem').onclick = () => {
-    if (!slots.length) return;
-    newOrderItems.push({ slotId: slots[0].id, gender: 'male', quantity: 1 });
+    if (!slots.length || !newOrderItems.every((it) => it.slotId && it.gender)) return;
+    newOrderItems.push({ slotId: null, gender: '', quantity: 1 });
     renderNewOrderItems();
   };
   document.getElementById('newOrderSubmit').onclick = async () => {
