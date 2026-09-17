@@ -2,11 +2,15 @@
 //
 // כל התנאים הבאים חייבים להתקיים יחד לכל שורת הזמנה (order_item):
 //  1. זמן החלוקה שהפריט שייך אליו מסומן ע"י המנהל כ-open_for_pickup (פר-שורה, ראו distribution_slots).
-//  2. ההזמנה שאליה הפריט שייך מסומנת 'paid' (לא 'partial' ולא 'unpaid').
+//  2. ההזמנה שאליה הפריט שייך מסומנת 'paid' (לא 'partial' ולא 'unpaid') —
+//     אלא אם היתרה הכוללת של הלקוח (סכום balance_due על פני כל הזמנותיו) כבר
+//     מסולקת (0 או זכות), למשל כשזכות מהזמנה אחרת (תיקון מחיר למטה) מכסה את
+//     החוב בהזמנה הזו — במקרה כזה לא חוסמים, גם אם ההזמנה הבודדת עדיין unpaid/partial.
 //  3. quantity_redeemed < quantity (עוד לא נמשך במלואו).
 //
-// כך תשלום חלקי (הזמנה א' שולמה, הזמנה ב' לא) פותר את עצמו אוטומטית: רק
-// הפריטים ששייכים להזמנה ששולמה נפתחים למשיכה, בלי קוד מיוחד לכל מקרה.
+// כך תשלום חלקי אמיתי בין כמה הזמנות (הזמנה א' שולמה, הזמנה ב' לא, והלקוח
+// עדיין חייב במצטבר) פותר את עצמו אוטומטית: רק הפריטים ששייכים להזמנה
+// ששולמה נפתחים למשיכה, בלי קוד מיוחד לכל מקרה.
 //
 // האיסוף עצמו הוא תמיד "לפי זמן חלוקה" (לא לפי שורת הזמנה בודדת): הלקוח
 // בוחר כמות זכרים וכמות נקבות למשיכה כרגע (עם קיצור "הכל" בצד הלקוח), וכפתור
@@ -45,6 +49,18 @@ export async function getRedemptionStatus(normalizedPhone) {
       ORDER BY o.order_sequence ASC, oi.id ASC`,
     [normalizedPhone]
   );
+  // יתרת הלקוח במצטבר על פני כל ההזמנות — לקוח שהיתרה הכוללת שלו מסולקת
+  // (כולל זכות מהזמנה אחרת שמכסה חוב בהזמנה אחרת) לא ייחסם, גם אם הזמנה
+  // בודדת עדיין מסומנת unpaid/partial (ראו הערה ב-confirmSlotRedemption).
+  const totalBalance = rows.length
+    ? Number((await pool.query(
+        `SELECT COALESCE(SUM(b.balance_due), 0) AS total_balance
+           FROM orders o JOIN order_balances b ON b.order_id = o.id
+          WHERE o.normalized_phone = $1 AND NOT o.is_deleted`,
+        [normalizedPhone]
+      )).rows[0].total_balance)
+    : 0;
+  const customerSettled = totalBalance <= 0;
 
   const available = [];
   const blocked = [];
@@ -71,11 +87,11 @@ export async function getRedemptionStatus(normalizedPhone) {
       blocked.push({ ...base, reason: 'wrong_slot', message: 'לא ניתן למשוך כרגע — הזמן הזה עדיין לא נפתח לחלוקה.' });
       continue;
     }
-    if (r.payment_status === 'unpaid') {
+    if (!customerSettled && r.payment_status === 'unpaid') {
       blocked.push({ ...base, reason: 'unpaid', message: settings.unpaidBlockMessage });
       continue;
     }
-    if (r.payment_status === 'partial') {
+    if (!customerSettled && r.payment_status === 'partial') {
       blocked.push({ ...base, reason: 'partial', message: settings.partialPaymentNotice });
       continue;
     }
@@ -149,6 +165,19 @@ export async function confirmSlotRedemption(normalizedPhone, slotId, { maleQuant
       throw err;
     }
 
+    // יתרת הלקוח במצטבר על פני כל ההזמנות (לא רק ההזמנה ששייך אליה הפריט) —
+    // אם היא מסולקת (כולל זכות מהזמנה אחרת שמכסה חוב בהזמנה אחרת), לא חוסמים
+    // בגלל שהזמנה ספציפית עדיין מסומנת unpaid/partial. כשליתרה הכוללת יש
+    // עדיין חוב אמיתי, ממשיכים לחסום פר-הזמנה כרגיל (תשלום חלקי בין כמה
+    // הזמנות של אותו טלפון פותר את עצמו אוטומטית, כמו שמתועד למעלה).
+    const { rows: balanceRows } = await client.query(
+      `SELECT COALESCE(SUM(b.balance_due), 0) AS total_balance
+         FROM orders o JOIN order_balances b ON b.order_id = o.id
+        WHERE o.normalized_phone = $1 AND NOT o.is_deleted`,
+      [normalizedPhone]
+    );
+    const customerSettled = Number(balanceRows[0].total_balance) <= 0;
+
     const confirmationCode = generateConfirmationCode();
     const redeemedTotals = { male: 0, female: 0 };
     let customerName = null;
@@ -171,7 +200,7 @@ export async function confirmSlotRedemption(normalizedPhone, slotId, { maleQuant
       let blockedByPayment = false;
       for (const item of items) {
         if (toTake <= 0) break;
-        if (!allowUnpaid && item.payment_status !== 'paid') { blockedByPayment = true; continue; }
+        if (!allowUnpaid && !customerSettled && item.payment_status !== 'paid') { blockedByPayment = true; continue; }
         const itemRemaining = item.quantity - item.quantity_redeemed;
         if (itemRemaining <= 0) continue;
         const take = Math.min(itemRemaining, toTake);
