@@ -9,7 +9,7 @@ const CODE_TTL_MINUTES = 10;
 const RESEND_COOLDOWN_SECONDS = 30;
 
 function generateCode() {
-  return String(crypto.randomInt(100000, 1000000)); // 6 ספרות
+  return String(crypto.randomInt(1000, 10000)); // 4 ספרות
 }
 
 export async function requestOtp(normalizedPhone, purpose) {

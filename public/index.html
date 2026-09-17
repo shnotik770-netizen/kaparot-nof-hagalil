@@ -181,8 +181,8 @@ function screenOtp(errorMsg) {
       <h2>אימות בסמס</h2>
       <p class="hint">נשלח קוד אימות ל-${state.normalizedPhone}. הזינו אותו כדי להיכנס לאזור האישי שלכם.</p>
       ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
-      <label for="otpInput">קוד בן 6 ספרות</label>
-      <input type="text" id="otpInput" inputmode="numeric" maxlength="6" placeholder="000000">
+      <label for="otpInput">קוד בן 4 ספרות</label>
+      <input type="text" id="otpInput" inputmode="numeric" maxlength="4" placeholder="0000">
       <div class="spacer"></div>
       <button class="primary" id="otpSubmit">אמת קוד</button>
       <div class="spacer"></div>
