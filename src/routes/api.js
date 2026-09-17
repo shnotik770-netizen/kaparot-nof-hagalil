@@ -25,7 +25,7 @@ import {
 } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
 import { listActions, logAction } from '../lib/actionLog.js';
-import { sendBulkSms, getSmsHistoryForPhone } from '../lib/sms.js';
+import { sendSms, sendBulkSms, getSmsHistoryForPhone } from '../lib/sms.js';
 import { runYemotTestCalls } from '../lib/yemotIvr.js';
 
 const router = Router();
@@ -426,6 +426,24 @@ router.get('/admin/customers/:phone/redemption-history', requireAdmin, requirePe
 router.get('/admin/customers/:phone/sms-history', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   const normalized = normalizePhone(req.params.phone);
   res.json(await getSmsHistoryForPhone(normalized));
+}));
+
+// שליחת הודעת SMS אישית ללקוח בודד — מריבוע הכתיבה בראש פאנל ההתכתבות.
+router.post('/admin/customers/:phone/sms', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  const normalized = normalizePhone(req.params.phone);
+  const message = String(req.body?.message || '').trim();
+  if (!message) {
+    return res.status(400).json({ error: 'חסר תוכן הודעה.' });
+  }
+  const sentBy = req.session.adminName || 'admin';
+  try {
+    await sendSms(normalized, message);
+  } catch (err) {
+    await logAction('sms_sent', { phone: normalized, message, sentBy, error: err.message });
+    throw err;
+  }
+  await logAction('sms_sent', { phone: normalized, message, sentBy });
+  res.json({ success: true });
 }));
 
 router.post('/admin/redeem/confirm-slot', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {

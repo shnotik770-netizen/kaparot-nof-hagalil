@@ -135,11 +135,14 @@ async function fetchSmsLog(url) {
   return data.rows || [];
 }
 
+const SMS_HISTORY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
 /**
  * שרשור התכתבות SMS דו-כיווני מלא (נכנס+יוצא) עם טלפון אחד — לתצוגה
  * בכרטיס הלקוח. משווה מספרים אחרי נירמול (normalizePhone), כי ימות
  * המשיח לא בהכרח מחזיר את אותו פורמט (972.../05.../5...) שבו שמור הלקוח
- * אצלנו.
+ * אצלנו. מוגבל לשבועיים האחרונים בלבד — לא רלוונטי להציג תכתובת ישנה
+ * משנים קודמות (למשל תזכורת OTP מהזמנה קודמת).
  */
 export async function getSmsHistoryForPhone(normalizedPhone) {
   const [incoming, outgoing] = await Promise.all([
@@ -147,14 +150,22 @@ export async function getSmsHistoryForPhone(normalizedPhone) {
     fetchSmsLog(GET_SMS_OUT_LOG_URL),
   ]);
 
+  const cutoff = Date.now() - SMS_HISTORY_WINDOW_MS;
+
+  // שליחה קבוצתית (sendBulkSms) שולחת את כל הנמענים במחרוזת אחת מופרדת
+  // ב-':' (phones: normalizedPhones.join(':')), וכך זה גם חוזר בשדה To של
+  // GetSmsOutLog — לא כטלפון בודד. נירמול המחרוזת השלמה לא יתאים לאף לקוח
+  // בודד, אז צריך לפצל קודם ולבדוק אם הטלפון המבוקש הוא אחד מהנמענים.
+  const outgoingMatchesPhone = (to) => String(to || '').split(':').some((p) => normalizePhone(p) === normalizedPhone);
+
   const messages = [
     ...incoming
       .filter((row) => normalizePhone(row.source) === normalizedPhone)
       .map((row) => ({ direction: 'incoming', phone: row.source, message: row.message, time: row.receive_date })),
     ...outgoing
-      .filter((row) => normalizePhone(row.To) === normalizedPhone)
+      .filter((row) => outgoingMatchesPhone(row.To))
       .map((row) => ({ direction: 'outgoing', phone: row.To, message: row.Message, time: row.Time, deliveryStatus: row.DeliveryReport })),
-  ];
+  ].filter((m) => new Date(m.time).getTime() >= cutoff);
 
   messages.sort((a, b) => new Date(a.time) - new Date(b.time));
   return messages;

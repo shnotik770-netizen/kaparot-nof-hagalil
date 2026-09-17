@@ -43,6 +43,7 @@ const ACTION_LABELS = {
   order_cancelled_by_customer: 'הזמנה בוטלה ע"י הלקוח (לא שולם)',
   payment_coordinated_set: 'סטטוס "תיאום תשלום" עודכן',
   sms_bulk_sent: 'סמס קבוצתי נשלח',
+  sms_sent: 'סמס אישי נשלח ללקוח',
   payment_alert_dismissed: 'אזהרת תשלום לא-מאושר הוסתרה',
   settings_updated: 'הגדרות עודכנו',
   slot_created: 'זמן חלוקה נוסף',
