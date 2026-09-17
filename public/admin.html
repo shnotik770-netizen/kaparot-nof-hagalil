@@ -98,8 +98,22 @@ function customerPaymentPillHtml(c) {
 }
 const METHOD_LABEL = { nedarim_plus: 'נדרים פלוס', manual_cash: 'מזומן', manual_card: 'אשראי ידני', manual_admin: 'אחר' };
 
-// דוח CSV של כל התשלומים — phonesFilter=null להורדת הכל, או מערך טלפונים
-// (מהסינון הנוכחי בטאב הזמנות) להורדת רק תשלומי הלקוחות שעברו את הסינון.
+function triggerCsvDownload(filenameBase, phonesFilter, header, rows) {
+  const csv = '﻿' + [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${filenameBase}${phonesFilter ? '-מסונן' : ''}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// דוח CSV של כל התשלומים, שורה נפרדת לכל תשלום — phonesFilter=null להורדת
+// הכל, או מערך טלפונים (מהסינון הנוכחי בטאב הזמנות) להורדת רק תשלומי
+// הלקוחות שעברו את הסינון.
 async function downloadPaymentsCsv(phonesFilter) {
   const payments = await api('/admin/payments');
   const filtered = phonesFilter ? payments.filter((p) => phonesFilter.includes(p.phone)) : payments;
@@ -108,16 +122,29 @@ async function downloadPaymentsCsv(phonesFilter) {
     new Date(p.createdAt).toLocaleString('he-IL'), p.orderNumber, p.customerName, p.phone,
     p.amount, METHOD_LABEL[p.method] || p.method, p.recordedBy,
   ]);
-  const csv = '﻿' + [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `דוח-תשלומים${phonesFilter ? '-מסונן' : ''}-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  triggerCsvDownload('דוח-תשלומים', phonesFilter, header, rows);
+}
+
+// דוח CSV "לקוחות" — שורה אחת ללקוח (כמו טבלת הגיבוי לגוגל שיטס, ראו
+// buildCustomerRows ב-src/lib/sheetsSync.js — אותו מבנה עמודות בדיוק),
+// עם הזמנה+איסוף פר-מגדר לכל זמן חלוקה.
+function downloadCustomersCsv(customers, slots, phonesFilter) {
+  const filtered = phonesFilter ? customers.filter((c) => phonesFilter.includes(c.phone)) : customers;
+  const header = ['שם', 'טלפון'];
+  slots.forEach((s) => header.push(`${s.name} - הזמנה זכרים`, `${s.name} - הזמנה נקבות`, `${s.name} - איסוף זכרים`, `${s.name} - איסוף נקבות`));
+  header.push('סה"כ לתשלום', 'שולם בפועל');
+
+  const rows = filtered.map((c) => {
+    const bySlotId = new Map((c.bySlot || []).map((s) => [s.slotId, s]));
+    const row = [c.customerName || '', c.phone || ''];
+    slots.forEach((s) => {
+      const cs = bySlotId.get(s.id);
+      row.push(cs?.male || 0, cs?.female || 0, cs?.maleRedeemed || 0, cs?.femaleRedeemed || 0);
+    });
+    row.push(Number(c.totalAmount) || 0, Number(c.amountPaid) || 0);
+    return row;
+  });
+  triggerCsvDownload('דוח-לקוחות', phonesFilter, header, rows);
 }
 // סדר המפתחות כאן קובע את סדר הטאבים בתפריט. 'settings' ו'slots' אוחדו
 // לכפתור אחד (ראו renderSettingsTab) — עדיין שתי הרשאות נפרדות, אבל ניווט משותף.
@@ -2029,22 +2056,45 @@ async function renderOrdersTab() {
   };
 
   document.getElementById('exportCsvBtn').onclick = () => {
+    let reportType = 'customers';
     const backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
     backdrop.innerHTML = `
       <div class="modal">
         <h3 style="margin:0 0 12px">איזה דוח להוריד?</h3>
-        <button class="primary" id="exportFullBtn" style="margin-bottom:8px">📄 דוח מלא (${customers.length} לקוחות)</button>
-        <button class="secondary" id="exportFilteredBtn">🔍 לפי הסינון הנוכחי (${currentFiltered.length} לקוחות)</button>
-        <button class="ghost" id="exportCancelBtn" style="width:100%;margin-top:12px">ביטול</button>
+        <label style="margin-top:0">סוג דוח</label>
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <button type="button" class="primary" id="reportTypeCustomers" style="flex:1">👤 לקוחות</button>
+          <button type="button" class="secondary" id="reportTypePayments" style="flex:1">💳 תשלומים</button>
+        </div>
+        <label>היקף</label>
+        <button type="button" class="secondary" id="exportFullBtn" style="margin-bottom:8px">📄 דוח מלא (${customers.length} לקוחות)</button>
+        <button type="button" class="secondary" id="exportFilteredBtn">🔍 לפי הסינון הנוכחי (${currentFiltered.length} לקוחות)</button>
+        <button type="button" class="ghost" id="exportCancelBtn" style="width:100%;margin-top:12px">ביטול</button>
       </div>
     `;
     document.body.appendChild(backdrop);
     const close = () => backdrop.remove();
     backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
     document.getElementById('exportCancelBtn').onclick = close;
-    document.getElementById('exportFullBtn').onclick = () => { close(); downloadPaymentsCsv(null); };
-    document.getElementById('exportFilteredBtn').onclick = () => { close(); downloadPaymentsCsv(currentFiltered.map((c) => c.phone)); };
+
+    const typeCustomersBtn = document.getElementById('reportTypeCustomers');
+    const typePaymentsBtn = document.getElementById('reportTypePayments');
+    const selectType = (type) => {
+      reportType = type;
+      typeCustomersBtn.className = type === 'customers' ? 'primary' : 'secondary';
+      typePaymentsBtn.className = type === 'payments' ? 'primary' : 'secondary';
+    };
+    typeCustomersBtn.onclick = () => selectType('customers');
+    typePaymentsBtn.onclick = () => selectType('payments');
+
+    const runDownload = (phonesFilter) => {
+      close();
+      if (reportType === 'customers') downloadCustomersCsv(customers, slots, phonesFilter);
+      else downloadPaymentsCsv(phonesFilter);
+    };
+    document.getElementById('exportFullBtn').onclick = () => runDownload(null);
+    document.getElementById('exportFilteredBtn').onclick = () => runDownload(currentFiltered.map((c) => c.phone));
   };
 
   // ---- הוספת הזמנה ידנית ----
