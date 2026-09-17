@@ -152,12 +152,18 @@ export async function getSmsHistoryForPhone(normalizedPhone) {
 
   const cutoff = Date.now() - SMS_HISTORY_WINDOW_MS;
 
+  // שליחה קבוצתית (sendBulkSms) שולחת את כל הנמענים במחרוזת אחת מופרדת
+  // ב-':' (phones: normalizedPhones.join(':')), וכך זה גם חוזר בשדה To של
+  // GetSmsOutLog — לא כטלפון בודד. נירמול המחרוזת השלמה לא יתאים לאף לקוח
+  // בודד, אז צריך לפצל קודם ולבדוק אם הטלפון המבוקש הוא אחד מהנמענים.
+  const outgoingMatchesPhone = (to) => String(to || '').split(':').some((p) => normalizePhone(p) === normalizedPhone);
+
   const messages = [
     ...incoming
       .filter((row) => normalizePhone(row.source) === normalizedPhone)
       .map((row) => ({ direction: 'incoming', phone: row.source, message: row.message, time: row.receive_date })),
     ...outgoing
-      .filter((row) => normalizePhone(row.To) === normalizedPhone)
+      .filter((row) => outgoingMatchesPhone(row.To))
       .map((row) => ({ direction: 'outgoing', phone: row.To, message: row.Message, time: row.Time, deliveryStatus: row.DeliveryReport })),
   ].filter((m) => new Date(m.time).getTime() >= cutoff);
 
