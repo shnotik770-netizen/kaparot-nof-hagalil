@@ -133,6 +133,12 @@ function screenPhone(errorMsg) {
       ${!state.publicSettings?.registrationOpen ? `<div class="notice">${state.publicSettings?.closedRegistrationMessage || 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.'} ניתן עדיין לצפות בהזמנה קיימת.</div>` : ''}
       <label for="phoneInput">מספר טלפון</label>
       <input type="tel" id="phoneInput" placeholder="05XXXXXXXX" value="${state.phone}" inputmode="numeric">
+      ${state.publicSettings?.welcomeNoticeBody ? `
+        <div class="notice" style="white-space:pre-line;margin-top:10px">
+          ${state.publicSettings?.welcomeNoticeTitle ? `<b>${state.publicSettings.welcomeNoticeTitle}</b><br>` : ''}
+          ${state.publicSettings.welcomeNoticeBody}
+        </div>
+      ` : ''}
       <div class="spacer"></div>
       <button class="primary" id="phoneSubmit">המשך</button>
       <div class="spacer"></div>
@@ -915,26 +921,6 @@ async function onNedarimTransactionResponse(value) {
 
 // ============== אתחול ==============
 
-function maybeShowWelcomeNotice() {
-  const body = state.publicSettings?.welcomeNoticeBody;
-  if (!body) return;
-  const title = state.publicSettings?.welcomeNoticeTitle || 'לתשומת לבכם';
-  const backdrop = el(`
-    <div class="modal-backdrop">
-      <div class="modal">
-        <h2>${title}</h2>
-        <p class="hint" style="white-space:pre-line">${body}</p>
-        <button class="primary" id="welcomeCloseBtn">סגירה</button>
-      </div>
-    </div>
-  `);
-  document.body.appendChild(backdrop);
-  backdrop.querySelector('#welcomeCloseBtn').onclick = () => backdrop.remove();
-  // אפשר לדלג גם בלחיצה מחוץ לחלונית (לא רק על כפתור "סגירה") — זו הודעת
-  // מידע בלבד, לא אישור שחייבים לקרוא לפני שממשיכים.
-  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
-}
-
 // ============== ניווט: History API — כדי שכפתור "חזרה" בנייד/בדפדפן יעבור
 // בין המסכים באפליקציה במקום לצאת מהאתר (אין כאן URL-ים אמיתיים, רק state
 // פנימי שנשמר בהיסטוריית הדפדפן) ==============
@@ -979,7 +965,6 @@ async function init() {
   document.getElementById('pageSubtitle').textContent = state.publicSettings.orderSubtitle || '';
   replaceScreenState('phone');
   screenPhone();
-  maybeShowWelcomeNotice();
 }
 
 init().catch((err) => render(`<div class="error">שגיאה בטעינת המערכת: ${err.message}</div>`));
