@@ -796,6 +796,7 @@ function customerCardHtml(c) {
         <button class="secondary" data-cust-pay data-phone="${esc(c.phone)}">💳 תשלומים</button>
         <button class="secondary" data-cust-redeem data-phone="${esc(c.phone)}">🎟️ איסוף</button>
         <button class="secondary" data-cust-edit data-phone="${esc(c.phone)}">✏️ עריכת הזמנה</button>
+        <button class="secondary" data-cust-sms data-phone="${esc(c.phone)}">💬 התכתבות SMS</button>
       </div>
       <div class="total-row">
         <span>לתשלום ${money(c.totalAmount)}</span>
@@ -805,9 +806,36 @@ function customerCardHtml(c) {
       <div class="edit-panel" id="${panelSafeId(c.phone)}-view" hidden></div>
       <div class="edit-panel" id="${panelSafeId(c.phone)}-pay" hidden></div>
       <div class="edit-panel" id="${panelSafeId(c.phone)}-redeem" hidden></div>
+      <div class="edit-panel" id="${panelSafeId(c.phone)}-sms" hidden></div>
       <div class="edit-panel" id="${panelSafeId(c.phone)}" hidden></div>
     </div>
   `;
+}
+
+// התכתבות SMS דו-כיוונית מול ימות המשיח (נכנס+יוצא, ממוין כרונולוגית) —
+// ראו getSmsHistoryForPhone בשרת. תצוגת "בועות" בסגנון צ'אט: הודעות
+// שיצאו מאיתנו בצד ימין (flex-start ב-RTL), שהתקבלו מהלקוח בצד שמאל.
+async function loadCustomerSmsHistory(phone, containerId) {
+  const box = document.getElementById(containerId);
+  if (!box) return;
+  box.innerHTML = `<div class="loading">טוען…</div>`;
+  let messages;
+  try {
+    messages = await api(`/admin/customers/${encodeURIComponent(phone)}/sms-history`);
+  } catch (err) {
+    box.innerHTML = `<div class="error">${err.message}</div>`;
+    return;
+  }
+  if (!messages.length) {
+    box.innerHTML = `<p class="hint">אין היסטוריית SMS עם הלקוח הזה.</p>`;
+    return;
+  }
+  box.innerHTML = messages.map((m) => `
+    <div style="display:flex;flex-direction:column;align-items:${m.direction === 'outgoing' ? 'flex-start' : 'flex-end'};margin-bottom:10px">
+      <div style="max-width:85%;padding:8px 12px;border-radius:10px;background:${m.direction === 'outgoing' ? 'var(--surface-2)' : 'var(--accent-soft)'};font-size:13.5px;white-space:pre-wrap;word-break:break-word">${esc(m.message || '')}</div>
+      <span class="meta" style="font-size:11px;margin-top:3px">${m.time ? new Date(m.time).toLocaleString('he-IL') : ''}${m.deliveryStatus ? ' · ' + esc(m.deliveryStatus) : ''}</span>
+    </div>
+  `).join('');
 }
 
 // "איסוף מהיר" על כרטיס לקוח סגור — אותה לוגיקה בדיוק כמו מסך "מצב איסוף"
@@ -1374,7 +1402,7 @@ function wireCustomerCardButtons(root) {
   // ארבעת הפאנלים הם תצוגות חלופיות של אותו כרטיס — פתיחת אחד סוגרת
   // אוטומטית את שלושת האחרים, כדי שלא ייפתחו כולם אחד מתחת לשני.
   function closeOtherCustomerPanels(phone, exceptId) {
-    const ids = [`${panelSafeId(phone)}-view`, `${panelSafeId(phone)}-pay`, `${panelSafeId(phone)}-redeem`, panelSafeId(phone)];
+    const ids = [`${panelSafeId(phone)}-view`, `${panelSafeId(phone)}-pay`, `${panelSafeId(phone)}-redeem`, `${panelSafeId(phone)}-sms`, panelSafeId(phone)];
     for (const id of ids) {
       if (id === exceptId) continue;
       const p = document.getElementById(id);
@@ -1431,6 +1459,17 @@ function wireCustomerCardButtons(root) {
       panel.innerHTML = customerPanelHtml(c);
       panel.hidden = false;
       wireCustomerPanel(c);
+    };
+  });
+  root.querySelectorAll('[data-cust-sms]').forEach((b) => {
+    b.onclick = () => {
+      const phone = b.dataset.phone;
+      const containerId = `${panelSafeId(phone)}-sms`;
+      const panel = document.getElementById(containerId);
+      if (!panel.hidden) { panel.hidden = true; return; }
+      closeOtherCustomerPanels(phone, containerId);
+      panel.hidden = false;
+      loadCustomerSmsHistory(phone, containerId);
     };
   });
   root.querySelectorAll('[data-dismiss-pending]').forEach((b) => {
