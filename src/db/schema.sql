@@ -13,7 +13,7 @@ INSERT INTO settings(key, value) VALUES
   ('deferred_payment_notice',
    'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל בשעת ההזמנה.'),
   ('unpaid_block_message',
-   'עליך לגשת למשרד להסדרת התשלום טרם מימוש ההזמנה.'),
+   'עליך לגשת למשרד להסדרת התשלום טרם איסוף ההזמנה.'),
   ('partial_payment_notice',
    'שולם באופן חלקי — ניתן למשוך רק את ההזמנות ששולמו. יתרת החוב טעונה תשלום במשרד או דרך כפתור התשלום באזור האישי.'),
   ('sms_otp_template', 'קוד האימות שלך: {code} (בתוקף ל-10 דקות)'),
@@ -25,6 +25,11 @@ ON CONFLICT (key) DO NOTHING;
 -- ומתגי-העל הגלובליים registration_open/distribution_open) — כולם הוחלפו
 -- בשליטה פר-זמן-חלוקה (distribution_slots) ו-admins
 DELETE FROM settings WHERE key IN ('active_day', 'active_time_slot', 'admin_phone', 'normalized_admin_phone', 'active_slot_id', 'registration_open', 'distribution_open');
+-- מתקן את ברירת המחדל הישנה של unpaid_block_message ("מימוש") לניסוח החדש
+-- ("איסוף") — רק אם המנהל לא כתב טקסט אחר בעצמו (עדיין שווה בדיוק לברירת
+-- המחדל הישנה); אם כן, לא נוגעים בטקסט המותאם-אישית שלו.
+UPDATE settings SET value = 'עליך לגשת למשרד להסדרת התשלום טרם איסוף ההזמנה.'
+ WHERE key = 'unpaid_block_message' AND value = 'עליך לגשת למשרד להסדרת התשלום טרם מימוש ההזמנה.';
 
 -- ================= זמני חלוקה: מנוהלים לגמרי ע"י המנהל =================
 -- מחליף גם את "יום קבוע" (חמישי/ראשון) וגם את טבלת price_rules הישנה —
@@ -37,7 +42,7 @@ CREATE TABLE IF NOT EXISTS distribution_slots (
   supply_date           DATE NOT NULL,              -- תאריך אספקת העופות (לועזי)
   day_label             TEXT NOT NULL,              -- יום בשבוע, טקסט חופשי (מוצע אוטומטית מהתאריך, ניתן לעריכה)
   hours_label           TEXT NOT NULL DEFAULT '',   -- טווח שעות, טקסט חופשי
-  color                 TEXT NOT NULL DEFAULT '#a5741f', -- צבע מזהה לזמן הזה (hex) — מוצג במסך "מימוש הכל" בקיוסק
+  color                 TEXT NOT NULL DEFAULT '#a5741f', -- צבע מזהה לזמן הזה (hex) — מוצג במסך "איסוף הכל" בקיוסק
   price_male            NUMERIC(10,2) NOT NULL,
   price_female          NUMERIC(10,2) NOT NULL,
   registration_close_at TIMESTAMPTZ,                -- NULL = אין סגירה אוטומטית להרשמה

@@ -90,7 +90,7 @@ async function onOtpSubmit() {
   }
 }
 
-// ---- מימוש: מקובץ לפי זמן חלוקה, כפתור אחד לכל זמן ----
+// ---- איסוף: מקובץ לפי זמן חלוקה, כפתור אחד לכל זמן ----
 
 async function screenRedeem() {
   render(`<div class="loading">טוען פריטים למשיכה…</div>`);
@@ -129,7 +129,7 @@ async function screenRedeem() {
         ${genderLineHtml(g, 'male')}
         ${genderLineHtml(g, 'female')}
         <div class="spacer"></div>
-        <button class="primary" data-confirm-slot="${g.slotId}">מימוש והצגה למחלק העופות</button>
+        <button class="primary" data-confirm-slot="${g.slotId}">איסוף והצגה למחלק העופות</button>
       </div>
     `;
   }

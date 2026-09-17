@@ -33,8 +33,8 @@ const ACTION_LABELS = {
   payment_received_nedarim_ivr: 'תשלום התקבל (נדרים פלוס, שלוחה טלפונית)',
   ivr_payment_orphaned: '⚠️ תשלום טלפוני התקבל אך ההזמנה לא נשמרה — דורש בדיקה ידנית',
   payment_client_confirmed: 'תשלום אושר לפי הדפדפן (טרם אומת Webhook)',
-  redemption_confirmed: 'מימוש עופות',
-  redemption_manual_override: 'מימוש עודכן ידנית ע"י מנהל',
+  redemption_confirmed: 'איסוף עופות',
+  redemption_manual_override: 'איסוף עודכן ידנית ע"י מנהל',
   order_item_edited: 'שורת הזמנה עודכנה',
   order_item_deleted: 'שורת הזמנה נמחקה',
   order_deleted: 'הזמנה נמחקה',
@@ -60,7 +60,7 @@ async function buildCustomerRows() {
 
   const header = ['שם', 'טלפון'];
   for (const slot of slots) {
-    header.push(`${slot.name} - הזמנה זכרים`, `${slot.name} - הזמנה נקבות`, `${slot.name} - מימוש זכרים`, `${slot.name} - מימוש נקבות`);
+    header.push(`${slot.name} - הזמנה זכרים`, `${slot.name} - הזמנה נקבות`, `${slot.name} - איסוף זכרים`, `${slot.name} - איסוף נקבות`);
   }
   header.push('סה"כ לתשלום', 'שולם בפועל');
 

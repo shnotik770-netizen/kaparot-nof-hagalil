@@ -74,7 +74,7 @@ button.danger{background:var(--wine);color:#fff}
 .loading{text-align:center;color:var(--ink-dim);padding:30px 0}
 .spacer{height:8px}
 
-/* מסך "מימוש והצגה למחלק" — פס עליון רגיל (topbar) + אזור צבוע בצבע זמן
+/* מסך "איסוף והצגה למחלק" — פס עליון רגיל (topbar) + אזור צבוע בצבע זמן
    החלוקה, עם כרטיסייה לבנה ממורכזת בתוכו (כמו קבלה) */
 .big-ticket-screen{
   min-height:calc(100vh - 64px); display:flex; flex-direction:column;

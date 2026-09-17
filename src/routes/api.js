@@ -132,7 +132,7 @@ router.get('/redeem/status', requireVerifiedPhone, wrap(async (req, res) => {
   res.json({ ...(await getRedemptionStatus(normalized)), distributionOpen: settings.distributionOpen });
 }));
 
-// מימוש משולב (זכרים+נקבות יחד) לזמן חלוקה שלם — ראו confirmSlotRedemption ב-redemption.js.
+// איסוף משולב (זכרים+נקבות יחד) לזמן חלוקה שלם — ראו confirmSlotRedemption ב-redemption.js.
 router.post('/redeem/confirm-slot', requireVerifiedPhone, wrap(async (req, res) => {
   const normalized = normalizePhone(req.body.phone);
   const result = await confirmSlotRedemption(
@@ -406,7 +406,7 @@ router.put('/admin/order-items/:id/redeemed', requireAdmin, requirePermission('o
   res.json(await setItemRedeemedQuantity(Number(req.params.id), req.body?.quantityRedeemed, req.session.adminName || 'admin'));
 }));
 
-// "מצב מימוש" — כלי חיפוש+מימוש מהיר למנהל (לא לתשלומים), ראו admin.html.
+// "מצב איסוף" — כלי חיפוש+איסוף מהיר למנהל (לא לתשלומים), ראו admin.html.
 // זהה לזרימת הלקוח/קיוסק (redeem/status + redeem/confirm-slot), אבל מאומת
 // כמנהל (לא OTP), ומאפשר allowUnpaid (עם אזהרה בצד הלקוח) כי מנהל רשאי
 // לעקוף את חסימת "לא שולם" בעוד שלקוח בעצמו לא.
@@ -415,7 +415,7 @@ router.get('/admin/redeem/status', requireAdmin, requirePermission('orders'), wr
   res.json(await getRedemptionStatus(normalized));
 }));
 
-// היסטוריית מימושים כרונולוגית מלאה של לקוח (תאריך+שעה, ומערכת מול ידני
+// היסטוריית איסופים כרונולוגית מלאה של לקוח (תאריך+שעה, ומערכת מול ידני
 // ע"י מנהל) — לתצוגה בכרטיס הלקוח, ראו getRedemptionHistoryForPhone.
 router.get('/admin/customers/:phone/redemption-history', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   const normalized = normalizePhone(req.params.phone);

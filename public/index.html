@@ -406,7 +406,7 @@ function screenPersonalArea() {
     <div class="grid4">
       <button class="big-btn" id="btnShow"><span class="ico">📋</span>הצג הזמנה שלי</button>
       <button class="big-btn" id="btnMore" ${!s.registrationOpen ? 'disabled' : ''}><span class="ico">➕</span>${state.isFirstTime ? 'ביצוע הזמנה' : 'ביצוע הזמנה נוספת'}</button>
-      <button class="big-btn" id="btnRedeem" ${!s.distributionOpen ? 'disabled' : ''}><span class="ico">🎟️</span>מימוש הזמנה</button>
+      <button class="big-btn" id="btnRedeem" ${!s.distributionOpen ? 'disabled' : ''}><span class="ico">🎟️</span>איסוף הזמנה</button>
       <button class="big-btn" id="btnPay"><span class="ico">💳</span>תשלום על הזמנה</button>
     </div>
     ${!s.registrationOpen ? `<p class="hint">* ${s.closedRegistrationMessage || 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.'}</p>` : ''}
@@ -571,7 +571,7 @@ async function screenMyOrders() {
   });
 }
 
-// ---- מימוש הזמנה: מקובץ לפי זמן חלוקה, כפתור אחד לכל הזמן ----
+// ---- איסוף הזמנה: מקובץ לפי זמן חלוקה, כפתור אחד לכל הזמן ----
 
 async function screenRedeem() {
   render(`<div class="loading">טוען פריטים למשיכה…</div>`);
@@ -610,14 +610,14 @@ async function screenRedeem() {
         ${genderLineHtml(g, 'male')}
         ${genderLineHtml(g, 'female')}
         <div class="spacer"></div>
-        <button class="primary" data-confirm-slot="${g.slotId}">מימוש והצגה למחלק העופות</button>
+        <button class="primary" data-confirm-slot="${g.slotId}">איסוף והצגה למחלק העופות</button>
       </div>
     `;
   }
 
   render(`
     <button class="ghost" id="back">← חזרה</button>
-    <h2>מימוש הזמנה</h2>
+    <h2>איסוף הזמנה</h2>
     ${!status.distributionOpen ? `<div class="error">החלוקה סגורה כרגע.</div>` : ''}
     ${groups.size ? [...groups.values()].map(groupCardHtml).join('') : `<div class="card"><p class="hint">אין כרגע פריטים זמינים למשיכה עבור המועד הפתוח.</p></div>`}
     ${status.blocked.length ? `
@@ -956,7 +956,7 @@ window.addEventListener('popstate', (event) => {
     return;
   }
   paymentExitConfirmed = false;
-  // ניקוי כל חלונית פתוחה (הסבר/אישור מימוש) — מונע חלונית "תקועה" מעל מסך חדש
+  // ניקוי כל חלונית פתוחה (הסבר/אישור איסוף) — מונע חלונית "תקועה" מעל מסך חדש
   document.querySelectorAll('.modal-backdrop').forEach((b) => b.remove());
   hidePaymentScreen();
   const screenId = event.state?.screenId || 'phone';
