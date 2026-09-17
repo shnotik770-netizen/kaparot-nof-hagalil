@@ -816,27 +816,60 @@ function customerCardHtml(c) {
 // התכתבות SMS דו-כיוונית מול ימות המשיח (נכנס+יוצא, ממוין כרונולוגית) —
 // ראו getSmsHistoryForPhone בשרת. תצוגת "בועות" בסגנון צ'אט: הודעות
 // שיצאו מאיתנו בצד ימין (flex-start ב-RTL), שהתקבלו מהלקוח בצד שמאל.
+function smsComposerHtml(prefix) {
+  return `
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+      <textarea id="${prefix}-compose" rows="2" placeholder="כתיבת הודעה אישית ללקוח…" style="resize:vertical"></textarea>
+      <div id="${prefix}-compose-msg"></div>
+      <button type="button" class="secondary" data-sms-send="${prefix}" style="width:auto;align-self:flex-start">📤 שליחה</button>
+    </div>
+  `;
+}
+
+function wireSmsComposer(phone, containerId) {
+  const btn = document.querySelector(`[data-sms-send="${containerId}"]`);
+  if (!btn) return;
+  btn.onclick = async () => {
+    const textarea = document.getElementById(`${containerId}-compose`);
+    const msgBox = document.getElementById(`${containerId}-compose-msg`);
+    const message = textarea.value.trim();
+    if (!message) return;
+    btn.disabled = true;
+    msgBox.innerHTML = '';
+    try {
+      await api(`/admin/customers/${encodeURIComponent(phone)}/sms`, { method: 'POST', body: { message } });
+      textarea.value = '';
+      loadCustomerSmsHistory(phone, containerId);
+    } catch (err) {
+      msgBox.innerHTML = `<div class="error">${err.message}</div>`;
+      btn.disabled = false;
+    }
+  };
+}
+
 async function loadCustomerSmsHistory(phone, containerId) {
   const box = document.getElementById(containerId);
   if (!box) return;
-  box.innerHTML = `<div class="loading">טוען…</div>`;
+  box.innerHTML = smsComposerHtml(containerId) + `<div class="loading">טוען…</div>`;
+  wireSmsComposer(phone, containerId);
   let messages;
   try {
     messages = await api(`/admin/customers/${encodeURIComponent(phone)}/sms-history`);
   } catch (err) {
-    box.innerHTML = `<div class="error">${err.message}</div>`;
+    box.innerHTML = smsComposerHtml(containerId) + `<div class="error">${err.message}</div>`;
+    wireSmsComposer(phone, containerId);
     return;
   }
-  if (!messages.length) {
-    box.innerHTML = `<p class="hint">אין היסטוריית SMS עם הלקוח הזה.</p>`;
-    return;
-  }
-  box.innerHTML = messages.map((m) => `
-    <div style="display:flex;flex-direction:column;align-items:${m.direction === 'outgoing' ? 'flex-start' : 'flex-end'};margin-bottom:10px">
-      <div style="max-width:85%;padding:8px 12px;border-radius:10px;background:${m.direction === 'outgoing' ? 'var(--surface-2)' : 'var(--accent-soft)'};font-size:13.5px;white-space:pre-wrap;word-break:break-word">${esc(m.message || '')}</div>
-      <span class="meta" style="font-size:11px;margin-top:3px">${m.time ? new Date(m.time).toLocaleString('he-IL') : ''}${m.deliveryStatus ? ' · ' + esc(m.deliveryStatus) : ''}</span>
-    </div>
-  `).join('');
+  const threadHtml = !messages.length
+    ? `<p class="hint">אין היסטוריית SMS עם הלקוח הזה בשבועיים האחרונים.</p>`
+    : messages.map((m) => `
+        <div style="display:flex;flex-direction:column;align-items:${m.direction === 'outgoing' ? 'flex-start' : 'flex-end'};margin-bottom:10px">
+          <div style="max-width:85%;padding:8px 12px;border-radius:10px;background:${m.direction === 'outgoing' ? 'var(--surface-2)' : 'var(--accent-soft)'};font-size:13.5px;white-space:pre-wrap;word-break:break-word">${esc(m.message || '')}</div>
+          <span class="meta" style="font-size:11px;margin-top:3px">${m.time ? new Date(m.time).toLocaleString('he-IL') : ''}${m.deliveryStatus ? ' · ' + esc(m.deliveryStatus) : ''}</span>
+        </div>
+      `).join('');
+  box.innerHTML = smsComposerHtml(containerId) + threadHtml;
+  wireSmsComposer(phone, containerId);
 }
 
 // "איסוף מהיר" על כרטיס לקוח סגור — אותה לוגיקה בדיוק כמו מסך "מצב איסוף"
