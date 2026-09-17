@@ -923,6 +923,9 @@ function maybeShowWelcomeNotice() {
   `);
   document.body.appendChild(backdrop);
   backdrop.querySelector('#welcomeCloseBtn').onclick = () => backdrop.remove();
+  // אפשר לדלג גם בלחיצה מחוץ לחלונית (לא רק על כפתור "סגירה") — זו הודעת
+  // מידע בלבד, לא אישור שחייבים לקרוא לפני שממשיכים.
+  backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
 }
 
 // ============== ניווט: History API — כדי שכפתור "חזרה" בנייד/בדפדפן יעבור
