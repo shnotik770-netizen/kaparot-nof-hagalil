@@ -15,7 +15,8 @@ const DEFAULTS = {
   welcomeNoticeTitle: '',
   welcomeNoticeBody: '',
   sheetsSyncEnabled: true,
-  lateRegistrationPriceNotice: 'שימו לב: זמן החלוקה שנבחר סגור להרשמה רגילה — ייתכן שהמחיר התייקר בעקבות רישום לאחר המועד. ההזמנה תירשם לפי המחיר הנוכחי של הזמן.',
+  lateRegistrationPriceNotice: 'שימו לב: יש זמן חלוקה שנפתח ידנית אחרי סיום זמן הרישום הרגיל — ייתכן שהמחיר התייקר בעקבות כך.',
+  lateRegistrationPriceNoticeEnabled: true,
 };
 
 export async function getSettings() {
@@ -38,9 +39,15 @@ export async function getSettings() {
     // מתג ידני להשהיית הגיבוי התקופתי לגוגל שיטס (ראו sheetsSync.js) — בלי
     // צורך בדפלוי/שינוי משתני סביבה. ברירת מחדל: פעיל.
     sheetsSyncEnabled: map.sheets_sync_enabled == null ? DEFAULTS.sheetsSyncEnabled : map.sheets_sync_enabled === 'true',
-    // מוצגת למנהל בטופס "הזמנה ידנית" כשהזמן שנבחר סגור להרשמה — תזכורת
-    // שהמחיר עשוי להיות שונה מזה שהוצג ללקוחות (ראו נתיב /admin/late-registration-notice).
+    // מוצגת למנהל (בנרד מלמעלה בטאב הזמנות + בטופס "הזמנה ידנית") כשיש זמן
+    // חלוקה שפתוח להרשמה רק בגלל manual_open_override אחרי שזמן הסגירה
+    // הרגיל שלו כבר עבר — תזכורת שהמחיר עשוי להיות שונה מזה שהוצג ללקוחות
+    // לפני הסגירה (ראו נתיב /admin/late-registration-notice).
     lateRegistrationPriceNotice: (map.late_registration_price_notice || '').trim() || DEFAULTS.lateRegistrationPriceNotice,
+    // מתג הפעלה/כיבוי להתראה הזו — לא כל מנהל רוצה לראות אותה.
+    lateRegistrationPriceNoticeEnabled: map.late_registration_price_notice_enabled == null
+      ? DEFAULTS.lateRegistrationPriceNoticeEnabled
+      : map.late_registration_price_notice_enabled === 'true',
   };
 }
 

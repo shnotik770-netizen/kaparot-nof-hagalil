@@ -278,7 +278,7 @@ router.put('/admin/settings', requireAdmin, requirePermission('settings'), wrap(
 // מנהל מחובר, לא רק למי שיש לו הרשאת 'settings' (זו רק תצוגה, לא עריכה).
 router.get('/admin/late-registration-notice', requireAdmin, wrap(async (req, res) => {
   const s = await getSettings();
-  res.json({ text: s.lateRegistrationPriceNotice });
+  res.json({ text: s.lateRegistrationPriceNotice, enabled: s.lateRegistrationPriceNoticeEnabled });
 }));
 
 // ---- ניהול מנהלים (טאב הגדרות) ----
