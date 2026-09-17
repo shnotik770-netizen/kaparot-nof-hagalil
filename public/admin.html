@@ -97,6 +97,28 @@ function customerPaymentPillHtml(c) {
   return `<span class="pill ${c.paymentStatus}${coordinated ? ' coordinated' : ''}">${STATUS_LABEL[c.paymentStatus]}${coordinated ? ' · מתואם' : ''}</span>`;
 }
 const METHOD_LABEL = { nedarim_plus: 'נדרים פלוס', manual_cash: 'מזומן', manual_card: 'אשראי ידני', manual_admin: 'אחר' };
+
+// דוח CSV של כל התשלומים — phonesFilter=null להורדת הכל, או מערך טלפונים
+// (מהסינון הנוכחי בטאב הזמנות) להורדת רק תשלומי הלקוחות שעברו את הסינון.
+async function downloadPaymentsCsv(phonesFilter) {
+  const payments = await api('/admin/payments');
+  const filtered = phonesFilter ? payments.filter((p) => phonesFilter.includes(p.phone)) : payments;
+  const header = ['תאריך', 'הזמנה מס\'', 'שם לקוח', 'טלפון', 'סכום', 'אמצעי', 'נרשם ע"י'];
+  const rows = filtered.map((p) => [
+    new Date(p.createdAt).toLocaleString('he-IL'), p.orderNumber, p.customerName, p.phone,
+    p.amount, METHOD_LABEL[p.method] || p.method, p.recordedBy,
+  ]);
+  const csv = '﻿' + [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `דוח-תשלומים${phonesFilter ? '-מסונן' : ''}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 // סדר המפתחות כאן קובע את סדר הטאבים בתפריט. 'settings' ו'slots' אוחדו
 // לכפתור אחד (ראו renderSettingsTab) — עדיין שתי הרשאות נפרדות, אבל ניווט משותף.
 const TAB_TITLES = { orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', settings: 'הגדרות וזמני חלוקה', actionLog: 'יומן פעולות' };
@@ -2006,23 +2028,23 @@ async function renderOrdersTab() {
     }
   };
 
-  document.getElementById('exportCsvBtn').onclick = async () => {
-    const payments = await api('/admin/payments');
-    const header = ['תאריך', 'הזמנה מס\'', 'שם לקוח', 'טלפון', 'סכום', 'אמצעי', 'נרשם ע"י'];
-    const rows = payments.map((p) => [
-      new Date(p.createdAt).toLocaleString('he-IL'), p.orderNumber, p.customerName, p.phone,
-      p.amount, METHOD_LABEL[p.method] || p.method, p.recordedBy,
-    ]);
-    const csv = '﻿' + [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `דוח-תשלומים-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+  document.getElementById('exportCsvBtn').onclick = () => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="modal">
+        <h3 style="margin:0 0 12px">איזה דוח להוריד?</h3>
+        <button class="primary" id="exportFullBtn" style="margin-bottom:8px">📄 דוח מלא (${customers.length} לקוחות)</button>
+        <button class="secondary" id="exportFilteredBtn">🔍 לפי הסינון הנוכחי (${currentFiltered.length} לקוחות)</button>
+        <button class="ghost" id="exportCancelBtn" style="width:100%;margin-top:12px">ביטול</button>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+    const close = () => backdrop.remove();
+    backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+    document.getElementById('exportCancelBtn').onclick = close;
+    document.getElementById('exportFullBtn').onclick = () => { close(); downloadPaymentsCsv(null); };
+    document.getElementById('exportFilteredBtn').onclick = () => { close(); downloadPaymentsCsv(currentFiltered.map((c) => c.phone)); };
   };
 
   // ---- הוספת הזמנה ידנית ----
