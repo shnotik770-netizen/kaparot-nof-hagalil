@@ -135,17 +135,22 @@ async function fetchSmsLog(url) {
   return data.rows || [];
 }
 
+const SMS_HISTORY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
 /**
  * שרשור התכתבות SMS דו-כיווני מלא (נכנס+יוצא) עם טלפון אחד — לתצוגה
  * בכרטיס הלקוח. משווה מספרים אחרי נירמול (normalizePhone), כי ימות
  * המשיח לא בהכרח מחזיר את אותו פורמט (972.../05.../5...) שבו שמור הלקוח
- * אצלנו.
+ * אצלנו. מוגבל לשבועיים האחרונים בלבד — לא רלוונטי להציג תכתובת ישנה
+ * משנים קודמות (למשל תזכורת OTP מהזמנה קודמת).
  */
 export async function getSmsHistoryForPhone(normalizedPhone) {
   const [incoming, outgoing] = await Promise.all([
     fetchSmsLog(GET_INCOMING_SMS_URL),
     fetchSmsLog(GET_SMS_OUT_LOG_URL),
   ]);
+
+  const cutoff = Date.now() - SMS_HISTORY_WINDOW_MS;
 
   const messages = [
     ...incoming
@@ -154,7 +159,7 @@ export async function getSmsHistoryForPhone(normalizedPhone) {
     ...outgoing
       .filter((row) => normalizePhone(row.To) === normalizedPhone)
       .map((row) => ({ direction: 'outgoing', phone: row.To, message: row.Message, time: row.Time, deliveryStatus: row.DeliveryReport })),
-  ];
+  ].filter((m) => new Date(m.time).getTime() >= cutoff);
 
   messages.sort((a, b) => new Date(a.time) - new Date(b.time));
   return messages;
