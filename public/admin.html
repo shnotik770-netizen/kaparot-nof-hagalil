@@ -58,6 +58,8 @@
   .mini-btn{font-size:12px;font-weight:700;padding:7px 11px;border-radius:20px;background:var(--surface-2);color:var(--ink-dim);border:1px solid var(--line);cursor:pointer;width:auto}
   .mini-btn:hover{background:var(--accent-soft);color:var(--accent-ink)}
   .fully-pill{background:var(--sage-soft);color:var(--sage);font-size:11.5px;font-weight:800;padding:3px 9px;border-radius:999px}
+  .phone-sms-trigger{cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}
+  .phone-sms-trigger:hover{color:var(--accent-ink)}
   .agg-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--line);flex-wrap:wrap}
   .agg-row:first-child{border-top:none}
   .agg-row .agg-label{flex:1 1 140px;min-width:0;font-size:13.5px;font-weight:700}
@@ -782,7 +784,7 @@ function customerCardHtml(c) {
   return `
     <div class="card">
       <div class="order-row-header">
-        <b>${esc(c.customerName)} · ${esc(c.phone)}</b>
+        <b>${esc(c.customerName)} · <span class="phone-sms-trigger" data-cust-sms data-phone="${esc(c.phone)}" title="לחיצה פותחת/סוגרת את התכתבות ה-SMS עם הלקוח">${esc(c.phone)} 💬</span></b>
         <span style="display:flex;gap:6px;align-items:center">
           ${c.fullyRedeemed ? '<span class="fully-pill">✓ נאסף</span>' : ''}
           ${c.unpaidOrdersCount >= 2 ? `<span class="pill unpaid" title="${c.unpaidOrdersCount} הזמנות אינן משולמות במלואן">⚠️ ${c.unpaidOrdersCount} הזמנות לא סגורות</span>` : ''}
@@ -796,7 +798,6 @@ function customerCardHtml(c) {
         <button class="secondary" data-cust-pay data-phone="${esc(c.phone)}">💳 תשלומים</button>
         <button class="secondary" data-cust-redeem data-phone="${esc(c.phone)}">🎟️ איסוף</button>
         <button class="secondary" data-cust-edit data-phone="${esc(c.phone)}">✏️ עריכת הזמנה</button>
-        <button class="secondary" data-cust-sms data-phone="${esc(c.phone)}">💬 התכתבות SMS</button>
       </div>
       <div class="total-row">
         <span>לתשלום ${money(c.totalAmount)}</span>
