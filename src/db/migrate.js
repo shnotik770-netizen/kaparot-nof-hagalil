@@ -14,7 +14,7 @@ async function main() {
 
   const { itemsFixed } = await reconcileRedemptionLog();
   if (itemsFixed > 0) {
-    console.log(`✅ יומן מימושים נוקה: ${itemsFixed} שורות הזמנה תוקנו (מימושים שבוטלו והמשיכו להופיע ביומן).`);
+    console.log(`✅ יומן איסופים נוקה: ${itemsFixed} שורות הזמנה תוקנו (איסופים שבוטלו והמשיכו להופיע ביומן).`);
   }
 
   const { fixedCount, unresolvedCount } = await reconcileOrphanedPayments();

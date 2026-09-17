@@ -8,7 +8,7 @@ const DEFAULTS = {
   orderTitle: 'הרשמה לכפרות',
   orderSubtitle: 'מוסדות חסדי מנחם נוף הגליל',
   deferredPaymentNotice: 'העופות נשמרים בוודאות מוחלטת רק למי ששילם בפועל בשעת ההזמנה.',
-  unpaidBlockMessage: 'עליך לגשת למשרד להסדרת התשלום טרם מימוש ההזמנה.',
+  unpaidBlockMessage: 'עליך לגשת למשרד להסדרת התשלום טרם איסוף ההזמנה.',
   partialPaymentNotice: 'שולם באופן חלקי — ניתן למשוך רק את ההזמנות ששולמו.',
   smsOtpTemplate: 'קוד האימות שלך: {code} (בתוקף ל-10 דקות)',
   closedRegistrationMessage: 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.',

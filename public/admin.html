@@ -260,7 +260,7 @@ async function renderSlotStatusBar() {
       <span class="slot-status-chip" style="border-inline-start-color:${esc(s.color || 'var(--accent)')}">
         <b>${esc(s.name)}</b>
         <span class="pill ${s.isOpenForRegistration ? 'paid' : 'unpaid'}">${s.isOpenForRegistration ? 'פתוח להזמנה' : 'סגור להזמנה'}</span>
-        <span class="pill ${s.isOpenForPickup ? 'paid' : 'unpaid'}">${s.isOpenForPickup ? 'פתוח למימוש' : 'סגור למימוש'}</span>
+        <span class="pill ${s.isOpenForPickup ? 'paid' : 'unpaid'}">${s.isOpenForPickup ? 'פתוח לאיסוף' : 'סגור לאיסוף'}</span>
       </span>
     `).join('');
   } catch {
@@ -275,7 +275,7 @@ async function attemptQuickRedeem(phone, slotId, maleQuantity, femaleQuantity, a
       method: 'POST',
       body: { phone, slotId, maleQuantity, femaleQuantity, allowUnpaid },
     });
-    if (msgBox) msgBox.innerHTML = `<div class="success">מומש בהצלחה: ${result.maleQuantity} זכרים + ${result.femaleQuantity} נקבות מ"${esc(result.slotName)}".</div>`;
+    if (msgBox) msgBox.innerHTML = `<div class="success">נאסף בהצלחה: ${result.maleQuantity} זכרים + ${result.femaleQuantity} נקבות מ"${esc(result.slotName)}".</div>`;
     if (onDone) onDone();
   } catch (err) {
     if (err.data?.paymentBlocked) {
@@ -608,10 +608,10 @@ function slotFormHtml(prefix, s) {
         <input type="number" min="0" step="1" id="${prefix}PriceFemale" value="${s.priceFemale ?? ''}">
       </div>
     </div>
-    <label>צבע לזיהוי (כרטיס המימוש)</label>
+    <label>צבע לזיהוי (כרטיס האיסוף)</label>
     <div class="colorpick">
       <input type="color" id="${prefix}Color" value="${esc(s.color || '#a5741f')}">
-      <span class="inline-hint">מוצג במסך "מימוש והצגה למחלק העופות"</span>
+      <span class="inline-hint">מוצג במסך "איסוף והצגה למחלק העופות"</span>
     </div>
     <label>זמן סגירת הרשמה</label>
     <input type="datetime-local" id="${prefix}CloseAt" value="${toLocalDatetimeInputValue(s.registrationCloseAt)}">
@@ -784,7 +784,7 @@ function customerCardHtml(c) {
       <div class="order-row-header">
         <b>${esc(c.customerName)} · ${esc(c.phone)}</b>
         <span style="display:flex;gap:6px;align-items:center">
-          ${c.fullyRedeemed ? '<span class="fully-pill">✓ מומש</span>' : ''}
+          ${c.fullyRedeemed ? '<span class="fully-pill">✓ נאסף</span>' : ''}
           ${c.unpaidOrdersCount >= 2 ? `<span class="pill unpaid" title="${c.unpaidOrdersCount} הזמנות אינן משולמות במלואן">⚠️ ${c.unpaidOrdersCount} הזמנות לא סגורות</span>` : ''}
           ${customerPaymentPillHtml(c)}
         </span>
@@ -794,7 +794,7 @@ function customerCardHtml(c) {
       <div class="grid4" style="margin-top:10px">
         <button class="secondary" data-cust-view data-phone="${esc(c.phone)}">📋 הצג פירוט</button>
         <button class="secondary" data-cust-pay data-phone="${esc(c.phone)}">💳 תשלומים</button>
-        <button class="secondary" data-cust-redeem data-phone="${esc(c.phone)}">🎟️ מימוש</button>
+        <button class="secondary" data-cust-redeem data-phone="${esc(c.phone)}">🎟️ איסוף</button>
         <button class="secondary" data-cust-edit data-phone="${esc(c.phone)}">✏️ עריכת הזמנה</button>
       </div>
       <div class="total-row">
@@ -810,9 +810,9 @@ function customerCardHtml(c) {
   `;
 }
 
-// "מימוש מהיר" על כרטיס לקוח סגור — אותה לוגיקה בדיוק כמו מסך "מצב מימוש"
+// "איסוף מהיר" על כרטיס לקוח סגור — אותה לוגיקה בדיוק כמו מסך "מצב איסוף"
 // המלא (status + attemptQuickRedeem), רק שמוצג בתוך הכרטיס עצמו, ומאפשר גם
-// "מימוש הכל" בלחיצה אחת על כל הפריטים הזמינים של הלקוח.
+// "איסוף הכל" בלחיצה אחת על כל הפריטים הזמינים של הלקוח.
 async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true } = {}) {
   const box = document.getElementById(containerId);
   if (!box) return;
@@ -869,8 +869,8 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
   }
 
   box.innerHTML = `
-    ${!groups.size ? `<p class="hint">אין פריטים זמינים למימוש כרגע עבור לקוח זה.</p>` : ''}
-    ${groups.size > 1 ? `<button type="button" class="primary" style="margin-bottom:10px" id="${prefix}-redeemAll">מימוש הכל (כל הפריטים הזמינים)</button>` : ''}
+    ${!groups.size ? `<p class="hint">אין פריטים זמינים לאיסוף כרגע עבור לקוח זה.</p>` : ''}
+    ${groups.size > 1 ? `<button type="button" class="primary" style="margin-bottom:10px" id="${prefix}-redeemAll">איסוף הכל (כל הפריטים הזמינים)</button>` : ''}
     ${[...groups.values()].map((g) => `
       <div class="card redeem-group-card" style="border-inline-start-color:${esc(g.slotColor)}">
         <div class="order-row-header">
@@ -881,11 +881,11 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
         ${genderLineHtml(g, 'female')}
         <div class="spacer"></div>
         <div id="${prefix}-msg-${g.slotId}"></div>
-        <button type="button" class="primary" data-cqconfirm="${g.slotId}">מימוש</button>
+        <button type="button" class="primary" data-cqconfirm="${g.slotId}">איסוף</button>
       </div>
     `).join('')}
     ${historyItems.length ? `
-      <h3 style="margin:18px 0 8px;font-size:14px">היסטוריית מימושים ועריכה</h3>
+      <h3 style="margin:18px 0 8px;font-size:14px">היסטוריית איסופים ועריכה</h3>
       ${historyItems.map((it) => `
         <div class="item-row" style="flex-wrap:wrap;gap:8px">
           <span>${esc(it.slotName)} · ${GENDER_LABEL[it.gender]} · הוזמנו ${it.quantity}</span>
@@ -893,13 +893,13 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
             <span class="meta">נמשך בפועל:</span>
             <input type="number" min="0" max="${it.quantity}" value="${it.quantityRedeemed}" id="${prefix}-hist-${it.id}" style="width:70px">
             <button type="button" class="ghost" data-hist-save="${it.id}">שמירה</button>
-            <button type="button" class="ghost" data-hist-cancel="${it.id}" style="color:var(--wine)" ${it.quantityRedeemed === 0 ? 'disabled' : ''}>ביטול מימוש</button>
+            <button type="button" class="ghost" data-hist-cancel="${it.id}" style="color:var(--wine)" ${it.quantityRedeemed === 0 ? 'disabled' : ''}>ביטול איסוף</button>
           </span>
         </div>
       `).join('')}
     ` : ''}
     ${redemptionLog && redemptionLog.length ? `
-      <h3 style="margin:18px 0 8px;font-size:14px">יומן מימושים מפורט (תאריך ושעה)</h3>
+      <h3 style="margin:18px 0 8px;font-size:14px">יומן איסופים מפורט (תאריך ושעה)</h3>
       ${redemptionLog.map((r) => `
         <div class="item-row" style="flex-wrap:wrap;gap:8px">
           <span>${esc(r.slotName)} · ${GENDER_LABEL[r.gender]} × ${r.quantity}</span>
@@ -925,7 +925,7 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
   box.querySelectorAll('[data-hist-cancel]').forEach((b) => {
     b.onclick = async () => {
       const itemId = b.dataset.histCancel;
-      if (!confirm('לבטל את המימוש של שורה זו? הכמות שנמשכה עבורה תאופס ל-0.')) return;
+      if (!confirm('לבטל את האיסוף של שורה זו? הכמות שנמשכה עבורה תאופס ל-0.')) return;
       try {
         await api(`/admin/order-items/${itemId}/redeemed`, { method: 'PUT', body: { quantityRedeemed: 0 } });
         refreshCustomerCard(phone, { keepRedeemOpen: true });
@@ -1071,7 +1071,7 @@ function customerPaymentsPanelHtml(c) {
       const openOrders = c.orders.filter((o) => o.paymentStatus !== 'paid');
       const allCoordinated = openOrders.every((o) => o.paymentCoordinated);
       return `
-        <h3 style="margin:16px 0 8px;font-size:14px">תיאום תשלום (ננעל מעריכה עצמית של הלקוח, לא משנה יתרה/מימוש)</h3>
+        <h3 style="margin:16px 0 8px;font-size:14px">תיאום תשלום (ננעל מעריכה עצמית של הלקוח, לא משנה יתרה/איסוף)</h3>
         <p class="hint" style="margin:0 0 8px">חל על כל ${openOrders.length} ההזמנות הפתוחות של הלקוח יחד: ${openOrders.map((o) => `הזמנה ${o.orderSequence}${o.paymentCoordinated ? ' ✅' : ''}`).join(', ')}</p>
         <button type="button" class="ghost" data-coord-toggle-all data-coord-current="${allCoordinated ? '1' : '0'}">
           ${allCoordinated ? 'ביטול תיאום לכל ההזמנות' : 'סמן את כל ההזמנות כתואמות תשלום'}
@@ -1192,7 +1192,7 @@ async function wireCustomerPaymentsPanel(c) {
 }
 
 // "עריכת הזמנה" — עריכת כמויות מסוכמת + מבנה ההזמנות (למחיקת שורה/הזמנה
-// בלבד). לא כולל תשלומים (ראו תשלומים) ולא עריכת "נמשך בפועל" (ראו מימוש).
+// בלבד). לא כולל תשלומים (ראו תשלומים) ולא עריכת "נמשך בפועל" (ראו איסוף).
 function customerPanelHtml(c) {
   const pid = panelSafeId(c.phone);
   return `
@@ -1366,7 +1366,7 @@ async function wireCustomerPanel(c, refetch) {
   });
 }
 
-// מחברת את ארבעת הכפתורים ברמת הכרטיס (הצג פירוט / תשלומים / מימוש /
+// מחברת את ארבעת הכפתורים ברמת הכרטיס (הצג פירוט / תשלומים / איסוף /
 // עריכת הזמנה) + הסתרת התראת תשלום, בתוך root נתון — עובד גם על כל
 // הרשימה (renderList) וגם על כרטיס בודד (refreshCustomerCard), כי כל
 // כפתור נושא את data-phone של עצמו.
@@ -1547,9 +1547,9 @@ function wireMultiSelectDropdown(containerId, checkboxSelector, onChange) {
   }
 }
 
-// ============== מימוש מהיר ליום החלוקה — בתוך טאב ההזמנות בלבד ==============
+// ============== איסוף מהיר ליום החלוקה — בתוך טאב ההזמנות בלבד ==============
 // מסך מצומצם: בלי כפתורי סינון/הזמנה חדשה, רק חיפוש חופשי, ורשימת לקוחות
-// שיש להם עוד כמות למימוש בזמן החלוקה הפתוח כרגע. שולם → פאנל המימוש המהיר
+// שיש להם עוד כמות לאיסוף בזמן החלוקה הפתוח כרגע. שולם → פאנל האיסוף המהיר
 // פתוח אוטומטית; לא שולם → כפתור "תשלום" בלבד.
 
 let quickEventModeOn = false;
@@ -1634,7 +1634,7 @@ function wireQuickEventCard(container, c) {
   }
 }
 
-// טוענים את פאנלי המימוש המהיר (בקשת רשת לכל לקוח ששילם) בקבוצות קטנות,
+// טוענים את פאנלי האיסוף המהיר (בקשת רשת לכל לקוח ששילם) בקבוצות קטנות,
 // לא את כולם בבת אחת — ביום החלוקה זה בדיוק הרגע שגם לקוחות מממשים בעצמם
 // דרך הקיוסק/האזור האישי, ופרץ של עשרות בקשות מקבילות מהמנהל בפתיחת המסך
 // רק מתחרה על אותו דאטהבייס בזמן הכי עמוס.
@@ -1642,7 +1642,7 @@ async function renderQuickEventList(list) {
   const wrap = document.getElementById('quickEventListWrap');
   wrap.innerHTML = list.length
     ? list.map((c) => `<div id="custcard-${panelSafeId(c.phone)}">${quickEventCardHtml(c)}</div>`).join('')
-    : `<div class="card"><p class="hint">אין כרגע לקוחות עם כמות זמינה למימוש בזמן החלוקה הפתוח.</p></div>`;
+    : `<div class="card"><p class="hint">אין כרגע לקוחות עם כמות זמינה לאיסוף בזמן החלוקה הפתוח.</p></div>`;
 
   const paid = [];
   for (const c of list) {
@@ -1659,9 +1659,9 @@ async function renderQuickEventList(list) {
 }
 
 // חיפוש חי בדיוק כמו בתצוגה הרגילה: כל הכרטיסים כבר מרונדרים (עם פאנל
-// המימוש המהיר טעון פעם אחת לכל לקוח ששילם) — הקלדה רק מציגה/מסתירה
+// האיסוף המהיר טעון פעם אחת לכל לקוח ששילם) — הקלדה רק מציגה/מסתירה
 // כרטיסים קיימים לפי טקסט, בלי לבנות מחדש את הרשימה ובלי לטעון מחדש את
-// המימוש המהיר על כל הקשת מקש (מה שהיה מהביל ואיטי).
+// האיסוף המהיר על כל הקשת מקש (מה שהיה מהביל ואיטי).
 function filterQuickEventList(list, query) {
   const q = query.trim().toLowerCase();
   let visibleCount = 0;
@@ -1684,8 +1684,8 @@ function renderQuickEventModeScreen(customers, slots) {
     <div class="card" style="background:var(--sage-soft);border-color:var(--sage)">
       <div class="tab-header-row">
         <div>
-          <h2 style="margin:0">🎟️ מימוש מהיר ליום החלוקה</h2>
-          <p class="hint" style="margin:4px 0 0">${redeemable.length} לקוחות עם כמות זמינה למימוש בזמן החלוקה הפתוח כרגע.</p>
+          <h2 style="margin:0">🎟️ איסוף מהיר ליום החלוקה</h2>
+          <p class="hint" style="margin:4px 0 0">${redeemable.length} לקוחות עם כמות זמינה לאיסוף בזמן החלוקה הפתוח כרגע.</p>
         </div>
         <button class="mini-btn" id="quickEventBack">🔙 חזרה לתצוגה הרגילה</button>
       </div>
@@ -1718,7 +1718,7 @@ async function renderOrdersTab() {
 
   // אילו אמצעי תשלום שימשו את הלקוח בפועל (לפחות תשלום אחד) — לסינון "אופן
   // תשלום". לקוח יכול להופיע במספר אמצעים (למשל שילם חלק במזומן וחלק באשראי).
-  // נטען רק כאן (לא במסך מימוש יום החלוקה) כדי לא להעמיס בקשת רשת נוספת
+  // נטען רק כאן (לא במסך איסוף יום החלוקה) כדי לא להעמיס בקשת רשת נוספת
   // בדיוק ברגע העומס הכי גבוה.
   const payments = await api('/admin/payments');
   const paymentMethodsByPhone = new Map();
@@ -1738,7 +1738,7 @@ async function renderOrdersTab() {
           <button class="mini-btn" id="exportCsvBtn" title="ייצוא דוח תשלומים (CSV)">📄 דוח</button>
           <button class="mini-btn" id="toggleBulkSms" title="שליחת סמס לקבוצה המסוננת">✉️ סמס</button>
           <button class="mini-btn" id="toggleAddOrder" title="הוספת הזמנה ידנית">➕ הזמנה ידנית</button>
-          <button class="mini-btn" id="toggleQuickEventMode" title="מימוש מהיר ליום החלוקה">🎟️ מימוש יום החלוקה</button>
+          <button class="mini-btn" id="toggleQuickEventMode" title="איסוף מהיר ליום החלוקה">🎟️ איסוף יום החלוקה</button>
         </div>
       </div>
       <label for="orderSearch">חיפוש לפי שם או טלפון</label>
@@ -1756,10 +1756,10 @@ async function renderOrdersTab() {
           </div>
         </div>
         <div class="multiselect" id="msRedeemed">
-          <button type="button" class="multiselect-btn" data-ms-toggle>סטטוס מימוש <span class="ms-count" data-ms-count></span></button>
+          <button type="button" class="multiselect-btn" data-ms-toggle>סטטוס איסוף <span class="ms-count" data-ms-count></span></button>
           <div class="multiselect-panel" hidden>
-            <label><input type="checkbox" class="filterRedeemedCheck" value="full" checked> מומש במלואו</label>
-            <label><input type="checkbox" class="filterRedeemedCheck" value="partial" checked> לא מומש במלואו</label>
+            <label><input type="checkbox" class="filterRedeemedCheck" value="full" checked> נאסף במלואו</label>
+            <label><input type="checkbox" class="filterRedeemedCheck" value="partial" checked> לא נאסף במלואו</label>
           </div>
         </div>
         <div class="multiselect" id="msSlot">
@@ -1829,10 +1829,10 @@ async function renderOrdersTab() {
     }
   }
 
-  // "מומש במלואו" ביחס לזמני החלוקה המסוננים כרגע (לא ביחס לכל ההזמנות של
-  // הלקוח): כשמסנן זמן חלוקה פעיל, בודקים מימוש רק מול הפריטים בזמני
+  // "נאסף במלואו" ביחס לזמני החלוקה המסוננים כרגע (לא ביחס לכל ההזמנות של
+  // הלקוח): כשמסנן זמן חלוקה פעיל, בודקים איסוף רק מול הפריטים בזמני
   // החלוקה שנשארו מסומנים — כדי שמי שמימש במלואו ביום חמישי אך טרם הגיע
-  // ביום ראשון לא ייחשב "לא מומש" כשהמסנן מוגבל ליום חמישי בלבד.
+  // ביום ראשון לא ייחשב "לא נאסף" כשהמסנן מוגבל ליום חמישי בלבד.
   function isFullyRedeemedForSlots(c, checkedSlots, slotFilterActive) {
     const relevant = slotFilterActive ? c.bySlot.filter((s) => checkedSlots.includes(String(s.slotId))) : c.bySlot;
     if (!relevant.length) return c.fullyRedeemed;
@@ -2093,7 +2093,7 @@ function bucketRangeLabel(bucketStartDate) {
 
 // ממלא את הדילוגים בין ה-buckets שהתקבלו מהשרת (אין רשומה = 0 עופות באותו
 // חלון 10 דקות) כדי שהגרף יראה רצף אחיד לפי שעון-קיר, מהחלון הראשון שבו
-// היה מימוש ועד האחרון (5:30-5:39, 5:40-5:49 וכו').
+// היה איסוף ועד האחרון (5:30-5:39, 5:40-5:49 וכו').
 function denseRedemptionBuckets(buckets) {
   if (!buckets.length) return [];
   const times = buckets.map((b) => new Date(b.bucketStart).getTime());
@@ -2140,11 +2140,11 @@ async function renderDashboardTab() {
         ${barChartHtml(stats.ordersByDate.map((r) => ({ label: formatChartDate(r.date), value: r.total })))}
       </div>
       <div class="card">
-        <h2>ציר זמן מימושים (עופות שנמשכו, בקפיצות של 10 דקות מתחילת המימוש)</h2>
+        <h2>ציר זמן איסופים (עופות שנמשכו, בקפיצות של 10 דקות מתחילת האיסוף)</h2>
         ${stats.redemptionTimeline.length ? stats.redemptionTimeline.map((s) => `
           <h3 style="margin:16px 0 8px;font-size:14px;border-inline-start:3px solid ${esc(s.slotColor)};padding-inline-start:8px">${esc(s.slotName)}</h3>
           ${barChartHtml(denseRedemptionBuckets(s.buckets), s.slotColor)}
-        `).join('') : `<p class="chart-empty">עדיין לא בוצעו מימושים.</p>`}
+        `).join('') : `<p class="chart-empty">עדיין לא בוצעו איסופים.</p>`}
       </div>
       <div class="card">
         <h2>סה"כ שולם בפועל</h2>
@@ -2185,12 +2185,13 @@ const ACTION_LABELS = {
   payment_received_nedarim_ivr: 'תשלום התקבל (נדרים פלוס, שלוחה טלפונית)',
   ivr_payment_orphaned: '⚠️ תשלום טלפוני התקבל אך ההזמנה לא נשמרה — דורש בדיקה ידנית',
   payment_client_confirmed: 'תשלום אושר לפי הדפדפן (טרם אומת Webhook)',
-  redemption_confirmed: 'מימוש עופות',
-  redemption_manual_override: 'מימוש עודכן ידנית ע"י מנהל',
+  redemption_confirmed: 'איסוף עופות',
+  redemption_manual_override: 'איסוף עודכן ידנית ע"י מנהל',
   order_item_edited: 'שורת הזמנה עודכנה',
   order_item_deleted: 'שורת הזמנה נמחקה',
   order_deleted: 'הזמנה נמחקה',
   payments_reassigned_from_deleted_order: 'תשלומים הועברו מהזמנה שנמחקה להזמנה פעילה',
+  payment_reassign_failed_no_active_order: '⚠️ תשלום נתקע על הזמנה שנמחקה — ללקוח אין הזמנה פעילה להעביר אליה, דורש בדיקה ידנית',
   order_cancelled_by_customer: 'הזמנה בוטלה ע"י הלקוח (לא שולם)',
   payment_coordinated_set: 'סטטוס "תיאום תשלום" עודכן',
   sms_bulk_sent: 'סמס קבוצתי נשלח',
@@ -2237,6 +2238,8 @@ function actionSummaryHtml(a) {
       return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ע"י ${esc(d.adminName || '')}`;
     case 'payments_reassigned_from_deleted_order':
       return `<span style="color:var(--sage)">הזמנה #${d.fromOrderId ?? ''} ← הזמנה #${d.toOrderId ?? ''} · ${money(d.totalAmount || 0)} (${(d.paymentIds || []).length} תשלומים) · ${esc(d.adminName || '')}</span>`;
+    case 'payment_reassign_failed_no_active_order':
+      return `<span style="color:var(--wine)">${esc(d.customerName || '')} · ${esc(d.phone || '')} · ${money(d.totalAmount || 0)} נתקעו על הזמנה #${d.fromOrderId ?? ''} שנמחקה, אין ללקוח הזמנה פעילה אחרת</span>`;
     case 'order_cancelled_by_customer':
       return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ${esc(d.phone || '')}`;
     case 'payment_coordinated_set':

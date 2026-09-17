@@ -93,7 +93,7 @@ export async function getIvrRegistrationSlots() {
   return open.filter((s) => s.ivrCode && s.ivrAnnouncement).sort((a, b) => a.ivrCode.localeCompare(b.ivrCode));
 }
 
-/** רק זמנים פתוחים בפועל לאספקה (משיכה) כרגע — לתג "החלוקה פתוחה" ולכפתור "מימוש הזמנה". */
+/** רק זמנים פתוחים בפועל לאספקה (משיכה) כרגע — לתג "החלוקה פתוחה" ולכפתור "איסוף הזמנה". */
 export async function getOpenSlotsForPickup() {
   const all = await getAllSlots();
   return all.filter((s) => s.isOpenForPickup);

@@ -187,6 +187,7 @@ export async function updateOrderItemQuantity(orderId, itemId, newQuantity, admi
 async function reassignOrphanedPayments(client, orderId, normalizedPhone, adminName) {
   const { rows: payments } = await client.query(`SELECT id, amount FROM payments WHERE order_id = $1`, [orderId]);
   if (!payments.length) return { moved: false };
+  const totalAmount = payments.reduce((s, p) => s + Number(p.amount), 0);
 
   const { rows: candidates } = await client.query(
     `SELECT o.id
@@ -198,11 +199,18 @@ async function reassignOrphanedPayments(client, orderId, normalizedPhone, adminN
     [normalizedPhone, orderId]
   );
   if (!candidates.length) {
-    return { moved: false, reason: 'no_active_orders', orphanedAmount: payments.reduce((s, p) => s + Number(p.amount), 0) };
+    // אין לאן להעביר — ללקוח אין אף הזמנה פעילה אחרת. נרשם ביומן הפעולות
+    // (בסגנון ivr_payment_orphaned) כדי שהמנהל יראה את זה ולא רק בלוג
+    // הדיפלוי החד-פעמי, שאף אחד לא רואה אחרי שהוא גולל.
+    const { rows: orderRow } = await client.query(`SELECT customer_name, phone FROM orders WHERE id = $1`, [orderId]);
+    await logAction('payment_reassign_failed_no_active_order', {
+      fromOrderId: orderId, customerName: orderRow[0]?.customer_name, phone: orderRow[0]?.phone,
+      paymentIds: payments.map((p) => p.id), totalAmount, adminName,
+    }, client);
+    return { moved: false, reason: 'no_active_orders', orphanedAmount: totalAmount };
   }
   const targetOrderId = candidates[0].id;
   await client.query(`UPDATE payments SET order_id = $1 WHERE order_id = $2`, [targetOrderId, orderId]);
-  const totalAmount = payments.reduce((s, p) => s + Number(p.amount), 0);
   await logAction('payments_reassigned_from_deleted_order', {
     fromOrderId: orderId, toOrderId: targetOrderId, paymentIds: payments.map((p) => p.id), totalAmount, adminName,
   }, client);
@@ -339,7 +347,7 @@ export async function setCustomerPaymentCoordinated(normalizedPhone, coordinated
 
 // מוריד `excess` מיומן המשיכות (redemptions) של שורת הזמנה נתונה, מהאירועים
 // העדכניים ביותר קודם (LIFO), כולל פיצול אירוע חלקית אם צריך. משמש גם
-// כשמנהל מבטל/מקטין מימוש (setItemRedeemedQuantity) וגם בניקוי חד-פעמי של
+// כשמנהל מבטל/מקטין איסוף (setItemRedeemedQuantity) וגם בניקוי חד-פעמי של
 // רשומות שנשארו תקועות מלפני שהתיקון הזה נכתב (ראו reconcileRedemptionLog).
 async function trimRedemptionLog(client, itemId, excess) {
   let remaining = excess;
@@ -360,7 +368,7 @@ async function trimRedemptionLog(client, itemId, excess) {
 }
 
 /**
- * "מצב מימוש" ידני ע"י מנהל: קובע ישירות כמה נמשכו בפועל משורת הזמנה, בלי
+ * "מצב איסוף" ידני ע"י מנהל: קובע ישירות כמה נמשכו בפועל משורת הזמנה, בלי
  * לעבור דרך שערי התשלום/פתיחת-הזמן הרגילים (למשל תיקון טעות, או משיכה
  * שתועדה טלפונית). גידול נרשם גם ב-redemptions (אירוע משיכה אמיתי); הקטנה
  * (תיקון) לא — זו לא "משיכה", רק תיקון של הספירה, ונרשמת ביומן הפעולות בלבד.
@@ -393,7 +401,7 @@ export async function setItemRedeemedQuantity(itemId, quantityRedeemed, adminNam
         [itemId, delta, adminName]
       );
     } else if (delta < 0) {
-      // תיקון-כלפי-מטה (כולל ביטול מימוש מלא): מורידים בהתאם את יומן
+      // תיקון-כלפי-מטה (כולל ביטול איסוף מלא): מורידים בהתאם את יומן
       // המשיכות (redemptions) עצמו — אחרת אירועי משיכה שבוטלו/תוקנו ימשיכו
       // להופיע לנצח בדוחות המבוססים על היומן (ציר הזמן בדשבורד), למרות
       // שבפועל אין להם כיסוי ב-quantity_redeemed.
@@ -408,8 +416,8 @@ export async function setItemRedeemedQuantity(itemId, quantityRedeemed, adminNam
 
 /**
  * ניקוי חד-פעמי (אך בטוח להרצה חוזרת — idempotent): לפני שנכתב הטיפול ב-
- * trimRedemptionLog למעלה, ביטול/הקטנת מימוש לא הוריד רשומות מיומן
- * redemptions, כך שמימושי-ניסיון שבוטלו נשארו רשומים שם לנצח והמשיכו
+ * trimRedemptionLog למעלה, ביטול/הקטנת איסוף לא הוריד רשומות מיומן
+ * redemptions, כך שאיסופי-ניסיון שבוטלו נשארו רשומים שם לנצח והמשיכו
  * להופיע בציר הזמן בדשבורד. מאתר כל שורת הזמנה שבה סכום היומן גדול
  * מהכמות שבאמת נמשכה כרגע, ומקצץ את העודף (LIFO) כדי שהיומן יתאים למצב
  * בפועל. רץ אוטומטית בכל דיפלוי (ראו migrate.js) — אחרי הריצה הראשונה
@@ -510,7 +518,7 @@ export async function getDashboardStats() {
       ORDER BY date`
   );
 
-  // ציר זמן מימושים: עופות שנמשכו בפועל, בקפיצות של 10 דקות לפי שעון-קיר
+  // ציר זמן איסופים: עופות שנמשכו בפועל, בקפיצות של 10 דקות לפי שעון-קיר
   // (5:30-5:39, 5:40-5:49...) — ציר נפרד לכל חלוקה. floor לפי epoch (UTC) נותן
   // בדיוק את אותה רשת 10-דקות כמו floor לפי שעון ישראל, כי ההפרש בין
   // האזורים הוא תמיד כפולה של שעות שלמות (=כפולה של 10 דקות).
