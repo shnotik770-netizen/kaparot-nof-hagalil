@@ -184,6 +184,66 @@ function nameMatchesSmartSearch(name, query) {
   if (!queryTokens.length) return true;
   return queryTokens.every((qt) => nameTokens.some((nt) => nt.includes(qt)));
 }
+
+// מיפוי הזמנה בודדת לקטגוריית "סטטוס תשלום" לצורך הסינון בטאב הזמנות.
+// לקוח נחשב תואם-לסינון אם יש לו לפחות הזמנה אחת שמתאימה לאחת הקטגוריות
+// המסומנות — בכוונה שיש חפיפה בין 'coordinated' ל-'partial_coordinated'
+// (הזמנה ששולמה חלקית ותואמה מתאימה לשתיהן), בדיוק כמו שהתבקש.
+function orderMatchesPaidCategory(o, cat) {
+  switch (cat) {
+    case 'paid': return o.paymentStatus === 'paid';
+    case 'coordinated': return !!o.paymentCoordinated && o.paymentStatus !== 'paid';
+    case 'unpaid_none': return o.paymentStatus === 'unpaid' && !o.paymentCoordinated;
+    case 'partial_coordinated': return o.paymentStatus === 'partial' && !!o.paymentCoordinated;
+    case 'partial_open': return o.paymentStatus === 'partial' && !o.paymentCoordinated;
+    case 'credit': return o.balanceDue < 0;
+    default: return false;
+  }
+}
+
+// "נאסף במלואו" ביחס לזמני החלוקה המסוננים כרגע (לא ביחס לכל ההזמנות של
+// הלקוח): כשמסנן זמן חלוקה פעיל, בודקים איסוף רק מול הפריטים בזמני
+// החלוקה שנשארו מסומנים — כדי שמי שמימש במלואו ביום חמישי אך טרם הגיע
+// ביום ראשון לא ייחשב "לא נאסף" כשהמסנן מוגבל ליום חמישי בלבד.
+function isFullyRedeemedForSlots(c, checkedSlots, slotFilterActive) {
+  const relevant = slotFilterActive ? c.bySlot.filter((s) => checkedSlots.includes(String(s.slotId))) : c.bySlot;
+  if (!relevant.length) return c.fullyRedeemed;
+  return relevant.every((s) => s.maleRedeemed >= s.male && s.femaleRedeemed >= s.female);
+}
+
+// בודק אם לקוח עדיין תואם לסינון הפעיל כרגע בטאב הזמנות, לפי מצב הצ'קבוקסים/
+// חיפוש החי ב-DOM כרגע — משמש ב-refreshCustomerCard כדי להסתיר כרטיס לקוח
+// אחרי רענון נקודתי שגרם לו לצאת מהסינון (למשל: נאסף במלואו וסטטוס האיסוף
+// המסונן הוא "לא נאסף במלואו"). מחזיר true (=לא להסתיר) כשלא בטאב הזמנות
+// כרגע, כי אין סינון רלוונטי להחיל.
+function customerMatchesActiveOrdersFilter(c) {
+  const searchEl = document.getElementById('orderSearch');
+  if (!searchEl) return true;
+  const q = searchEl.value.trim().toLowerCase();
+  if (q && !nameMatchesSmartSearch(c.customerName, q) && !c.phone.includes(q)) return false;
+
+  const allPaidChecks = document.querySelectorAll('.filterPaidCheck');
+  const paidFilters = [...allPaidChecks].filter((cb) => cb.checked).map((cb) => cb.value);
+  if (!c.orders.some((o) => paidFilters.some((cat) => orderMatchesPaidCategory(o, cat)))) return false;
+
+  const allSlotChecks = document.querySelectorAll('.filterSlotCheck');
+  const checkedSlots = [...allSlotChecks].filter((cb) => cb.checked).map((cb) => cb.value);
+  const slotFilterActive = checkedSlots.length < allSlotChecks.length;
+  if (slotFilterActive && !c.bySlot.some((s) => checkedSlots.includes(String(s.slotId)))) return false;
+
+  const allRedeemedChecks = document.querySelectorAll('.filterRedeemedCheck');
+  const redeemedFilters = [...allRedeemedChecks].filter((cb) => cb.checked).map((cb) => cb.value);
+  const fullyRedeemed = isFullyRedeemedForSlots(c, checkedSlots, slotFilterActive);
+  if (!(fullyRedeemed ? redeemedFilters.includes('full') : redeemedFilters.includes('partial'))) return false;
+
+  const allMethodChecks = document.querySelectorAll('.filterMethodCheck');
+  const methodFilters = [...allMethodChecks].filter((cb) => cb.checked).map((cb) => cb.value);
+  if (methodFilters.length < allMethodChecks.length) {
+    const usedMethods = paymentMethodsByPhoneCache.get(c.phone);
+    if (!usedMethods || !methodFilters.some((m) => usedMethods.has(m))) return false;
+  }
+  return true;
+}
 // תצוגת תוצאות קריאות בדיקה חופשיות לימות המשיח: לכל שורה — מה נשלח
 // (בלי token) ומה חזר, כולל קוד HTTP.
 function yemotResultsHtml(results) {
@@ -990,7 +1050,7 @@ async function loadCustomerQuickRedeem(phone, containerId, { showHistory = true 
 
   box.innerHTML = `
     ${!groups.size ? `<p class="hint">אין פריטים זמינים לאיסוף כרגע עבור לקוח זה.</p>` : ''}
-    ${groups.size > 1 ? `<button type="button" class="primary" style="margin-bottom:10px" id="${prefix}-redeemAll">איסוף הכל (כל הפריטים הזמינים)</button>` : ''}
+    ${groups.size >= 1 ? `<button type="button" class="primary" style="margin-bottom:10px;background:var(--sage)" id="${prefix}-redeemAll">איסוף הכל (כל הפריטים הזמינים, בלחיצה אחת)</button>` : ''}
     ${[...groups.values()].map((g) => `
       <div class="card redeem-group-card" style="border-inline-start-color:${esc(g.slotColor)}">
         <div class="order-row-header">
@@ -1631,6 +1691,9 @@ async function refreshCustomerCard(phone, { keepViewOpen = false, keepPayOpen = 
 
   if (!container) { return renderOrdersTab(); }
   if (!c) { container.remove(); return; }
+  // הלקוח כבר לא תואם לסינון הפעיל (למשל: נאסף במלואו והמסנן מציג רק
+  // "לא נאסף במלואו") — מסתירים אותו במקום לעדכן כרטיס שלא אמור להיות מוצג.
+  if (!customerMatchesActiveOrdersFilter(c)) { container.remove(); return; }
 
   container.innerHTML = customerCardHtml(c);
   wireCustomerCardButtons(container);
@@ -1664,6 +1727,15 @@ let allCustomersCache = [];
 let allSlotsForFilter = [];
 let multiSelectOutsideClickWired = false;
 let lastOrdersHeaderState = null;
+// מצב הסינון בטאב הזמנות (חיפוש + צ'קבוקסים) — נשמר כאן כדי לשרוד קריאות
+// חוזרות ל-renderOrdersTab (למשל אחרי רישום הזמנה ידנית), שבלעדי זה היו
+// מאתחלות את הכל מחדש ל"בלי סינון" בכל פעם. ריק/סטים ריקים = בלי סינון.
+let ordersFilterState = { search: '', uncheckedPaid: new Set(), uncheckedRedeemed: new Set(), uncheckedSlots: new Set(), uncheckedMethods: new Set() };
+// תמונת-מצב של אמצעי התשלום פר-לקוח (לסינון "אופן תשלום") — מתעדכנת בכל
+// renderOrdersTab; refreshCustomerCard משתמש בה (עלולה להיות מעט לא-עדכנית
+// בין רענון מלא לרענון נקודתי, אבל זה לא רלוונטי לתרחיש שבשבילו זה קיים:
+// הסתרת לקוח שסטטוס האיסוף/תשלום שלו השתנה מייד אחרי פעולה).
+let paymentMethodsByPhoneCache = new Map();
 
 // מעדכן את "לקוחות (X)" שבראש טאב ההזמנות — כשמסנן פעיל, מציג "X מתוך Y"
 // (X מסוננים מתוך Y סה"כ) במקום רק את המספר הכולל.
@@ -1882,11 +1954,15 @@ async function renderOrdersTab() {
   // נטען רק כאן (לא במסך איסוף יום החלוקה) כדי לא להעמיס בקשת רשת נוספת
   // בדיוק ברגע העומס הכי גבוה.
   const payments = await api('/admin/payments');
-  const paymentMethodsByPhone = new Map();
+  paymentMethodsByPhoneCache = new Map();
   payments.forEach((p) => {
-    if (!paymentMethodsByPhone.has(p.phone)) paymentMethodsByPhone.set(p.phone, new Set());
-    paymentMethodsByPhone.get(p.phone).add(p.method);
+    if (!paymentMethodsByPhoneCache.has(p.phone)) paymentMethodsByPhoneCache.set(p.phone, new Set());
+    paymentMethodsByPhoneCache.get(p.phone).add(p.method);
   });
+
+  // משחזר את מצב הסינון (ordersFilterState) בתבנית — צ'קבוקס מסומן אלא אם
+  // הוא ברשימת ה"לא מסומן" השמורה.
+  const cs = (set, val) => (set.has(String(val)) ? '' : 'checked');
 
   document.getElementById('tabContent').innerHTML = `
     <div class="card">
@@ -1903,36 +1979,36 @@ async function renderOrdersTab() {
         </div>
       </div>
       <label for="orderSearch">חיפוש לפי שם או טלפון</label>
-      <input type="text" id="orderSearch" placeholder="הקלידו שם או מספר טלפון...">
+      <input type="text" id="orderSearch" placeholder="הקלידו שם או מספר טלפון..." value="${esc(ordersFilterState.search)}">
       <div class="filter-row">
         <div class="multiselect" id="msPaid">
           <button type="button" class="multiselect-btn" data-ms-toggle>סטטוס תשלום <span class="ms-count" data-ms-count></span></button>
           <div class="multiselect-panel" hidden>
-            <label><input type="checkbox" class="filterPaidCheck" value="paid" checked> שולם מלא</label>
-            <label><input type="checkbox" class="filterPaidCheck" value="coordinated" checked> תואם תשלום</label>
-            <label><input type="checkbox" class="filterPaidCheck" value="partial_coordinated" checked> שולם חלקית ונסגרה ההזמנה</label>
-            <label><input type="checkbox" class="filterPaidCheck" value="partial_open" checked> שולם חלקית ולא נסגרה ההזמנה</label>
-            <label><input type="checkbox" class="filterPaidCheck" value="unpaid_none" checked> לא שולם כלל</label>
-            <label><input type="checkbox" class="filterPaidCheck" value="credit" checked> יש זכות (שולם ביתר)</label>
+            <label><input type="checkbox" class="filterPaidCheck" value="paid" ${cs(ordersFilterState.uncheckedPaid, 'paid')}> שולם מלא</label>
+            <label><input type="checkbox" class="filterPaidCheck" value="coordinated" ${cs(ordersFilterState.uncheckedPaid, 'coordinated')}> תואם תשלום</label>
+            <label><input type="checkbox" class="filterPaidCheck" value="partial_coordinated" ${cs(ordersFilterState.uncheckedPaid, 'partial_coordinated')}> שולם חלקית ונסגרה ההזמנה</label>
+            <label><input type="checkbox" class="filterPaidCheck" value="partial_open" ${cs(ordersFilterState.uncheckedPaid, 'partial_open')}> שולם חלקית ולא נסגרה ההזמנה</label>
+            <label><input type="checkbox" class="filterPaidCheck" value="unpaid_none" ${cs(ordersFilterState.uncheckedPaid, 'unpaid_none')}> לא שולם כלל</label>
+            <label><input type="checkbox" class="filterPaidCheck" value="credit" ${cs(ordersFilterState.uncheckedPaid, 'credit')}> יש זכות (שולם ביתר)</label>
           </div>
         </div>
         <div class="multiselect" id="msRedeemed">
           <button type="button" class="multiselect-btn" data-ms-toggle>סטטוס איסוף <span class="ms-count" data-ms-count></span></button>
           <div class="multiselect-panel" hidden>
-            <label><input type="checkbox" class="filterRedeemedCheck" value="full" checked> נאסף במלואו</label>
-            <label><input type="checkbox" class="filterRedeemedCheck" value="partial" checked> לא נאסף במלואו</label>
+            <label><input type="checkbox" class="filterRedeemedCheck" value="full" ${cs(ordersFilterState.uncheckedRedeemed, 'full')}> נאסף במלואו</label>
+            <label><input type="checkbox" class="filterRedeemedCheck" value="partial" ${cs(ordersFilterState.uncheckedRedeemed, 'partial')}> לא נאסף במלואו</label>
           </div>
         </div>
         <div class="multiselect" id="msSlot">
           <button type="button" class="multiselect-btn" data-ms-toggle>זמן חלוקה <span class="ms-count" data-ms-count></span></button>
           <div class="multiselect-panel" hidden>
-            ${slots.map((s) => `<label><input type="checkbox" class="filterSlotCheck" value="${s.id}" checked> ${esc(s.name)}</label>`).join('')}
+            ${slots.map((s) => `<label><input type="checkbox" class="filterSlotCheck" value="${s.id}" ${cs(ordersFilterState.uncheckedSlots, s.id)}> ${esc(s.name)}</label>`).join('')}
           </div>
         </div>
         <div class="multiselect" id="msMethod">
           <button type="button" class="multiselect-btn" data-ms-toggle>אופן תשלום <span class="ms-count" data-ms-count></span></button>
           <div class="multiselect-panel" hidden>
-            ${Object.entries(METHOD_LABEL).map(([val, label]) => `<label><input type="checkbox" class="filterMethodCheck" value="${val}" checked> ${esc(label)}</label>`).join('')}
+            ${Object.entries(METHOD_LABEL).map(([val, label]) => `<label><input type="checkbox" class="filterMethodCheck" value="${val}" ${cs(ordersFilterState.uncheckedMethods, val)}> ${esc(label)}</label>`).join('')}
           </div>
         </div>
       </div>
@@ -1974,32 +2050,6 @@ async function renderOrdersTab() {
   updateOrdersHeader(customers.length, customers.length, false);
   let currentFiltered = customers;
 
-  // מיפוי הזמנה בודדת לקטגוריית "סטטוס תשלום" לצורך הסינון. לקוח נחשב
-  // תואם-לסינון אם יש לו לפחות הזמנה אחת שמתאימה לאחת הקטגוריות המסומנות —
-  // בכוונה שיש חפיפה בין 'coordinated' ל-'partial_coordinated' (הזמנה ששולמה
-  // חלקית ותואמה מתאימה לשתיהן), בדיוק כמו שהתבקש.
-  function orderMatchesPaidCategory(o, cat) {
-    switch (cat) {
-      case 'paid': return o.paymentStatus === 'paid';
-      case 'coordinated': return !!o.paymentCoordinated && o.paymentStatus !== 'paid';
-      case 'unpaid_none': return o.paymentStatus === 'unpaid' && !o.paymentCoordinated;
-      case 'partial_coordinated': return o.paymentStatus === 'partial' && !!o.paymentCoordinated;
-      case 'partial_open': return o.paymentStatus === 'partial' && !o.paymentCoordinated;
-      case 'credit': return o.balanceDue < 0;
-      default: return false;
-    }
-  }
-
-  // "נאסף במלואו" ביחס לזמני החלוקה המסוננים כרגע (לא ביחס לכל ההזמנות של
-  // הלקוח): כשמסנן זמן חלוקה פעיל, בודקים איסוף רק מול הפריטים בזמני
-  // החלוקה שנשארו מסומנים — כדי שמי שמימש במלואו ביום חמישי אך טרם הגיע
-  // ביום ראשון לא ייחשב "לא נאסף" כשהמסנן מוגבל ליום חמישי בלבד.
-  function isFullyRedeemedForSlots(c, checkedSlots, slotFilterActive) {
-    const relevant = slotFilterActive ? c.bySlot.filter((s) => checkedSlots.includes(String(s.slotId))) : c.bySlot;
-    if (!relevant.length) return c.fullyRedeemed;
-    return relevant.every((s) => s.maleRedeemed >= s.male && s.femaleRedeemed >= s.female);
-  }
-
   function applyFilters() {
     const q = document.getElementById('orderSearch').value.trim().toLowerCase();
     const allPaidChecks = document.querySelectorAll('.filterPaidCheck');
@@ -2013,6 +2063,17 @@ async function renderOrdersTab() {
     const allMethodChecks = document.querySelectorAll('.filterMethodCheck');
     const methodFilters = [...allMethodChecks].filter((cb) => cb.checked).map((cb) => cb.value);
     const methodFilterActive = methodFilters.length < allMethodChecks.length;
+
+    // שומרים את מצב הסינון הנוכחי כדי ש-renderOrdersTab הבא (למשל אחרי
+    // רישום הזמנה ידנית) יוכל לשחזר אותו במקום לאפס הכל.
+    ordersFilterState = {
+      search: document.getElementById('orderSearch').value,
+      uncheckedPaid: new Set([...allPaidChecks].filter((cb) => !cb.checked).map((cb) => cb.value)),
+      uncheckedRedeemed: new Set([...allRedeemedChecks].filter((cb) => !cb.checked).map((cb) => cb.value)),
+      uncheckedSlots: new Set([...allSlotChecks].filter((cb) => !cb.checked).map((cb) => cb.value)),
+      uncheckedMethods: new Set([...allMethodChecks].filter((cb) => !cb.checked).map((cb) => cb.value)),
+    };
+
     currentFiltered = customers.filter((c) => {
       if (q && !nameMatchesSmartSearch(c.customerName, q) && !c.phone.includes(q)) return false;
       if (!c.orders.some((o) => paidFilters.some((cat) => orderMatchesPaidCategory(o, cat)))) return false;
@@ -2022,7 +2083,7 @@ async function renderOrdersTab() {
       if (!(fullyRedeemed ? redeemedFilters.includes('full') : redeemedFilters.includes('partial'))) return false;
       // הלקוח חייב לפחות תשלום אחד באחד מאמצעי התשלום שנשארו מסומנים.
       if (methodFilterActive) {
-        const usedMethods = paymentMethodsByPhone.get(c.phone);
+        const usedMethods = paymentMethodsByPhoneCache.get(c.phone);
         if (!usedMethods || !methodFilters.some((m) => usedMethods.has(m))) return false;
       }
       return true;
@@ -2236,7 +2297,7 @@ async function renderOrdersTab() {
     }
   };
 
-  renderList(customers);
+  applyFilters();
 }
 
 // ============== דשבורד ==============
