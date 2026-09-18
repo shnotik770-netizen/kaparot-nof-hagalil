@@ -60,6 +60,7 @@
 <script>
 const GENDER_LABEL = { male: 'זכרים', female: 'נקבות' };
 const STATUS_LABEL = { paid: 'שולם', partial: 'שולם חלקית', unpaid: 'לא שולם' };
+const METHOD_LABEL = { nedarim_plus: 'כרטיס אשראי (אונליין)', manual_cash: 'מזומן', manual_card: 'אשראי ידני', manual_admin: 'אחר' };
 
 const state = {
   phone: '',
@@ -420,20 +421,20 @@ function screenPersonalArea() {
       <p class="hint">טלפון: ${state.normalizedPhone}</p>
       <div id="customerNameSection"></div>
     </div>
-    ${s.distributionOpen ? `
+    ${s.distributionOpen && !state.isFirstTime ? `
       <div class="success" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
         <span>🎉 האיסוף פתוח כעת — אפשר לגשת ישר לאיסוף ההזמנה.</span>
         <button class="secondary" id="btnRedeemNow" style="width:auto">מעבר לאיסוף</button>
       </div>
     ` : ''}
     <div class="grid4">
-      <button class="big-btn" id="btnShow"><span class="ico">📋</span>הצג הזמנה שלי</button>
+      <button class="big-btn" id="btnShow" ${state.isFirstTime ? 'disabled' : ''}><span class="ico">📋</span>הצג הזמנה שלי</button>
       <button class="big-btn" id="btnMore" ${!s.registrationOpen ? 'disabled' : ''}><span class="ico">➕</span>${state.isFirstTime ? 'ביצוע הזמנה' : 'ביצוע הזמנה נוספת'}</button>
-      <button class="big-btn${s.distributionOpen ? ' highlight' : ''}" id="btnRedeem" ${!s.distributionOpen ? 'disabled' : ''}><span class="ico">🎟️</span>איסוף הזמנה</button>
-      <button class="big-btn" id="btnPay"><span class="ico">💳</span>תשלום על הזמנה</button>
+      <button class="big-btn${s.distributionOpen && !state.isFirstTime ? ' highlight' : ''}" id="btnRedeem" ${!s.distributionOpen || state.isFirstTime ? 'disabled' : ''}><span class="ico">🎟️</span>איסוף הזמנה</button>
+      <button class="big-btn" id="btnPay" ${state.isFirstTime ? 'disabled' : ''}><span class="ico">💳</span>תשלום על הזמנה</button>
     </div>
     ${!s.registrationOpen ? `<p class="hint">* ${s.closedRegistrationMessage || 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.'}</p>` : ''}
-    ${!s.distributionOpen ? `<p class="hint">* החלוקה טרם נפתחה — לא ניתן לממש הזמנה כרגע.</p>` : ''}
+    ${!s.distributionOpen && !state.isFirstTime ? `<p class="hint">* החלוקה טרם נפתחה — לא ניתן לממש הזמנה כרגע.</p>` : ''}
     <div id="personalAreaDebtWarning"></div>
     <div class="spacer"></div>
     ${whatsappContactButtonHtml()}
@@ -462,6 +463,8 @@ function screenPersonalArea() {
 async function loadPersonalAreaDebtWarning() {
   try {
     const { balanceDue, allCoordinated, ordersWithBalance } = await api(`/payment-balance?phone=${encodeURIComponent(state.phone)}`);
+    const payBtn = document.getElementById('btnPay');
+    if (payBtn) payBtn.disabled = balanceDue <= 0;
     const box = document.getElementById('personalAreaDebtWarning');
     if (!box || balanceDue <= 0) return;
     // פירוט פר-הזמנה — רק כשיש יותר מהזמנה אחת עם יתרה, כדי שיהיה ברור איזו
@@ -570,6 +573,17 @@ async function screenMyOrders() {
           </div>
         `).join('')}
         <div class="total-row"><span>סה"כ</span><span>${money(o.totalAmount)}</span></div>
+        ${o.payments.length ? `
+          <div style="margin-top:6px">
+            <p class="hint" style="margin-bottom:4px">פירוט תשלומים:</p>
+            ${o.payments.map((p) => `
+              <div class="item-row">
+                <span>${METHOD_LABEL[p.method] || p.method}</span>
+                <span class="meta">${money(p.amount)} · ${new Date(p.createdAt).toLocaleDateString('he-IL')}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
         ${o.balanceDue > 0 ? `<p class="hint">יתרה לתשלום: ${money(o.balanceDue)}</p>` : ''}
         ${canCancel(o) ? `
           <button type="button" class="ghost" data-cancel-order="${o.id}" style="color:var(--wine);margin-top:8px">ביטול הזמנה</button>
