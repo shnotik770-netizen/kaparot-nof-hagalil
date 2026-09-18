@@ -1693,7 +1693,9 @@ function wireCustomerCardButtons(root) {
 // מרעננת כרטיס לקוח בודד במקום (בלי לבנות מחדש את כל הרשימה ולקפוץ לראש
 // הדף) — משמשת אחרי כל שמירה/מחיקה בכל אחד מארבעת הפאנלים.
 async function refreshCustomerCard(phone, { keepViewOpen = false, keepPayOpen = false, keepEditOpen = false, keepRedeemOpen = false } = {}) {
+  const myGen = ++customersFetchGen;
   const customers = await api('/admin/customers');
+  if (myGen !== customersFetchGen) return; // בקשה מאוחרת יותר כבר רצה בינתיים — מתעלמים מהתוצאה הזו
   allCustomersCache = customers;
   const c = customers.find((x) => x.phone === phone);
   const container = document.getElementById(`custcard-${panelSafeId(phone)}`);
@@ -1751,6 +1753,12 @@ async function refreshCustomerCard(phone, { keepViewOpen = false, keepPayOpen = 
 
 let allCustomersCache = [];
 let allSlotsForFilter = [];
+// מונה גרסה גלובלי ל-GET /admin/customers — מונע מתשובה "ישנה" שמגיעה
+// מאוחר (בגלל תזמון רשת) לדרוס תצוגה שכבר עודכנה ע"י בקשה חדשה יותר,
+// כשכמה קריאות כאלה רצות במקביל (למשל איסוף מהיר בלקוח אחרי לקוח ברצף).
+// כל קריאה שמביאה רשימת לקוחות תופסת מספר סידורי; אם עד שהיא חוזרת כבר
+// יצאה קריאה מאוחרת יותר, היא מתעלמת מהתוצאה שלה ולא נוגעת ב-DOM.
+let customersFetchGen = 0;
 let multiSelectOutsideClickWired = false;
 let lastOrdersHeaderState = null;
 // מצב הסינון בטאב הזמנות (חיפוש + צ'קבוקסים) — נשמר כאן כדי לשרוד קריאות
@@ -1967,7 +1975,9 @@ function renderQuickEventModeScreen(customers, slots) {
 }
 
 async function renderOrdersTab() {
+  const myGen = ++customersFetchGen;
   const [customers, slots] = await Promise.all([api('/admin/customers'), api('/admin/slots')]);
+  if (myGen !== customersFetchGen) return; // בקשה מאוחרת יותר כבר רצה בינתיים — מתעלמים מהתוצאה הזו
   allCustomersCache = customers;
   allSlotsForFilter = slots;
 
