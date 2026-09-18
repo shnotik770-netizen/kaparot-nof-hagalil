@@ -156,6 +156,13 @@ async function onPhoneSubmit() {
   btn.disabled = true; btn.textContent = 'בודק…';
   try {
     const res = await api('/check-phone', { method: 'POST', body: { phone } });
+    // טלפון ראשוני (אין לו עדיין הזמנות) בזמן שההרשמה סגורה — אין לו סיבה
+    // להיכנס לאזור האישי (אין מה להציג לו, ולא ניתן להירשם עכשיו). כנראה
+    // הקליד את המספר לא נכון, ולא באמת מספר שאיתו נרשם.
+    if (res.isFirstTime && !state.publicSettings?.registrationOpen) {
+      screenPhone('טלפון זה לא קיים, אנא היכנסו עם המספר איתו נרשמתם.');
+      return;
+    }
     state.normalizedPhone = res.normalizedPhone;
     state.isFirstTime = res.isFirstTime;
     if (res.isFirstTime) {
