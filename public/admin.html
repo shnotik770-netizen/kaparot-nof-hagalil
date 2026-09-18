@@ -193,13 +193,16 @@ function nameMatchesSmartSearch(name, query) {
 // לקוח נחשב תואם-לסינון אם יש לו לפחות הזמנה אחת שמתאימה לאחת הקטגוריות
 // המסומנות — בכוונה שיש חפיפה בין 'coordinated' ל-'partial_coordinated'
 // (הזמנה ששולמה חלקית ותואמה מתאימה לשתיהן), בדיוק כמו שהתבקש.
-function orderMatchesPaidCategory(o, cat) {
+// customerSettled = יתרת הלקוח במצטבר (על פני כל הזמנותיו) כבר מסולקת —
+// כשזה המצב, הזמנה בודדת שעדיין לא paid (למשל כי זכות מהזמנה אחרת מכסה
+// אותה) לא נחשבת "לא שולמה" לצורך הסינון; היא נספרת כ-paid במקום זאת.
+function orderMatchesPaidCategory(o, cat, customerSettled) {
   switch (cat) {
-    case 'paid': return o.paymentStatus === 'paid';
-    case 'coordinated': return !!o.paymentCoordinated && o.paymentStatus !== 'paid';
-    case 'unpaid_none': return o.paymentStatus === 'unpaid' && !o.paymentCoordinated;
-    case 'partial_coordinated': return o.paymentStatus === 'partial' && !!o.paymentCoordinated;
-    case 'partial_open': return o.paymentStatus === 'partial' && !o.paymentCoordinated;
+    case 'paid': return o.paymentStatus === 'paid' || customerSettled;
+    case 'coordinated': return !!o.paymentCoordinated && o.paymentStatus !== 'paid' && !customerSettled;
+    case 'unpaid_none': return o.paymentStatus === 'unpaid' && !o.paymentCoordinated && !customerSettled;
+    case 'partial_coordinated': return o.paymentStatus === 'partial' && !!o.paymentCoordinated && !customerSettled;
+    case 'partial_open': return o.paymentStatus === 'partial' && !o.paymentCoordinated && !customerSettled;
     case 'credit': return o.balanceDue < 0;
     default: return false;
   }
@@ -228,7 +231,8 @@ function customerMatchesActiveOrdersFilter(c) {
 
   const allPaidChecks = document.querySelectorAll('.filterPaidCheck');
   const paidFilters = [...allPaidChecks].filter((cb) => cb.checked).map((cb) => cb.value);
-  if (!c.orders.some((o) => paidFilters.some((cat) => orderMatchesPaidCategory(o, cat)))) return false;
+  const customerSettled = c.balanceDue <= 0;
+  if (!c.orders.some((o) => paidFilters.some((cat) => orderMatchesPaidCategory(o, cat, customerSettled)))) return false;
 
   const allSlotChecks = document.querySelectorAll('.filterSlotCheck');
   const checkedSlots = [...allSlotChecks].filter((cb) => cb.checked).map((cb) => cb.value);
@@ -2122,7 +2126,8 @@ async function renderOrdersTab() {
 
     currentFiltered = customers.filter((c) => {
       if (q && !nameMatchesSmartSearch(c.customerName, q) && !c.phone.includes(q)) return false;
-      if (!c.orders.some((o) => paidFilters.some((cat) => orderMatchesPaidCategory(o, cat)))) return false;
+      const customerSettled = c.balanceDue <= 0;
+      if (!c.orders.some((o) => paidFilters.some((cat) => orderMatchesPaidCategory(o, cat, customerSettled)))) return false;
       // הלקוח חייב פריט בלפחות אחד מהזמנים שנשארו מסומנים.
       if (slotFilterActive && !c.bySlot.some((s) => checkedSlots.includes(String(s.slotId)))) return false;
       const fullyRedeemed = isFullyRedeemedForSlots(c, checkedSlots, slotFilterActive);
