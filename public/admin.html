@@ -2414,15 +2414,32 @@ async function renderDashboardTab() {
     const subtitle = dashboardShowAllOrdered
       ? 'מוצגות כאן <b>כל</b> ההזמנות, כולל כאלה שעדיין לא שולמו ולא תואמו מול המשרד.'
       : 'לא כולל הזמנות שעדיין לא שולמו במלואן ולא תואמו מול המשרד — כלומר עופות שעדיין לא בטוח נשמרים.';
+
+    // קיבוץ השורות (שכבר ממוינות לפי זמן חלוקה) לפי slotId — כדי להציג אחרי
+    // שורות המגדר של כל זמן חלוקה שורת סיכום מודגשת: סה"כ הוזמן/נמשך/טרם נלקח.
+    const bySlot = new Map();
+    list.forEach((r) => {
+      if (!bySlot.has(r.slotId)) bySlot.set(r.slotId, { slotName: r.slotName, rows: [], ordered: 0, redeemed: 0 });
+      const g = bySlot.get(r.slotId);
+      g.rows.push(r);
+      g.ordered += r.ordered;
+      g.redeemed += r.redeemed;
+    });
+
     return `
       <div class="card">
         <h2>מוזמן מול נמשך</h2>
         <p class="inline-hint">${subtitle} <button type="button" class="ghost" id="toggleDashboardAllOrdered" style="font-size:12px;padding:2px 4px">${dashboardShowAllOrdered ? 'הצג רק ששולם/תואם' : 'הצג הכל'}</button></p>
         <table>
-          <thead><tr><th>זמן חלוקה</th><th>סוג</th><th>הוזמן</th><th>נמשך</th></tr></thead>
+          <thead><tr><th>זמן חלוקה</th><th>סוג</th><th>הוזמן</th><th>נמשך</th><th>טרם נלקח</th></tr></thead>
           <tbody>
-            ${list.map((r) => `
-              <tr><td>${esc(r.slotName)}</td><td>${GENDER_LABEL[r.gender]}</td><td>${r.ordered}</td><td>${r.redeemed}</td></tr>
+            ${[...bySlot.values()].map((g) => `
+              ${g.rows.map((r) => `
+                <tr><td>${esc(r.slotName)}</td><td>${GENDER_LABEL[r.gender]}</td><td>${r.ordered}</td><td>${r.redeemed}</td><td>${r.ordered - r.redeemed}</td></tr>
+              `).join('')}
+              <tr style="font-weight:700;background:var(--surface-2)">
+                <td>${esc(g.slotName)} · סה"כ</td><td>—</td><td>${g.ordered}</td><td>${g.redeemed}</td><td>${g.ordered - g.redeemed}</td>
+              </tr>
             `).join('')}
           </tbody>
         </table>
