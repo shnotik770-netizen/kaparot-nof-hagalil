@@ -128,19 +128,19 @@ function screenPhone(errorMsg) {
   render(`
     <div class="card">
       <h2>${state.publicSettings?.orderTitle || 'הרשמה לכפרות'}</h2>
-      <p class="hint">הזינו מספר טלפון כדי להיכנס למערכת.</p>
       ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
       ${!state.publicSettings?.registrationOpen ? `<div class="notice">${state.publicSettings?.closedRegistrationMessage || 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.'} ניתן עדיין לצפות בהזמנה קיימת.</div>` : ''}
+      <p class="hint" style="font-size:15px;font-weight:500">הזינו מספר טלפון כדי להיכנס לחשבון ולאיסוף ההזמנה.</p>
       <label for="phoneInput">מספר טלפון</label>
       <input type="tel" id="phoneInput" placeholder="05XXXXXXXX" value="${state.phone}" inputmode="numeric">
+      <div class="spacer"></div>
+      <button class="primary" id="phoneSubmit">היכנס</button>
       ${state.publicSettings?.welcomeNoticeBody ? `
-        <div class="notice" style="white-space:pre-line;margin-top:10px">
+        <div class="notice info" style="white-space:pre-line;margin-top:10px">
           ${state.publicSettings?.welcomeNoticeTitle ? `<b>${state.publicSettings.welcomeNoticeTitle}</b><br>` : ''}
           ${state.publicSettings.welcomeNoticeBody}
         </div>
       ` : ''}
-      <div class="spacer"></div>
-      <button class="primary" id="phoneSubmit">המשך</button>
       <div class="spacer"></div>
       ${whatsappContactButtonHtml()}
     </div>
@@ -422,7 +422,7 @@ function screenPersonalArea() {
     <div class="grid4">
       <button class="big-btn" id="btnShow"><span class="ico">📋</span>הצג הזמנה שלי</button>
       <button class="big-btn" id="btnMore" ${!s.registrationOpen ? 'disabled' : ''}><span class="ico">➕</span>${state.isFirstTime ? 'ביצוע הזמנה' : 'ביצוע הזמנה נוספת'}</button>
-      <button class="big-btn" id="btnRedeem" ${!s.distributionOpen ? 'disabled' : ''}><span class="ico">🎟️</span>איסוף הזמנה</button>
+      <button class="big-btn${s.distributionOpen ? ' highlight' : ''}" id="btnRedeem" ${!s.distributionOpen ? 'disabled' : ''}><span class="ico">🎟️</span>איסוף הזמנה</button>
       <button class="big-btn" id="btnPay"><span class="ico">💳</span>תשלום על הזמנה</button>
     </div>
     ${!s.registrationOpen ? `<p class="hint">* ${s.closedRegistrationMessage || 'חלון ההזמנות סגור כרגע, ייפתח בקרוב.'}</p>` : ''}
@@ -620,6 +620,20 @@ async function screenRedeem() {
     `;
   }
 
+  function groupActionsHtml(g) {
+    const c = chosen[g.slotId];
+    const hasIndividual = c.male > 0 || c.female > 0;
+    if (!hasIndividual) {
+      return `<button class="primary" style="background:var(--sage)" data-confirm-slot-all="${g.slotId}">איסוף הכל והצגה למחלק העופות</button>`;
+    }
+    return `
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="primary" data-confirm-slot="${g.slotId}">איסוף והצגה למחלק העופות</button>
+        <button class="primary" style="background:var(--sage)" data-confirm-slot-all="${g.slotId}">איסוף הכל והצגה למחלק העופות</button>
+      </div>
+    `;
+  }
+
   function groupCardHtml(g) {
     return `
       <div class="card slot-group-card" style="border-inline-start-color:${g.slotColor}">
@@ -627,7 +641,7 @@ async function screenRedeem() {
         ${genderLineHtml(g, 'male')}
         ${genderLineHtml(g, 'female')}
         <div class="spacer"></div>
-        <button class="primary" data-confirm-slot="${g.slotId}">איסוף והצגה למחלק העופות</button>
+        <div id="actions-${g.slotId}">${groupActionsHtml(g)}</div>
       </div>
     `;
   }
@@ -649,6 +663,26 @@ async function screenRedeem() {
   `);
   document.getElementById('back').onclick = () => goBack();
 
+  function wireGroupActions(g) {
+    const actionsBox = document.getElementById(`actions-${g.slotId}`);
+    if (!actionsBox) return;
+    actionsBox.innerHTML = groupActionsHtml(g);
+    const btn = actionsBox.querySelector('[data-confirm-slot]');
+    if (btn) {
+      btn.onclick = () => {
+        const c = chosen[g.slotId];
+        if (c.male <= 0 && c.female <= 0) return;
+        openSlotRedeemConfirm(g, c);
+      };
+    }
+    const allBtn = actionsBox.querySelector('[data-confirm-slot-all]');
+    if (allBtn) {
+      allBtn.onclick = () => {
+        if (g.male <= 0 && g.female <= 0) return;
+        openSlotRedeemConfirm(g, { male: g.male, female: g.female });
+      };
+    }
+  }
   document.querySelectorAll('[data-gstep]').forEach((b) => {
     b.onclick = () => {
       const slotId = b.dataset.slot, gender = b.dataset.gender;
@@ -657,6 +691,7 @@ async function screenRedeem() {
       const cur = chosen[slotId][gender];
       chosen[slotId][gender] = Math.max(0, Math.min(g[gender], cur + delta));
       document.getElementById(`gqty-${slotId}-${gender}`).textContent = chosen[slotId][gender];
+      wireGroupActions(g);
     };
   });
   document.querySelectorAll('[data-gall]').forEach((b) => {
@@ -665,17 +700,10 @@ async function screenRedeem() {
       const g = groups.get(Number(slotId));
       chosen[slotId][gender] = g[gender];
       document.getElementById(`gqty-${slotId}-${gender}`).textContent = chosen[slotId][gender];
+      wireGroupActions(g);
     };
   });
-  document.querySelectorAll('[data-confirm-slot]').forEach((b) => {
-    b.onclick = () => {
-      const slotId = Number(b.dataset.confirmSlot);
-      const g = groups.get(slotId);
-      const c = chosen[slotId];
-      if (c.male <= 0 && c.female <= 0) return;
-      openSlotRedeemConfirm(g, c);
-    };
-  });
+  groups.forEach((g) => wireGroupActions(g));
 }
 
 function openSlotRedeemConfirm(group, chosenQty) {

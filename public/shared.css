@@ -2,6 +2,7 @@
   --bg:#f4f5f9; --surface:#fff; --surface-2:#eef0f7; --ink:#1c2036; --ink-dim:#5b6079;
   --line:#e0e2ee; --accent:#a5741f; --accent-ink:#7a5416; --accent-soft:#f3e6cc;
   --wine:#8c2f3d; --wine-soft:#f7e4e7; --sage:#2f7a55; --sage-soft:#e3f1e8;
+  --info:#2a5bbf; --info-soft:#e5edfc;
   --radius:14px; --shadow:0 1px 2px rgba(20,20,40,.04), 0 8px 20px -10px rgba(20,20,40,.15);
 }
 *{box-sizing:border-box}
@@ -45,6 +46,8 @@ button.danger{background:var(--wine);color:#fff}
 }
 .big-btn .ico{font-size:26px}
 .big-btn:disabled{opacity:.45;cursor:not-allowed}
+.big-btn.highlight{background:var(--sage-soft);border-color:var(--sage);color:var(--sage);padding:26px 10px;font-size:16px}
+.big-btn.highlight .ico{font-size:32px}
 .pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
 .pill.paid{background:var(--sage-soft);color:var(--sage)}
 .pill.partial{background:var(--accent-soft);color:var(--accent-ink)}
@@ -57,6 +60,7 @@ button.danger{background:var(--wine);color:#fff}
 .success{background:var(--sage-soft);color:var(--sage);border-radius:10px;padding:10px 12px;font-size:13.5px;margin:10px 0}
 .notice{background:var(--accent-soft);color:var(--accent-ink);border-radius:10px;padding:10px 12px;font-size:13.5px;margin:10px 0}
 .notice.critical{background:var(--wine-soft);color:var(--wine);font-size:15.5px;font-weight:800;padding:14px 14px;border:2px solid var(--wine)}
+.notice.info{background:var(--info-soft);color:var(--info)}
 .order-row-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .order-row-header b{font-size:15px}
 .item-select-row{display:grid;grid-template-columns:1fr;gap:8px;padding:14px;border:1.5px solid var(--line);border-radius:12px;margin-bottom:10px;position:relative}
@@ -95,7 +99,7 @@ button.danger{background:var(--wine);color:#fff}
 .gender-square.female{ background:#f472b6; }
 .big-ticket-screen button{ margin-top:20px; max-width:280px; }
 
-.must-show-notice{ font-size:15px; font-weight:800; text-align:center; margin:22px 0 12px; line-height:1.5; background:#fdfbf7; border:1px solid var(--line); border-radius:12px; padding:14px; color:#1f2937; }
+.must-show-notice{ font-size:18px; font-weight:800; text-align:center; margin:22px 0 12px; line-height:1.5; background:var(--accent-soft); border:2px solid var(--accent); border-radius:12px; padding:16px; color:var(--accent-ink); }
 .ticket-issued-at{ font-size:12.5px; font-weight:800; color:#9f1239; background:#fdfbf7; border:1px solid var(--line); padding:11px; border-radius:12px; margin-top:0; line-height:1.5; }
 
 .slot-group-card{ border-inline-start:4px solid var(--accent); }
