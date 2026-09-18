@@ -254,6 +254,11 @@ export async function listOrdersForPhone(normalizedPhone) {
       WHERE oi.order_id = ANY($1::int[]) ORDER BY oi.id ASC`,
     [orderIds]
   );
+  // פירוט תשלומים פר-הזמנה — ל"פירוט איך שילמתי" בתצוגת "ההזמנות שלי" של הלקוח.
+  const { rows: paymentRows } = await pool.query(
+    `SELECT * FROM payments WHERE order_id = ANY($1::int[]) ORDER BY created_at DESC`,
+    [orderIds]
+  );
 
   return orderRows.map((o) => ({
     ...rowToOrder(o),
@@ -275,6 +280,14 @@ export async function listOrdersForPhone(normalizedPhone) {
         unitPrice: Number(it.unit_price),
         lineTotal: Number(it.line_total),
         quantityRedeemed: it.quantity_redeemed,
+      })),
+    payments: paymentRows
+      .filter((p) => p.order_id === o.id)
+      .map((p) => ({
+        id: p.id,
+        amount: Number(p.amount),
+        method: p.method,
+        createdAt: p.created_at,
       })),
   }));
 }
