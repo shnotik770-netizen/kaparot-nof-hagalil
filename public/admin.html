@@ -476,14 +476,14 @@ async function renderSettingsCore() {
     </div>
 
     <div class="card">
-      <h2>חלונית הסבר במסך הראשי</h2>
-      <p class="hint">מוצגת ללקוח בכניסה למערכת. השאירו כותרת ריקה כדי לבטל את הצגתה.</p>
+      <h2>הודעת מידע במסך הכניסה</h2>
+      <p class="hint">מוצגת ללקוח מתחת לשדה הטלפון במסך הכניסה (בלי חלונית שצריך לסגור). השאירו תוכן ריק כדי לבטל את הצגתה.</p>
       <label>כותרת</label>
       <input type="text" id="welcomeTitle" value="${esc(s.welcomeNoticeTitle)}">
       <label>תוכן</label>
       <textarea id="welcomeBody">${esc(s.welcomeNoticeBody)}</textarea>
       <div class="spacer"></div>
-      <button class="primary" id="saveWelcome">שמירת חלונית ההסבר</button>
+      <button class="primary" id="saveWelcome">שמירת הודעת המידע</button>
     </div>
 
     <div class="card">
