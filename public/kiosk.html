@@ -69,8 +69,8 @@ function screenOtp(errorMsg) {
       <h2>קוד אימות</h2>
       <p class="hint">נשלח קוד ל-${state.normalizedPhone}. מוסרים ללקוח להזין אותו.</p>
       ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
-      <label for="otpInput">קוד בן 6 ספרות</label>
-      <input type="text" id="otpInput" inputmode="numeric" maxlength="6">
+      <label for="otpInput">קוד בן 4 ספרות</label>
+      <input type="text" id="otpInput" inputmode="numeric" maxlength="4">
       <div class="spacer"></div>
       <button class="primary" id="otpSubmit">אמת</button>
       <button class="ghost" id="otpBack">חזרה</button>
