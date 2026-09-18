@@ -578,7 +578,7 @@ async function screenMyOrders() {
             <p class="hint" style="margin-bottom:4px">פירוט תשלומים:</p>
             ${o.payments.map((p) => `
               <div class="item-row">
-                <span>${METHOD_LABEL[p.method] || p.method}</span>
+                <span>${p.method === 'manual_admin' && p.note ? esc(p.note) : (METHOD_LABEL[p.method] || p.method)}</span>
                 <span class="meta">${money(p.amount)} · ${new Date(p.createdAt).toLocaleDateString('he-IL')}</span>
               </div>
             `).join('')}

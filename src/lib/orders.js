@@ -287,6 +287,9 @@ export async function listOrdersForPhone(normalizedPhone) {
         id: p.id,
         amount: Number(p.amount),
         method: p.method,
+        // ההערה מוצגת ללקוח רק כשאמצעי התשלום "אחר" (manual_admin) — שם היא
+        // בפועל מתארת מהו התשלום (למשל "העברה בנקאית"), לא הערה פנימית.
+        note: p.method === 'manual_admin' ? p.note : null,
         createdAt: p.created_at,
       })),
   }));
