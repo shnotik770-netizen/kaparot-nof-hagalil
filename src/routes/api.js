@@ -22,7 +22,7 @@ import {
 import {
   listAllOrders, listCustomersSummary, getDashboardStats, hardReset,
   updateOrderItemQuantity, deleteOrderItem, deleteOrder, setItemRedeemedQuantity, setOrderPaymentCoordinated, setCustomerPaymentCoordinated,
-  setItemNoShowStatus, setManualBroadcastResponse, getManualBroadcastResponses,
+  setManualBroadcastResponse, getManualBroadcastResponses,
   listStuckOrphanedPayments, acknowledgeOrphanedPayments,
 } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
@@ -419,13 +419,6 @@ router.delete('/admin/orders/:orderId/items/:itemId', requireAdmin, requirePermi
 
 router.put('/admin/order-items/:id/redeemed', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   res.json(await setItemRedeemedQuantity(Number(req.params.id), req.body?.quantityRedeemed, req.session.adminName || 'admin'));
-}));
-
-// סימון שורת הזמנה כ"לא מגיע לאסוף" — תרומה/החזר מלא/החזר חלקי (ראו setItemNoShowStatus).
-router.put('/admin/order-items/:id/no-show', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
-  res.json(await setItemNoShowStatus(
-    Number(req.params.id), req.body?.noShowStatus, req.body?.refundAmount, req.session.adminName || 'admin'
-  ));
 }));
 
 // "מצב איסוף" — כלי חיפוש+איסוף מהיר למנהל (לא לתשלומים), ראו admin.html.

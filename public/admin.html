@@ -101,17 +101,6 @@ function customerPaymentPillHtml(c) {
   return `<span class="pill ${c.paymentStatus}${coordinated ? ' coordinated' : ''}">${STATUS_LABEL[c.paymentStatus]}${coordinated ? ' · מתואם' : ''}</span>`;
 }
 const METHOD_LABEL = { nedarim_plus: 'נדרים פלוס', manual_cash: 'מזומן', manual_card: 'אשראי ידני', manual_admin: 'אחר' };
-const NO_SHOW_PILL_CLASS = { donation: 'paid', refund: 'unpaid', partial_refund: 'partial' };
-// זו החלטה כספית — הניסוח כולל תמיד את שווי השורה (line_total) ואת סכום
-// ההחזר בפועל, כדי שיהיה ברור בכרטיס התשלומים בדיוק כמה כסף על הפרק.
-function noShowSummaryText(it) {
-  if (!it.noShowStatus) return null;
-  const itemLabel = `${esc(it.slotName)} · ${GENDER_LABEL[it.gender]}`;
-  if (it.noShowStatus === 'donation') return `${itemLabel}: לא נלקח ב-${money(it.lineTotal)} — משאיר הכל כתרומה`;
-  if (it.noShowStatus === 'refund') return `${itemLabel}: לא נלקח ב-${money(it.lineTotal)} — מבקש החזר מלא של ${money(it.noShowRefundAmount)}`;
-  if (it.noShowStatus === 'partial_refund') return `${itemLabel}: לא נלקח ב-${money(it.lineTotal)} — מבקש החזר חלקי של ${money(it.noShowRefundAmount)}`;
-  return null;
-}
 
 function triggerCsvDownload(filenameBase, phonesFilter, header, rows) {
   const csv = '﻿' + [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
@@ -1578,13 +1567,8 @@ async function loadCustomerViewPayments(c) {
 // "תשלומים" — רישום תשלום + פירוט מלא של מצב התשלומים, כולל עריכה/מחיקה לתשלומים ידניים.
 function customerPaymentsPanelHtml(c) {
   const pid = panelSafeId(c.phone);
-  const noShowItems = c.orders.flatMap((o) => o.items.filter((it) => it.noShowStatus));
   return `
-    ${noShowItems.length ? `
-      <h3 style="margin:0 0 8px;font-size:14px">פריטים שלא נלקחו — החלטה כספית</h3>
-      ${noShowItems.map((it) => `<div class="pill ${NO_SHOW_PILL_CLASS[it.noShowStatus]}" style="display:block;margin-bottom:6px">${noShowSummaryText(it)}</div>`).join('')}
-    ` : ''}
-    <h3 style="margin:14px 0 8px;font-size:14px">רישום תשלום (מוקצה אוטומטית להזמנות הפתוחות, הישנה קודם)</h3>
+    <h3 style="margin:0 0 8px;font-size:14px">רישום תשלום (מוקצה אוטומטית להזמנות הפתוחות, הישנה קודם)</h3>
     <div class="row">
       <input type="number" min="0" placeholder="סכום" id="${pid}-pamt">
       <select id="${pid}-pmethod">
@@ -1791,19 +1775,8 @@ function customerPanelHtml(c) {
               <span>${esc(it.slotName)} · ${GENDER_LABEL[it.gender]}</span>
               <span class="meta">${it.quantity} × ${money(it.unitPrice)} = ${money(it.lineTotal)}</span>
             </div>
-            ${it.noShowStatus ? `<div class="pill ${NO_SHOW_PILL_CLASS[it.noShowStatus]}" style="margin-top:6px">${noShowSummaryText(it)}</div>` : ''}
             <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center">
               <button class="ghost" data-del-item="${o.id}:${it.id}" style="color:var(--wine)" ${it.quantityRedeemed > 0 ? 'disabled title="לא ניתן למחוק — כבר נמשך ממנה"' : ''}>מחיקת שורה</button>
-            </div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center">
-              <select id="${pid}-noshow-${it.id}" data-noshow-select="${it.id}" style="width:auto">
-                <option value="">לא הגיע: ללא</option>
-                <option value="donation" ${it.noShowStatus === 'donation' ? 'selected' : ''}>לא מגיע — משאיר הכל כתרומה</option>
-                <option value="refund" ${it.noShowStatus === 'refund' ? 'selected' : ''}>לא מגיע — מבקש החזר מלא (${money(it.lineTotal)})</option>
-                <option value="partial_refund" ${it.noShowStatus === 'partial_refund' ? 'selected' : ''}>לא מגיע — מבקש החזר חלקי</option>
-              </select>
-              <input type="number" id="${pid}-noshowamt-${it.id}" min="0" max="${it.lineTotal}" step="0.01" placeholder="סכום ההחזר" value="${it.noShowStatus === 'partial_refund' && it.noShowRefundAmount != null ? it.noShowRefundAmount : ''}" style="width:auto;flex:1;min-width:120px" ${it.noShowStatus === 'partial_refund' ? '' : 'hidden'}>
-              <button class="ghost" type="button" data-save-noshow="${it.id}" style="width:auto">שמירה</button>
             </div>
           </div>
         `).join('')}
@@ -1920,25 +1893,6 @@ async function wireCustomerPanel(c, refetch) {
       }
     };
   }
-  panel.querySelectorAll('[data-noshow-select]').forEach((sel) => {
-    sel.onchange = () => {
-      const amtInput = document.getElementById(`${pid}-noshowamt-${sel.dataset.noshowSelect}`);
-      amtInput.hidden = sel.value !== 'partial_refund';
-    };
-  });
-  panel.querySelectorAll('[data-save-noshow]').forEach((b) => {
-    b.onclick = async () => {
-      const itemId = b.dataset.saveNoshow;
-      const noShowStatus = document.getElementById(`${pid}-noshow-${itemId}`).value || null;
-      const refundAmount = noShowStatus === 'partial_refund'
-        ? Number(document.getElementById(`${pid}-noshowamt-${itemId}`).value)
-        : null;
-      try {
-        await api(`/admin/order-items/${itemId}/no-show`, { method: 'PUT', body: { noShowStatus, refundAmount } });
-        refreshCustomerCard(c.phone, { keepEditOpen: true });
-      } catch (err) { alert(err.message); }
-    };
-  });
   panel.querySelectorAll('[data-del-item]').forEach((b) => {
     b.onclick = async () => {
       if (!confirm('למחוק את שורת ההזמנה הזו?')) return;

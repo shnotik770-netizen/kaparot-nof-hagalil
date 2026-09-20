@@ -40,58 +40,8 @@ export async function listAllOrders() {
         dayLabel: it.day_label, hoursLabel: it.hours_label,
         gender: it.gender, quantity: it.quantity, unitPrice: Number(it.unit_price), lineTotal: Number(it.line_total),
         quantityRedeemed: it.quantity_redeemed,
-        noShowStatus: it.no_show_status,
-        noShowRefundAmount: it.no_show_refund_amount == null ? null : Number(it.no_show_refund_amount),
       })),
   }));
-}
-
-/**
- * מסמן שורת הזמנה (לא כל ההזמנה) כ"לא מגיע לאסוף" — זו החלטה כספית, ראו
- * data-save-noshow בכרטיס הלקוח: 'donation' = משאיר את כל line_total
- * כתרומה (refund_amount=0), 'refund' = מבקש החזר מלא (refund_amount
- * נקבע אוטומטית ל-line_total המלא), 'partial_refund' = מבקש החזר חלקי
- * בסכום refundAmount שהמנהל מזין (חייב להיות בין 0 ל-line_total).
- * noShowStatus=null מבטל את הסימון. לא מבצע שום פעולה כספית אוטומטית
- * (לא נרשם תשלום שלילי/זיכוי בפועל) — רק תיעוד ברור לצוות המשרד, מוצג
- * בכרטיס התשלומים.
- */
-export async function setItemNoShowStatus(itemId, noShowStatus, refundAmount, adminName) {
-  if (noShowStatus != null && !['donation', 'refund', 'partial_refund'].includes(noShowStatus)) {
-    const err = new Error('סטטוס לא תקין.');
-    err.status = 400;
-    throw err;
-  }
-  return withTransaction(async (client) => {
-    const { rows: itemRows } = await client.query(`SELECT line_total FROM order_items WHERE id = $1 FOR UPDATE`, [itemId]);
-    if (!itemRows.length) {
-      const err = new Error('שורת הזמנה לא נמצאה.');
-      err.status = 404;
-      throw err;
-    }
-    const lineTotal = Number(itemRows[0].line_total);
-
-    let amount = null;
-    if (noShowStatus === 'donation') {
-      amount = 0;
-    } else if (noShowStatus === 'refund') {
-      amount = lineTotal;
-    } else if (noShowStatus === 'partial_refund') {
-      amount = Number(refundAmount);
-      if (!Number.isFinite(amount) || amount <= 0 || amount > lineTotal) {
-        const err = new Error(`סכום ההחזר החלקי חייב להיות בין 0 ל-${lineTotal} (שווי השורה).`);
-        err.status = 400;
-        throw err;
-      }
-    }
-
-    await client.query(
-      `UPDATE order_items SET no_show_status = $2, no_show_refund_amount = $3 WHERE id = $1`,
-      [itemId, noShowStatus, amount]
-    );
-    await logAction('order_item_no_show_marked', { itemId, noShowStatus, refundAmount: amount, adminName }, client);
-    return { success: true };
-  });
 }
 
 /**

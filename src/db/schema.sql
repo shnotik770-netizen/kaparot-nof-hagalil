@@ -148,12 +148,10 @@ CREATE TABLE IF NOT EXISTS order_items (
 CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_items_slot ON order_items(slot_id);
 
--- סימון "לא מגיע לאסוף" על שורת הזמנה בודדת (לא כל ההזמנה — לקוח עשוי
--- לאסוף חלק מהזמנתו ולהשאיר שורה אחרת): 'donation' = משאיר את כל הסכום
--- כתרומה, 'refund' = מבקש החזר מלא (כל line_total), 'partial_refund' =
--- מבקש החזר חלקי בסכום no_show_refund_amount (≤ line_total, מוזן ידנית
--- ע"י המנהל). זו החלטה כספית — מוצגת בכרטיס התשלומים, אבל אין כאן זרימת
--- החזר כספי אוטומטית (לא נרשם תשלום שלילי), רק תיעוד ברור לצוות המשרד.
+-- no_show_status/no_show_refund_amount: סימון ידני פר-שורת-הזמנה של "לא
+-- מגיע לאסוף" (תרומה/החזר מלא/חלקי) — הוסר מהאפליקציה (התייתר מול תהליך
+-- התגובות ב-SMS, ראו getBroadcastResponses ב-sms.js). העמודות נשארות
+-- כהיסטוריה בלבד לנתונים שכבר הוזנו; שום קוד לא קורא/כותב אליהן יותר.
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS no_show_status TEXT CHECK (no_show_status IN ('donation','refund','partial_refund'));
 ALTER TABLE order_items DROP COLUMN IF EXISTS no_show_note;
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS no_show_refund_amount NUMERIC(10,2);
