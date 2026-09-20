@@ -116,11 +116,12 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
 }
 
 /**
- * זיכוי/תיקון (סכום שלילי) ברמת הלקוח — מזהה אוטומטית את ההזמנה עם עודף
- * התשלום הגדול ביותר (balance_due הכי שלילי, "הזכות" הכי גדולה) ורושמת
- * את התשלום השלילי מולה. לא "מפל" כמו סכום חיובי — זו תמיד הזמנה אחת,
- * כי מקור הזכות (תיקון ידני שהוריד את מחיר ההזמנה אחרי שכבר שולם) תמיד
- * שייך להזמנה ספציפית אחת.
+ * זיכוי/תיקון (סכום שלילי) ברמת הלקוח — מזהה אוטומטית הזמנה להצמיד אליה
+ * את התשלום השלילי. מעדיפה הזמנה שכבר במצב עודף תשלום (balance_due שלילי,
+ * הכי גדול קודם — בד"כ תיקון מחיר ידני שהוריד את הסכום אחרי ששולם), ואם
+ * אין כזו — הזמנה ששולמה במלואה בדיוק (balance_due = 0), כדי לתמוך גם
+ * בזיכוי/החזר יזום ללקוח (למשל השיב "לא מגיע" ומבקש זיכוי על מה ששילם).
+ * לא "מפל" כמו סכום חיובי — זו תמיד הזמנה אחת.
  */
 async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, note) {
   return withTransaction(async (client) => {
@@ -128,13 +129,13 @@ async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, no
       `SELECT o.id, b.balance_due
          FROM orders o
          JOIN order_balances b ON b.order_id = o.id
-        WHERE o.normalized_phone = $1 AND NOT o.is_deleted AND b.balance_due < 0
+        WHERE o.normalized_phone = $1 AND NOT o.is_deleted AND b.balance_due <= 0
         ORDER BY b.balance_due ASC, o.order_sequence ASC
         FOR UPDATE OF o`,
       [normalizedPhone]
     );
     if (!orders.length) {
-      const err = new Error('לא נמצאה ללקוח זה הזמנה עם עודף תשלום (זכות) לרישום הזיכוי מולה.');
+      const err = new Error('לא נמצאה ללקוח זה הזמנה ששולמה (חלקית או במלואה) לרישום הזיכוי מולה.');
       err.status = 400;
       throw err;
     }
