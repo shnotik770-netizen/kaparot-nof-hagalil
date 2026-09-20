@@ -522,18 +522,32 @@ async function renderIncomingSmsTab() {
 
 // קפיצה מ"הודעות נכנסות" לכרטיס הלקוח בטאב הזמנות (עם חיפוש ממולא לפי
 // טלפון, כדי לבודד אותו ברשימה) ופתיחת פאנל ה-SMS שלו ישירות.
+// חשוב: מזהי ה-DOM של כרטיס הלקוח נבנים מ-c.phone הגולמי (איך שהוא שמור
+// בהזמנה), לא מהטלפון המנורמל של ההודעה — אצל לקוח שהקליד את הטלפון שלו
+// בפורמט לא-קנוני (למשל עם קידומת 972+) הם עלולים להיות שונים, ואז חיפוש
+// טקסטואלי לפי הטלפון המנורמל לא ימצא את הכרטיס בכלל. לכן קודם מאתרים את
+// הלקוח לפי השוואת טלפונים מנורמלת (כמו ב-nameByPhone למעלה), ומ-c.phone
+// שלו בונים גם את מחרוזת החיפוש וגם את מזהה ה-DOM.
 async function openCustomerFromIncomingSms(normalizedPhone) {
   currentTab = 'orders';
   markActiveTab('orders');
   quickEventModeOn = false;
-  ordersFilterState = { ...ordersFilterState, search: normalizedPhone };
   document.getElementById('tabContent').innerHTML = '<div class="loading">טוען…</div>';
+  const customers = await api('/admin/customers');
+  const c = customers.find((x) => normalizePhoneClient(x.phone) === normalizedPhone);
+  if (!c) {
+    ordersFilterState = { ...ordersFilterState, search: '' };
+    await renderOrdersTab();
+    alert('מספר זה אינו משויך ללקוח קיים במערכת (אין הזמנה על שמו).');
+    return;
+  }
+  ordersFilterState = { ...ordersFilterState, search: c.phone };
   await renderOrdersTab();
-  const containerId = `${panelSafeId(normalizedPhone)}-sms`;
+  const containerId = `${panelSafeId(c.phone)}-sms`;
   const panel = document.getElementById(containerId);
   if (panel) {
     panel.hidden = false;
-    loadCustomerSmsHistory(normalizedPhone, containerId);
+    loadCustomerSmsHistory(c.phone, containerId);
   }
 }
 
