@@ -96,10 +96,12 @@ export async function listCustomersSummary() {
     const bySlot = new Map();
     let fullyRedeemed = true;
     let hasAnyItem = false;
+    let uncollectedValue = 0;
     for (const o of c.orders) {
       for (const it of o.items) {
         hasAnyItem = true;
         if (it.quantityRedeemed < it.quantity) fullyRedeemed = false;
+        uncollectedValue += (it.quantity - it.quantityRedeemed) * it.unitPrice;
         if (!bySlot.has(it.slotId)) {
           bySlot.set(it.slotId, { slotId: it.slotId, slotName: it.slotName, slotColor: it.slotColor, male: 0, maleRedeemed: 0, female: 0, femaleRedeemed: 0 });
         }
@@ -132,6 +134,7 @@ export async function listCustomersSummary() {
       pendingUnconfirmedPayment,
       unpaidOrdersCount,
       caseClosed: closureByPhone.get(c.normalizedPhone) || null,
+      uncollectedValue,
     };
   }).sort((a, b) => new Date(b.orders[0]?.createdAt || 0) - new Date(a.orders[0]?.createdAt || 0));
 }

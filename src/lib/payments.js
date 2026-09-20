@@ -121,10 +121,28 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
  * הכי גדול קודם — בד"כ תיקון מחיר ידני שהוריד את הסכום אחרי ששולם), ואם
  * אין כזו — הזמנה ששולמה במלואה בדיוק (balance_due = 0), כדי לתמוך גם
  * בזיכוי/החזר יזום ללקוח (למשל השיב "לא מגיע" ומבקש זיכוי על מה ששילם).
- * לא "מפל" כמו סכום חיובי — זו תמיד הזמנה אחת.
+ * חסום לסכום שלא עולה על שווי העופות שעדיין לא נאספו אצל הלקוח (ראו
+ * uncollectedValue) — אי אפשר לזכות על עופות שכבר נמסרו בפועל. לא "מפל"
+ * כמו סכום חיובי — זו תמיד הזמנה אחת.
  */
 async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, note) {
   return withTransaction(async (client) => {
+    // חוסם זיכוי מעבר לשווי העופות שעדיין לא נאספו — עופות שכבר נמסרו
+    // ללקוח כבר "נוצלו", ואי אפשר לזכות עליהם בדיעבד.
+    const { rows: valueRows } = await client.query(
+      `SELECT COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS uncollected_value
+         FROM order_items oi
+         JOIN orders o ON o.id = oi.order_id
+        WHERE o.normalized_phone = $1 AND NOT o.is_deleted`,
+      [normalizedPhone]
+    );
+    const uncollectedValue = Number(valueRows[0].uncollected_value);
+    if (Math.abs(amt) > uncollectedValue) {
+      const err = new Error(`אפשר לזכות עד ${uncollectedValue} — שווי העופות שעדיין לא נאספו (לא ניתן לזכות על עופות שכבר נמסרו).`);
+      err.status = 400;
+      throw err;
+    }
+
     const { rows: orders } = await client.query(
       `SELECT o.id, b.balance_due
          FROM orders o

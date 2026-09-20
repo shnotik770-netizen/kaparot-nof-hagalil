@@ -1587,9 +1587,10 @@ function customerPaymentsPanelHtml(c) {
         <option value="manual_admin">אחר</option>
       </select>
     </div>
-    <label style="margin-top:8px;display:flex;align-items:center;gap:6px;font-weight:normal">
-      <input type="checkbox" id="${pid}-pcredit" style="width:auto">
-      זיכוי (הסכום יירשם במינוס — לתיקון עודף תשלום, למשל אחרי תיקון הזמנה ידני)
+    <p class="hint" style="margin:8px 0 0">שווי העופות שעדיין לא נאספו: <b>${money(c.uncollectedValue)}</b> — ניתן לזכות עד לסכום זה (אי אפשר לזכות על עופות שכבר נמסרו).</p>
+    <label style="margin-top:4px;display:flex;align-items:center;gap:6px;font-weight:normal">
+      <input type="checkbox" id="${pid}-pcredit" data-max-credit="${c.uncollectedValue}" style="width:auto">
+      זיכוי (הסכום יירשם במינוס — לתיקון עודף תשלום, למשל אחרי תיקון הזמנה ידני, או זיכוי ללקוח שלא אוסף)
     </label>
     <input type="text" id="${pid}-pnote" placeholder="פרטו מהו אופן התשלום..." hidden style="margin-top:8px">
     <button class="primary" data-cpay-submit="${esc(c.phone)}" style="margin-top:8px;width:100%">רישום תשלום</button>
@@ -1621,9 +1622,20 @@ async function wireCustomerPaymentsPanel(c) {
   const pnoteInput = document.getElementById(`${pid}-pnote`);
   pmethodSelect.onchange = () => { pnoteInput.hidden = pmethodSelect.value !== 'manual_admin'; };
 
+  const pamtInput = document.getElementById(`${pid}-pamt`);
+  const pcreditCheckbox = document.getElementById(`${pid}-pcredit`);
+  pcreditCheckbox.onchange = () => {
+    if (pcreditCheckbox.checked) pamtInput.max = pcreditCheckbox.dataset.maxCredit;
+    else pamtInput.removeAttribute('max');
+  };
+
   panel.querySelector('[data-cpay-submit]').onclick = async () => {
     const rawAmount = Number(document.getElementById(`${pid}-pamt`).value);
     const isCredit = document.getElementById(`${pid}-pcredit`).checked;
+    if (isCredit && rawAmount > Number(pcreditCheckbox.dataset.maxCredit)) {
+      document.getElementById(`${pid}-pmsg`).innerHTML = `<div class="error">אפשר לזכות עד ${money(Number(pcreditCheckbox.dataset.maxCredit))} — שווי העופות שעדיין לא נאספו.</div>`;
+      return;
+    }
     const amount = isCredit ? -Math.abs(rawAmount) : rawAmount;
     const method = pmethodSelect.value;
     const note = pnoteInput.hidden ? undefined : pnoteInput.value.trim() || undefined;
