@@ -507,7 +507,8 @@ async function renderIncomingSmsTab() {
   const customerByPhone = new Map();
   customers.forEach((c) => customerByPhone.set(normalizePhoneClient(c.phone), c));
 
-  const comingCount = responses.filter((r) => r.answer === 1).length;
+  const comingResponses = responses.filter((r) => r.answer === 1);
+  const comingCount = comingResponses.length;
   const notComingCount = responses.filter((r) => r.answer === 2).length;
 
   content.innerHTML = `
@@ -516,6 +517,7 @@ async function renderIncomingSmsTab() {
       <p class="hint">תגובות "1"/"2" להודעת עדכון קבוצתית (מגיע / לא מגיע ומבקש זיכוי). לקוח שהשיב פעמיים — מוצגת רק תגובתו האחרונה.</p>
       ${responses.length ? `
         <p class="hint"><b>${comingCount}</b> משיבים "מגיע" · <b>${notComingCount}</b> משיבים "לא מגיע — מבקש זיכוי"</p>
+        ${aggregateRemainingToCollectHtml(comingResponses.map((r) => customerByPhone.get(r.normalizedPhone)))}
         <table>
           <thead><tr><th>לקוח</th><th>טלפון</th><th>תגובה</th><th>מה נשאר לאסוף</th><th>יתרה</th><th>זמן</th><th></th></tr></thead>
           <tbody>
@@ -1044,6 +1046,33 @@ function remainingToCollectHtml(c) {
     return bits.length ? `${esc(s.slotName)}: ${bits.join(', ')}` : null;
   }).filter(Boolean);
   return parts.length ? parts.join('<br>') : '<span style="color:var(--sage)">✓ הכל כבר נאסף</span>';
+}
+
+// סה"כ מרוכז של מה שנשאר לאסוף אצל כל מי שהשיב "מגיע" יחד — לפי משבצת,
+// כדי שיהיה מספר אחד ברור לתאם מול ספק העופות (לא רק פירוט פר-לקוח).
+function aggregateRemainingToCollectHtml(comingCustomers) {
+  const bySlot = new Map();
+  comingCustomers.filter(Boolean).forEach((c) => {
+    c.bySlot.forEach((s) => {
+      const remMale = Math.max(s.male - s.maleRedeemed, 0);
+      const remFemale = Math.max(s.female - s.femaleRedeemed, 0);
+      if (!remMale && !remFemale) return;
+      const entry = bySlot.get(s.slotId) || { slotName: s.slotName, remMale: 0, remFemale: 0 };
+      entry.remMale += remMale;
+      entry.remFemale += remFemale;
+      bySlot.set(s.slotId, entry);
+    });
+  });
+  const rows = [...bySlot.values()];
+  if (!rows.length) return '';
+  const totalMale = rows.reduce((s, r) => s + r.remMale, 0);
+  const totalFemale = rows.reduce((s, r) => s + r.remFemale, 0);
+  return `
+    <div style="margin:10px 0;padding:10px 12px;border-radius:10px;background:var(--accent-soft)">
+      <b>סה"כ עופות שנשארו לאסוף אצל המשיבים "מגיע": ${totalMale + totalFemale}</b> (${totalMale} זכרים, ${totalFemale} נקבות)
+      <div class="meta" style="margin-top:4px">${rows.map((r) => `${esc(r.slotName)}: ${r.remMale} זכרים, ${r.remFemale} נקבות`).join(' · ')}</div>
+    </div>
+  `;
 }
 
 // שורות תקציר לכרטיס המכווץ — זמן חלוקה + כמות, ומספר שכבר נמשך אם יש (0 לא מוצג, כדי לא להעמיס לפני יום החלוקה).
