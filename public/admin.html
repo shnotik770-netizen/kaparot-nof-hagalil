@@ -396,6 +396,37 @@ async function renderSlotStatusBar() {
   }
 }
 
+// פותח בחלון/לשונית חדשים את אותו "אישור גדול" שהלקוח רואה בקיוסק/באזור
+// האישי אחרי איסוף (showBigTicket שם) — לאיסוף שהמנהל ביצע ידנית (למשל
+// הזמנה טלפונית), כדי שיהיה מה להראות למחלק העופות. window.open נקרא
+// מיד בתגובה ל-confirm() (עדיין באותה אינטראקציית משתמש), כדי לא ליפול
+// לחסימת חלונות קופצים של הדפדפן.
+function openRedeemTicket(result) {
+  const w = window.open('', '_blank');
+  if (!w) { alert('לא ניתן לפתוח חלון חדש — ייתכן שהדפדפן חוסם חלונות קופצים.'); return; }
+  w.document.write(`<!DOCTYPE html>
+<html lang="he" dir="rtl"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>אישור איסוף</title>
+<link rel="stylesheet" href="/shared.css">
+</head><body>
+<div class="big-ticket-screen" style="background:${esc(result.slotColor)}">
+  <div class="ticket-card">
+    <div class="slot-name" style="color:${esc(result.slotColor)}">${esc(result.slotName)}</div>
+    ${result.hebrewDateNow ? `<div class="hebrew-date">${esc(result.hebrewDateNow)}</div>` : ''}
+    <div class="customer-name">${esc(result.customerName || '')}</div>
+    <div class="gender-squares">
+      ${result.maleQuantity > 0 ? `<div class="gender-square male"><div class="num">${result.maleQuantity}</div><div class="lbl">זכרים</div></div>` : ''}
+      ${result.femaleQuantity > 0 ? `<div class="gender-square female"><div class="num">${result.femaleQuantity}</div><div class="lbl">נקבות</div></div>` : ''}
+    </div>
+    <div class="must-show-notice">יש להציג את האישור למחלק העופות</div>
+    <div class="ticket-issued-at">אישור זה הונפק כעת: ${new Date().toLocaleString('he-IL')}<br>אישור עם תאריך/שעה אחרים אינו תקף</div>
+  </div>
+</div>
+</body></html>`);
+  w.document.close();
+}
+
 async function attemptQuickRedeem(phone, slotId, maleQuantity, femaleQuantity, allowUnpaid, msgElementId, onDone) {
   const msgBox = document.getElementById(msgElementId);
   try {
@@ -404,6 +435,9 @@ async function attemptQuickRedeem(phone, slotId, maleQuantity, femaleQuantity, a
       body: { phone, slotId, maleQuantity, femaleQuantity, allowUnpaid },
     });
     if (msgBox) msgBox.innerHTML = `<div class="success">נאסף בהצלחה: ${result.maleQuantity} זכרים + ${result.femaleQuantity} נקבות מ"${esc(result.slotName)}".</div>`;
+    if (confirm('האיסוף בוצע בהצלחה. להציג אישור (לצורך הצגה למחלק העופות)?')) {
+      openRedeemTicket(result);
+    }
     if (onDone) onDone();
   } catch (err) {
     if (err.data?.paymentBlocked) {
