@@ -143,15 +143,18 @@ export async function listCustomersSummary() {
  * "סגירת תיק" ללקוח — אחרי שהמנהל זיכה אותו (מלא/חלקי) ומחליט שאין יותר
  * מה לעקוב אחריו. לא יוצר שום פעולה כספית — רק דגל, ראו customer_case_closures.
  */
-export async function setCustomerCaseClosed(phone, note, adminName) {
+// client אופציונלי (ברירת מחדל pool) — מאפשר קריאה אטומית מתוך טרנזקציה
+// אחרת, ראו הסגירה האוטומטית ב-recordCustomerCredit (payments.js) כשמזכים
+// ללקוח את מלוא שווי העופות שלא נאספו.
+export async function setCustomerCaseClosed(phone, note, adminName, client = pool) {
   const normalizedPhone = normalizePhone(phone);
-  await pool.query(
+  await client.query(
     `INSERT INTO customer_case_closures (normalized_phone, phone, note, admin_name, created_at)
      VALUES ($1, $2, $3, $4, now())
      ON CONFLICT (normalized_phone) DO UPDATE SET phone = $2, note = $3, admin_name = $4, created_at = now()`,
     [normalizedPhone, phone, note || null, adminName]
   );
-  await logAction('customer_case_closed', { normalizedPhone, phone, note: note || null, adminName });
+  await logAction('customer_case_closed', { normalizedPhone, phone, note: note || null, adminName }, client);
   return { success: true };
 }
 

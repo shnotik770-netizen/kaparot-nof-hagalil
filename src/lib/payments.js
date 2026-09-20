@@ -4,6 +4,7 @@
 import crypto from 'node:crypto';
 import { pool, withTransaction } from '../db/pool.js';
 import { logAction } from './actionLog.js';
+import { setCustomerCaseClosed } from './adminOps.js';
 
 /**
  * תשלום שהתקבל בפועל מנדרים פלוס דרך מודול הסליקה הטלפוני של ימות המשיח
@@ -166,6 +167,18 @@ async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, no
       phone: normalizedPhone, amount: amt, method, recordedBy, note: note || null,
       allocations: [{ orderId: target.id, amount: amt }], unallocatedSurplus: 0, isCredit: true,
     }, client);
+
+    // זיכוי שמכסה בדיוק את מלוא שווי העופות שלא נאספו — אין יותר מה לעקוב
+    // אחרי הלקוח הזה, סוגרים את התיק אוטומטית (אותה טרנזקציה, אטומי).
+    if (uncollectedValue > 0 && Math.abs(amt) === uncollectedValue) {
+      await setCustomerCaseClosed(
+        normalizedPhone,
+        `זוכה מלוא שווי העופות שלא נאספו (${uncollectedValue}) — התיק נסגר אוטומטית.`,
+        recordedBy,
+        client
+      );
+    }
+
     return { allocations: [{ orderId: target.id, amount: amt }], unallocatedSurplus: 0 };
   });
 }

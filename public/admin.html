@@ -1575,9 +1575,9 @@ function customerPaymentsPanelHtml(c) {
         <div class="meta">ע"י ${esc(c.caseClosed.adminName)} · ${new Date(c.caseClosed.closedAt).toLocaleString('he-IL')}</div>
         <div style="margin-top:6px"><button type="button" class="ghost" data-reopen-case="${esc(c.phone)}">פתיחת תיק מחדש</button></div>
       </div>
-    ` : `
-      <button type="button" class="ghost" data-close-case="${esc(c.phone)}" style="margin-bottom:12px">🔒 סגירת תיק (זיכיתי מלא/חלקי, נגמר הסיפור)</button>
-    `}
+    ` : c.uncollectedValue > 0 ? `
+      <button type="button" class="ghost" data-close-case="${esc(c.phone)}" data-uncollected="${c.uncollectedValue}" style="margin-bottom:12px">🔒 סגירת תיק (זיכיתי מלא/חלקי, נגמר הסיפור)</button>
+    ` : ''}
     <h3 style="margin:0 0 8px;font-size:14px">רישום תשלום (מוקצה אוטומטית להזמנות הפתוחות, הישנה קודם)</h3>
     <div class="row">
       <input type="number" min="0" placeholder="סכום" id="${pid}-pamt">
@@ -1663,10 +1663,15 @@ async function wireCustomerPaymentsPanel(c) {
   const closeCaseBtn = panel.querySelector('[data-close-case]');
   if (closeCaseBtn) {
     closeCaseBtn.onclick = async () => {
-      const note = prompt('הערה קצרה (אופציונלי) — למשל "זוכה 50% טלפונית", "לא מגיע, ויתר על היתרה":') || '';
+      // מגיעים לכפתור הזה רק אם לא זוכה מלוא שווי העופות שלא נאספו (אחרת
+      // התיק כבר נסגר אוטומטית — ראו recordCustomerCredit) — כלומר תמיד יש
+      // כאן יתרת עופות/כסף שלא זוכתה, וצריך לוודא שהמנהל מודע שהיא נשארת כתרומה.
+      const uncollected = Number(closeCaseBtn.dataset.uncollected);
+      if (!confirm(`ללקוח יש עופות בשווי ${money(uncollected)} שעדיין לא נאספו. אם לא זיכית אותו על מלוא הסכום (זיכוי חלקי או בכלל לא) — סגירת התיק תסמן שהיתרה שלא זוכתה נשארת כתרומה. להמשיך?`)) return;
+      const note = prompt('הערה (מוצע ברירת מחדל, אפשר לערוך):', `משאיר ${money(uncollected)} כתרומה`);
       if (note === null) return;
       try {
-        await api(`/admin/customers/${encodeURIComponent(c.phone)}/case-closed`, { method: 'PUT', body: { note: note.trim() || undefined } });
+        await api(`/admin/customers/${encodeURIComponent(c.phone)}/case-closed`, { method: 'PUT', body: { note: note.trim() || `משאיר ${money(uncollected)} כתרומה` } });
         refreshCustomerCard(c.phone, { keepPayOpen: true });
       } catch (err) {
         alert(err.message);
@@ -2123,7 +2128,7 @@ let lastOrdersHeaderState = null;
 // מצב הסינון בטאב הזמנות (חיפוש + צ'קבוקסים) — נשמר כאן כדי לשרוד קריאות
 // חוזרות ל-renderOrdersTab (למשל אחרי רישום הזמנה ידנית), שבלעדי זה היו
 // מאתחלות את הכל מחדש ל"בלי סינון" בכל פעם. ריק/סטים ריקים = בלי סינון.
-let ordersFilterState = { search: '', uncheckedPaid: new Set(), uncheckedRedeemed: new Set(), uncheckedSlots: new Set(), uncheckedMethods: new Set() };
+let ordersFilterState = { search: '', uncheckedPaid: new Set(), uncheckedRedeemed: new Set(), uncheckedSlots: new Set(), uncheckedMethods: new Set(), needsCaseClosure: false };
 // תמונת-מצב של אמצעי התשלום פר-לקוח (לסינון "אופן תשלום") — מתעדכנת בכל
 // renderOrdersTab; refreshCustomerCard משתמש בה (עלולה להיות מעט לא-עדכנית
 // בין רענון מלא לרענון נקודתי, אבל זה לא רלוונטי לתרחיש שבשבילו זה קיים:
@@ -2384,6 +2389,10 @@ async function renderOrdersTab() {
       ` : ''}
       <label for="orderSearch">חיפוש לפי שם או טלפון</label>
       <input type="text" id="orderSearch" placeholder="הקלידו שם או מספר טלפון..." value="${esc(ordersFilterState.search)}">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:normal;margin-top:8px">
+        <input type="checkbox" id="filterNeedsCaseClosure" style="width:auto" ${ordersFilterState.needsCaseClosure ? 'checked' : ''}>
+        🔒 הצג רק מי שצריך לסגור תיק (יש עופות שלא נאספו, ותיק עדיין לא נסגר)
+      </label>
       <div class="filter-row">
         <div class="multiselect" id="msPaid">
           <button type="button" class="multiselect-btn" data-ms-toggle>סטטוס תשלום <span class="ms-count" data-ms-count></span></button>
@@ -2468,6 +2477,7 @@ async function renderOrdersTab() {
     const allMethodChecks = document.querySelectorAll('.filterMethodCheck');
     const methodFilters = [...allMethodChecks].filter((cb) => cb.checked).map((cb) => cb.value);
     const methodFilterActive = methodFilters.length < allMethodChecks.length;
+    const needsCaseClosure = document.getElementById('filterNeedsCaseClosure').checked;
 
     // שומרים את מצב הסינון הנוכחי כדי ש-renderOrdersTab הבא (למשל אחרי
     // רישום הזמנה ידנית) יוכל לשחזר אותו במקום לאפס הכל.
@@ -2477,6 +2487,7 @@ async function renderOrdersTab() {
       uncheckedRedeemed: new Set([...allRedeemedChecks].filter((cb) => !cb.checked).map((cb) => cb.value)),
       uncheckedSlots: new Set([...allSlotChecks].filter((cb) => !cb.checked).map((cb) => cb.value)),
       uncheckedMethods: new Set([...allMethodChecks].filter((cb) => !cb.checked).map((cb) => cb.value)),
+      needsCaseClosure,
     };
 
     currentFiltered = customers.filter((c) => {
@@ -2492,9 +2503,12 @@ async function renderOrdersTab() {
         const usedMethods = paymentMethodsByPhoneCache.get(c.phone);
         if (!usedMethods || !methodFilters.some((m) => usedMethods.has(m))) return false;
       }
+      // סגירת תיק רלוונטית רק למי שיש לו עופות שלא נאספו (אפשר לזכות עליהם) —
+      // מציג רק לקוחות כאלה שעדיין לא סגרו תיק.
+      if (needsCaseClosure && !(c.uncollectedValue > 0 && !c.caseClosed)) return false;
       return true;
     });
-    const filtersActive = !!q || paidFilters.length < allPaidChecks.length || redeemedFilters.length < allRedeemedChecks.length || slotFilterActive || methodFilterActive;
+    const filtersActive = !!q || paidFilters.length < allPaidChecks.length || redeemedFilters.length < allRedeemedChecks.length || slotFilterActive || methodFilterActive || needsCaseClosure;
     updateOrdersHeader(currentFiltered.length, customers.length, filtersActive);
     renderList(currentFiltered);
   }
@@ -2512,6 +2526,7 @@ async function renderOrdersTab() {
     lateRegBannerDismiss.onclick = () => { document.getElementById('lateRegBanner').remove(); };
   }
   document.getElementById('orderSearch').oninput = applyFilters;
+  document.getElementById('filterNeedsCaseClosure').onchange = applyFilters;
   wireMultiSelectDropdown('msPaid', '.filterPaidCheck', applyFilters);
   wireMultiSelectDropdown('msRedeemed', '.filterRedeemedCheck', applyFilters);
   wireMultiSelectDropdown('msSlot', '.filterSlotCheck', applyFilters);
