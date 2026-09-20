@@ -1641,6 +1641,19 @@ async function wireCustomerPaymentsPanel(c) {
     const note = pnoteInput.hidden ? undefined : pnoteInput.value.trim() || undefined;
     try {
       await api(`/admin/customers/${encodeURIComponent(c.phone)}/payments`, { method: 'POST', body: { amount, method, note } });
+      // זיכוי חלקי (פחות ממלוא שווי העופות שלא נאספו) לא נסגר אוטומטית
+      // בשרת — שואלים כאן, באותה פעולה, אם לסגור את התיק ולסמן שהיתרה
+      // שלא זוכתה נשארת כתרומה (זיכוי מלא כבר נסגר לבד, ראו recordCustomerCredit).
+      const maxCredit = Number(pcreditCheckbox.dataset.maxCredit);
+      if (isCredit && rawAmount < maxCredit) {
+        const remainder = maxCredit - rawAmount;
+        if (confirm(`זיכית ${money(rawAmount)} מתוך ${money(maxCredit)} (שווי העופות שלא נאספו). לסגור את התיק ולסמן שהיתרה (${money(remainder)}) נשארת כתרומה?`)) {
+          await api(`/admin/customers/${encodeURIComponent(c.phone)}/case-closed`, {
+            method: 'PUT',
+            body: { note: `זוכה ${money(rawAmount)} מתוך ${money(maxCredit)} — משאיר ${money(remainder)} כתרומה` },
+          });
+        }
+      }
       refreshCustomerCard(c.phone, { keepPayOpen: true });
     } catch (err) {
       document.getElementById(`${pid}-pmsg`).innerHTML = `<div class="error">${err.message}</div>`;
