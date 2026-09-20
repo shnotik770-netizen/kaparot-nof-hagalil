@@ -517,7 +517,7 @@ async function renderIncomingSmsTab() {
       ${responses.length ? `
         <p class="hint"><b>${comingCount}</b> משיבים "מגיע" · <b>${notComingCount}</b> משיבים "לא מגיע — מבקש זיכוי"</p>
         <table>
-          <thead><tr><th>לקוח</th><th>טלפון</th><th>תגובה</th><th>יתרה</th><th>זמן</th><th></th></tr></thead>
+          <thead><tr><th>לקוח</th><th>טלפון</th><th>תגובה</th><th>מה נשאר לאסוף</th><th>יתרה</th><th>זמן</th><th></th></tr></thead>
           <tbody>
             ${responses.map((r) => {
               const c = customerByPhone.get(r.normalizedPhone);
@@ -529,6 +529,7 @@ async function renderIncomingSmsTab() {
                   <td>${c ? esc(c.customerName) : '(לא נמצא לקוח)'}</td>
                   <td>${esc(r.phone)}</td>
                   <td><span class="pill ${r.answer === 1 ? 'paid' : 'unpaid'}">${esc(r.label)}</span></td>
+                  <td>${r.answer === 1 ? remainingToCollectHtml(c) : '—'}</td>
                   <td>${balanceHtml}</td>
                   <td>${new Date(r.time).toLocaleString('he-IL')}</td>
                   <td><button type="button" class="ghost" data-open-customer="${esc(r.normalizedPhone)}">פתיחת כרטיס ←</button></td>
@@ -1028,6 +1029,22 @@ async function renderSlotsTab(containerId = 'tabContent') {
 // ============== הזמנות ותשלומים (תצוגה מקובצת לפי לקוח) ==============
 
 function panelSafeId(phone) { return 'p' + phone.replace(/\D/g, ''); }
+
+// סיכום "מה נשאר לאסוף" ללקוח — רק הכמות שעדיין לא נמשכה (quantity פחות
+// redeemed) לכל משבצת, לא כל ההזמנה. משמש בטבלת תגובות ה-SMS: לקוח שהשיב
+// "מגיע" וכבר אסף חלק מהעופות שלו לפני כן — שיהיה ברור לצוות מה עוד להכין.
+function remainingToCollectHtml(c) {
+  if (!c) return '—';
+  const parts = c.bySlot.map((s) => {
+    const remMale = s.male - s.maleRedeemed;
+    const remFemale = s.female - s.femaleRedeemed;
+    const bits = [];
+    if (remMale > 0) bits.push(`${remMale} זכרים`);
+    if (remFemale > 0) bits.push(`${remFemale} נקבות`);
+    return bits.length ? `${esc(s.slotName)}: ${bits.join(', ')}` : null;
+  }).filter(Boolean);
+  return parts.length ? parts.join('<br>') : '<span style="color:var(--sage)">✓ הכל כבר נאסף</span>';
+}
 
 // שורות תקציר לכרטיס המכווץ — זמן חלוקה + כמות, ומספר שכבר נמשך אם יש (0 לא מוצג, כדי לא להעמיס לפני יום החלוקה).
 function customerSummaryRowsHtml(c) {
