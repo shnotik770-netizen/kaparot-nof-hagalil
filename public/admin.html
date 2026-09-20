@@ -508,8 +508,11 @@ async function renderIncomingSmsTab() {
   customers.forEach((c) => customerByPhone.set(normalizePhoneClient(c.phone), c));
 
   const comingResponses = responses.filter((r) => r.answer === 1);
+  const notComingResponses = responses.filter((r) => r.answer === 2);
+  const comingCustomers = comingResponses.map((r) => customerByPhone.get(r.normalizedPhone));
+  const notComingCustomers = notComingResponses.map((r) => customerByPhone.get(r.normalizedPhone));
   const comingCount = comingResponses.length;
-  const notComingCount = responses.filter((r) => r.answer === 2).length;
+  const notComingCount = notComingResponses.length;
 
   content.innerHTML = `
     <div class="card">
@@ -517,7 +520,9 @@ async function renderIncomingSmsTab() {
       <p class="hint">תגובות "1"/"2" להודעת עדכון קבוצתית (מגיע / לא מגיע ומבקש זיכוי). לקוח שהשיב פעמיים — מוצגת רק תגובתו האחרונה.</p>
       ${responses.length ? `
         <p class="hint"><b>${comingCount}</b> משיבים "מגיע" · <b>${notComingCount}</b> משיבים "לא מגיע — מבקש זיכוי"</p>
-        ${aggregateRemainingToCollectHtml(comingResponses.map((r) => customerByPhone.get(r.normalizedPhone)))}
+        ${aggregateSlotSummaryHtml(comingCustomers, 'סה"כ עופות שנשארו לאסוף אצל המשיבים "מגיע"')}
+        ${aggregateSlotSummaryHtml(notComingCustomers, 'סה"כ עופות שלא ייאספו אצל המשיבים "לא מגיע"')}
+        ${totalAmountPaidHtml(notComingCustomers, 'סה"כ סכום ששולם ע"י המשיבים "לא מגיע" (עלול לדרוש זיכוי)')}
         <table>
           <thead><tr><th>לקוח</th><th>טלפון</th><th>תגובה</th><th>מה נשאר לאסוף</th><th>יתרה</th><th>זמן</th><th></th></tr></thead>
           <tbody>
@@ -531,7 +536,7 @@ async function renderIncomingSmsTab() {
                   <td>${c ? esc(c.customerName) : '(לא נמצא לקוח)'}</td>
                   <td>${esc(r.phone)}</td>
                   <td><span class="pill ${r.answer === 1 ? 'paid' : 'unpaid'}">${esc(r.label)}</span></td>
-                  <td>${r.answer === 1 ? remainingToCollectHtml(c) : '—'}</td>
+                  <td>${remainingToCollectHtml(c)}</td>
                   <td>${balanceHtml}</td>
                   <td>${new Date(r.time).toLocaleString('he-IL')}</td>
                   <td><button type="button" class="ghost" data-open-customer="${esc(r.normalizedPhone)}">פתיחת כרטיס ←</button></td>
@@ -1048,11 +1053,12 @@ function remainingToCollectHtml(c) {
   return parts.length ? parts.join('<br>') : '<span style="color:var(--sage)">✓ הכל כבר נאסף</span>';
 }
 
-// סה"כ מרוכז של מה שנשאר לאסוף אצל כל מי שהשיב "מגיע" יחד — לפי משבצת,
-// כדי שיהיה מספר אחד ברור לתאם מול ספק העופות (לא רק פירוט פר-לקוח).
-function aggregateRemainingToCollectHtml(comingCustomers) {
+// סה"כ מרוכז של מה שעדיין לא נאסף אצל קבוצת לקוחות (למשל כל מי שהשיב
+// "מגיע", או כל מי שהשיב "לא מגיע") — לפי משבצת, כדי שיהיה מספר אחד ברור
+// לתאם מול ספק העופות, לא רק פירוט פר-לקוח.
+function aggregateSlotSummaryHtml(customersList, title) {
   const bySlot = new Map();
-  comingCustomers.filter(Boolean).forEach((c) => {
+  customersList.filter(Boolean).forEach((c) => {
     c.bySlot.forEach((s) => {
       const remMale = Math.max(s.male - s.maleRedeemed, 0);
       const remFemale = Math.max(s.female - s.femaleRedeemed, 0);
@@ -1069,10 +1075,18 @@ function aggregateRemainingToCollectHtml(comingCustomers) {
   const totalFemale = rows.reduce((s, r) => s + r.remFemale, 0);
   return `
     <div style="margin:10px 0;padding:10px 12px;border-radius:10px;background:var(--accent-soft)">
-      <b>סה"כ עופות שנשארו לאסוף אצל המשיבים "מגיע": ${totalMale + totalFemale}</b> (${totalMale} זכרים, ${totalFemale} נקבות)
+      <b>${esc(title)}: ${totalMale + totalFemale}</b> (${totalMale} זכרים, ${totalFemale} נקבות)
       <div class="meta" style="margin-top:4px">${rows.map((r) => `${esc(r.slotName)}: ${r.remMale} זכרים, ${r.remFemale} נקבות`).join(' · ')}</div>
     </div>
   `;
+}
+
+// סה"כ סכום ששולם בפועל ע"י קבוצת לקוחות — רלוונטי למי שהשיב "לא מגיע"
+// ומבקש זיכוי: זה הסכום שכבר בכיס המערכת ועלול לדרוש זיכוי/החזר.
+function totalAmountPaidHtml(customersList, title) {
+  const total = customersList.filter(Boolean).reduce((s, c) => s + c.amountPaid, 0);
+  if (total <= 0) return '';
+  return `<p class="hint">${esc(title)}: <b>${money(total)}</b></p>`;
 }
 
 // שורות תקציר לכרטיס המכווץ — זמן חלוקה + כמות, ומספר שכבר נמשך אם יש (0 לא מוצג, כדי לא להעמיס לפני יום החלוקה).
