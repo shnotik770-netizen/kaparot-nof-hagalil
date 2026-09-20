@@ -66,6 +66,13 @@ export async function listCustomersSummary() {
     staleByPhone.get(r.normalized_phone).push({ token: r.token, amount: Number(r.requested_amount), createdAt: r.created_at });
   }
 
+  const { rows: closureRows } = await pool.query(
+    `SELECT normalized_phone, note, admin_name, created_at FROM customer_case_closures`
+  );
+  const closureByPhone = new Map(closureRows.map((r) => [r.normalized_phone, {
+    note: r.note, adminName: r.admin_name, closedAt: r.created_at,
+  }]));
+
   const byPhone = new Map();
   for (const o of orders) {
     if (!byPhone.has(o.phone)) {
@@ -124,8 +131,37 @@ export async function listCustomersSummary() {
       orders: c.orders,
       pendingUnconfirmedPayment,
       unpaidOrdersCount,
+      caseClosed: closureByPhone.get(c.normalizedPhone) || null,
     };
   }).sort((a, b) => new Date(b.orders[0]?.createdAt || 0) - new Date(a.orders[0]?.createdAt || 0));
+}
+
+/**
+ * "סגירת תיק" ללקוח — אחרי שהמנהל זיכה אותו (מלא/חלקי) ומחליט שאין יותר
+ * מה לעקוב אחריו. לא יוצר שום פעולה כספית — רק דגל, ראו customer_case_closures.
+ */
+export async function setCustomerCaseClosed(phone, note, adminName) {
+  const normalizedPhone = normalizePhone(phone);
+  await pool.query(
+    `INSERT INTO customer_case_closures (normalized_phone, phone, note, admin_name, created_at)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (normalized_phone) DO UPDATE SET phone = $2, note = $3, admin_name = $4, created_at = now()`,
+    [normalizedPhone, phone, note || null, adminName]
+  );
+  await logAction('customer_case_closed', { normalizedPhone, phone, note: note || null, adminName });
+  return { success: true };
+}
+
+export async function reopenCustomerCase(phone, adminName) {
+  const normalizedPhone = normalizePhone(phone);
+  const { rowCount } = await pool.query(`DELETE FROM customer_case_closures WHERE normalized_phone = $1`, [normalizedPhone]);
+  if (!rowCount) {
+    const err = new Error('לא נמצא תיק סגור עבור לקוח זה.');
+    err.status = 404;
+    throw err;
+  }
+  await logAction('customer_case_reopened', { normalizedPhone, phone, adminName });
+  return { success: true };
 }
 
 /**

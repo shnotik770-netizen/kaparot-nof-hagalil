@@ -24,6 +24,7 @@ import {
   updateOrderItemQuantity, deleteOrderItem, deleteOrder, setItemRedeemedQuantity, setOrderPaymentCoordinated, setCustomerPaymentCoordinated,
   setManualBroadcastResponse, getManualBroadcastResponses,
   listStuckOrphanedPayments, acknowledgeOrphanedPayments,
+  setCustomerCaseClosed, reopenCustomerCase,
 } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
 import { listActions, logAction } from '../lib/actionLog.js';
@@ -471,6 +472,14 @@ router.get('/admin/sms/responses', requireAdmin, requirePermission('orders'), wr
 // סימון ידני של תגובת לקוח (מגיע/לא מגיע) שלא הגיב ב-SMS בעצמו.
 router.put('/admin/customers/:phone/broadcast-response', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   res.json(await setManualBroadcastResponse(req.params.phone, req.body?.answer, req.session.adminName || 'admin'));
+}));
+
+// "סגירת תיק" ללקוח (אחרי זיכוי מלא/חלקי) — ופתיחתו מחדש אם צריך.
+router.put('/admin/customers/:phone/case-closed', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await setCustomerCaseClosed(req.params.phone, req.body?.note, req.session.adminName || 'admin'));
+}));
+router.delete('/admin/customers/:phone/case-closed', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await reopenCustomerCase(req.params.phone, req.session.adminName || 'admin'));
 }));
 
 // שליחת הודעת SMS אישית ללקוח בודד — מריבוע הכתיבה בראש פאנל ההתכתבות.

@@ -609,7 +609,7 @@ async function renderIncomingSmsTab() {
   const notComingCustomers = notComingResponses.map((r) => customerByPhone.get(r.normalizedPhone));
 
   const respondedPhones = new Set(responses.map((r) => r.normalizedPhone));
-  const unresponded = customers.filter((c) => !c.fullyRedeemed && !respondedPhones.has(normalizePhoneClient(c.phone)));
+  const unresponded = customers.filter((c) => !c.fullyRedeemed && !c.caseClosed && !respondedPhones.has(normalizePhoneClient(c.phone)));
   const uq = unrespondedSearchText.trim();
   const filteredUnresponded = uq ? unresponded.filter((c) => c.customerName.includes(uq) || c.phone.includes(uq)) : unresponded;
 
@@ -1225,6 +1225,7 @@ function customerCardHtml(c) {
       <div class="order-row-header">
         <b>${esc(c.customerName)} · <span class="phone-sms-trigger" data-cust-sms data-phone="${esc(c.phone)}" title="לחיצה פותחת/סוגרת את התכתבות ה-SMS עם הלקוח">${esc(c.phone)} 💬</span></b>
         <span style="display:flex;gap:6px;align-items:center">
+          ${c.caseClosed ? '<span class="pill paid" title="תיק סגור — לא צריך יותר לעקוב אחרי הלקוח הזה">🔒 תיק סגור</span>' : ''}
           ${c.fullyRedeemed ? '<span class="fully-pill">✓ נאסף</span>' : ''}
           ${c.unpaidOrdersCount >= 2 ? `<span class="pill unpaid" title="${c.unpaidOrdersCount} הזמנות אינן משולמות במלואן">⚠️ ${c.unpaidOrdersCount} הזמנות לא סגורות</span>` : ''}
           ${customerPaymentPillHtml(c)}
@@ -1568,6 +1569,15 @@ async function loadCustomerViewPayments(c) {
 function customerPaymentsPanelHtml(c) {
   const pid = panelSafeId(c.phone);
   return `
+    ${c.caseClosed ? `
+      <div class="notice">
+        🔒 <b>תיק סגור</b>${c.caseClosed.note ? ` — ${esc(c.caseClosed.note)}` : ''}
+        <div class="meta">ע"י ${esc(c.caseClosed.adminName)} · ${new Date(c.caseClosed.closedAt).toLocaleString('he-IL')}</div>
+        <div style="margin-top:6px"><button type="button" class="ghost" data-reopen-case="${esc(c.phone)}">פתיחת תיק מחדש</button></div>
+      </div>
+    ` : `
+      <button type="button" class="ghost" data-close-case="${esc(c.phone)}" style="margin-bottom:12px">🔒 סגירת תיק (זיכיתי מלא/חלקי, נגמר הסיפור)</button>
+    `}
     <h3 style="margin:0 0 8px;font-size:14px">רישום תשלום (מוקצה אוטומטית להזמנות הפתוחות, הישנה קודם)</h3>
     <div class="row">
       <input type="number" min="0" placeholder="סכום" id="${pid}-pamt">
@@ -1634,6 +1644,31 @@ async function wireCustomerPaymentsPanel(c) {
         refreshCustomerCard(c.phone, { keepPayOpen: true });
       } catch (err) {
         document.getElementById(`${pid}-coordmsg`).innerHTML = `<div class="error">${err.message}</div>`;
+      }
+    };
+  }
+
+  const closeCaseBtn = panel.querySelector('[data-close-case]');
+  if (closeCaseBtn) {
+    closeCaseBtn.onclick = async () => {
+      const note = prompt('הערה קצרה (אופציונלי) — למשל "זוכה 50% טלפונית", "לא מגיע, ויתר על היתרה":') || '';
+      if (note === null) return;
+      try {
+        await api(`/admin/customers/${encodeURIComponent(c.phone)}/case-closed`, { method: 'PUT', body: { note: note.trim() || undefined } });
+        refreshCustomerCard(c.phone, { keepPayOpen: true });
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  }
+  const reopenCaseBtn = panel.querySelector('[data-reopen-case]');
+  if (reopenCaseBtn) {
+    reopenCaseBtn.onclick = async () => {
+      try {
+        await api(`/admin/customers/${encodeURIComponent(c.phone)}/case-closed`, { method: 'DELETE' });
+        refreshCustomerCard(c.phone, { keepPayOpen: true });
+      } catch (err) {
+        alert(err.message);
       }
     };
   }
@@ -2866,6 +2901,8 @@ const ACTION_LABELS = {
   payments_reassigned_from_deleted_order: 'תשלומים הועברו מהזמנה שנמחקה להזמנה פעילה',
   payment_reassign_failed_no_active_order: '⚠️ תשלום נתקע על הזמנה שנמחקה — ללקוח אין הזמנה פעילה להעביר אליה, דורש בדיקה ידנית',
   orphaned_payment_acknowledged: '✓ תשלום תקוע על הזמנה מחוקה סומן כטופל',
+  customer_case_closed: '🔒 תיק לקוח נסגר',
+  customer_case_reopened: 'תיק לקוח נפתח מחדש',
   order_cancelled_by_customer: 'הזמנה בוטלה ע"י הלקוח (לא שולם)',
   payment_coordinated_set: 'סטטוס "תיאום תשלום" עודכן',
   customer_phone_changed: 'מספר הטלפון של לקוח שונה',
@@ -2918,6 +2955,10 @@ function actionSummaryHtml(a) {
       return `<span style="color:var(--wine)">${esc(d.customerName || '')} · ${esc(d.phone || '')} · ${money(d.totalAmount || 0)} נתקעו על הזמנה #${d.fromOrderId ?? ''} שנמחקה, אין ללקוח הזמנה פעילה אחרת</span>`;
     case 'orphaned_payment_acknowledged':
       return `<span style="color:var(--sage)">הזמנה #${d.orderId ?? ''} · ${money(d.totalAmount || 0)} (${(d.paymentIds || []).length} תשלומים) · ע"י ${esc(d.adminName || '')}</span>`;
+    case 'customer_case_closed':
+      return `${esc(d.phone || '')}${d.note ? ` · ${esc(d.note)}` : ''} · ע"י ${esc(d.adminName || '')}`;
+    case 'customer_case_reopened':
+      return `${esc(d.phone || '')} · ע"י ${esc(d.adminName || '')}`;
     case 'order_cancelled_by_customer':
       return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ${esc(d.phone || '')}`;
     case 'payment_coordinated_set':

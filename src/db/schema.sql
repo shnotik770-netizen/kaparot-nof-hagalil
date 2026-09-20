@@ -264,4 +264,17 @@ CREATE TABLE IF NOT EXISTS broadcast_manual_responses (
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ================= "סגירת תיק" ללקוח =================
+-- מנהל שזיכה לקוח (מלא או חלקי, למשל מי שהשיב "לא מגיע" בעדכון קבוצתי)
+-- ומחליט שאין יותר מה לעקוב אחריו — מסמן "סגור" עם הערה חופשית. לא נוגע
+-- בשום נתון כספי בפועל (לא יוצר תשלום/זיכוי) — רק דגל שמשתיק את הלקוח
+-- מרשימות "צריך טיפול" (למשל "לא הגיבו ולא אספו" בטאב הודעות נכנסות).
+CREATE TABLE IF NOT EXISTS customer_case_closures (
+  normalized_phone TEXT PRIMARY KEY,
+  phone            TEXT NOT NULL,
+  note             TEXT,
+  admin_name       TEXT NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- טבלת session ל-express-session תיווצר אוטומטית ע"י connect-pg-simple (createTableIfMissing: true)
