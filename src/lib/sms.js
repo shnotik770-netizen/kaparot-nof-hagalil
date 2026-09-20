@@ -190,7 +190,7 @@ export async function getAllIncomingSms() {
     .sort((a, b) => new Date(b.time) - new Date(a.time));
 }
 
-const BROADCAST_ANSWER_LABEL = { 1: 'מגיע', 2: 'לא מגיע — מבקש זיכוי' };
+export const BROADCAST_ANSWER_LABEL = { 1: 'מגיע', 2: 'לא מגיע — מבקש זיכוי' };
 
 /**
  * תגובות ("1"/"2") להודעת עדכון קבוצתית ("אם מגיעים השיבו 1, אם לא — 2") —

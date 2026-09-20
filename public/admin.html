@@ -492,6 +492,51 @@ async function openActionLogForPhone(phone) {
 // ============== הודעות נכנסות (כל הלקוחות יחד) ==============
 // טאב נפרד שמרכז את כל ה-SMS הנכנסים מכל הלקוחות במקום אחד, בלי צורך
 // לפתוח כרטיס לקוח בכל פעם כדי לגלות שהגיעה הודעה חדשה — ראו getAllIncomingSms.
+// שני תת-מסכים נפרדים (לא מוצגים יחד): "סיכום תגובות" (טבלת מגיע/לא מגיע +
+// לקוחות שלא הגיבו כלל) ו"הודעות גולמיות" (כל SMS שהתקבל, כמו קודם).
+
+let incomingSmsView = 'responses'; // 'responses' | 'raw'
+let unrespondedSearchText = '';
+
+function remainingToCollectTotal(c) {
+  if (!c) return null;
+  return c.bySlot.reduce((sum, s) => sum + Math.max(s.male - s.maleRedeemed, 0) + Math.max(s.female - s.femaleRedeemed, 0), 0);
+}
+
+function unrespondedRowsHtml(list) {
+  if (!list.length) return `<tr><td colspan="4" class="hint">אין לקוחות תואמים.</td></tr>`;
+  return list.map((c) => `
+    <tr>
+      <td>${esc(c.customerName)}</td>
+      <td>${esc(c.phone)}</td>
+      <td>${remainingToCollectHtml(c)}</td>
+      <td>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <select id="manualAnswer-${panelSafeId(c.phone)}" style="width:auto">
+            <option value="1">מגיע</option>
+            <option value="2">לא מגיע — מבקש זיכוי</option>
+          </select>
+          <button type="button" class="ghost" data-mark-manual="${esc(c.phone)}">שמירה</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function wireUnrespondedButtons(container) {
+  container.querySelectorAll('[data-mark-manual]').forEach((b) => {
+    b.onclick = async () => {
+      const phone = b.dataset.markManual;
+      const answer = Number(document.getElementById(`manualAnswer-${panelSafeId(phone)}`).value);
+      try {
+        await api(`/admin/customers/${encodeURIComponent(phone)}/broadcast-response`, { method: 'PUT', body: { answer } });
+        await renderIncomingSmsTab();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  });
+}
 
 async function renderIncomingSmsTab() {
   const content = document.getElementById('tabContent');
@@ -507,67 +552,110 @@ async function renderIncomingSmsTab() {
   const customerByPhone = new Map();
   customers.forEach((c) => customerByPhone.set(normalizePhoneClient(c.phone), c));
 
+  const viewTabsHtml = `
+    <div class="card">
+      <h2>📥 הודעות נכנסות</h2>
+      <div class="tabs" style="margin:10px 0 0">
+        <button type="button" data-sms-view="responses" class="${incomingSmsView === 'responses' ? 'active' : ''}">📋 סיכום תגובות</button>
+        <button type="button" data-sms-view="raw" class="${incomingSmsView === 'raw' ? 'active' : ''}">💬 הודעות גולמיות (${messages.length})</button>
+      </div>
+    </div>
+  `;
+
+  if (incomingSmsView === 'raw') {
+    content.innerHTML = `
+      ${viewTabsHtml}
+      ${messages.length ? messages.map((m) => {
+        const c = customerByPhone.get(m.normalizedPhone);
+        return `
+          <div class="card">
+            <div class="order-row-header">
+              <b>${c ? esc(c.customerName) + ' · ' : ''}${esc(m.phone)}</b>
+              <span class="meta">${new Date(m.time).toLocaleString('he-IL')}</span>
+            </div>
+            <p style="white-space:pre-wrap;margin:6px 0">${esc(m.message)}</p>
+            <button type="button" class="ghost" data-open-customer="${esc(m.normalizedPhone)}">פתיחת כרטיס לקוח ←</button>
+          </div>
+        `;
+      }).join('') : `<div class="card"><p class="hint">אין הודעות נכנסות.</p></div>`}
+    `;
+    content.querySelectorAll('[data-sms-view]').forEach((b) => { b.onclick = () => { incomingSmsView = b.dataset.smsView; renderIncomingSmsTab(); }; });
+    content.querySelectorAll('[data-open-customer]').forEach((b) => { b.onclick = () => openCustomerFromIncomingSms(b.dataset.openCustomer); });
+    return;
+  }
+
   const comingResponses = responses.filter((r) => r.answer === 1);
   const notComingResponses = responses.filter((r) => r.answer === 2);
   const comingCustomers = comingResponses.map((r) => customerByPhone.get(r.normalizedPhone));
   const notComingCustomers = notComingResponses.map((r) => customerByPhone.get(r.normalizedPhone));
-  const comingCount = comingResponses.length;
-  const notComingCount = notComingResponses.length;
+
+  const respondedPhones = new Set(responses.map((r) => r.normalizedPhone));
+  const unresponded = customers.filter((c) => !c.fullyRedeemed && !respondedPhones.has(normalizePhoneClient(c.phone)));
+  const q = unrespondedSearchText.trim();
+  const filteredUnresponded = q ? unresponded.filter((c) => c.customerName.includes(q) || c.phone.includes(q)) : unresponded;
 
   content.innerHTML = `
+    ${viewTabsHtml}
     <div class="card">
       <h2>📋 תגובות לעדכון (${responses.length})</h2>
-      <p class="hint">תגובות "1"/"2" להודעת עדכון קבוצתית (מגיע / לא מגיע ומבקש זיכוי). לקוח שהשיב פעמיים — מוצגת רק תגובתו האחרונה.</p>
+      <p class="hint">תגובות "1"/"2" להודעת עדכון קבוצתית (מגיע / לא מגיע ומבקש זיכוי). לקוח שהשיב פעמיים, או שסומן ידנית אחרי SMS — מוצגת תגובתו העדכנית ביותר.</p>
       ${responses.length ? `
-        <p class="hint"><b>${comingCount}</b> משיבים "מגיע" · <b>${notComingCount}</b> משיבים "לא מגיע — מבקש זיכוי"</p>
+        <p class="hint"><b>${comingResponses.length}</b> משיבים "מגיע" · <b>${notComingResponses.length}</b> משיבים "לא מגיע — מבקש זיכוי"</p>
         ${aggregateSlotSummaryHtml(comingCustomers, 'סה"כ עופות שנשארו לאסוף אצל המשיבים "מגיע"')}
         ${aggregateSlotSummaryHtml(notComingCustomers, 'סה"כ עופות שלא ייאספו אצל המשיבים "לא מגיע"')}
-        ${totalAmountPaidHtml(notComingCustomers, 'סה"כ סכום ששולם ע"י המשיבים "לא מגיע" (עלול לדרוש זיכוי)')}
-        <table>
-          <thead><tr><th>לקוח</th><th>טלפון</th><th>תגובה</th><th>מה נשאר לאסוף</th><th>יתרה</th><th>זמן</th><th></th></tr></thead>
-          <tbody>
-            ${responses.map((r) => {
-              const c = customerByPhone.get(r.normalizedPhone);
-              const balanceHtml = c
-                ? `<span style="color:${c.balanceDue > 0 ? 'var(--wine)' : c.balanceDue < 0 ? 'var(--sage)' : 'inherit'}">${c.balanceDue < 0 ? `זכות ${money(-c.balanceDue)}` : money(c.balanceDue)}</span>`
-                : '—';
-              return `
-                <tr>
-                  <td>${c ? esc(c.customerName) : '(לא נמצא לקוח)'}</td>
-                  <td>${esc(r.phone)}</td>
-                  <td><span class="pill ${r.answer === 1 ? 'paid' : 'unpaid'}">${esc(r.label)}</span></td>
-                  <td>${remainingToCollectHtml(c)}</td>
-                  <td>${balanceHtml}</td>
-                  <td>${new Date(r.time).toLocaleString('he-IL')}</td>
-                  <td><button type="button" class="ghost" data-open-customer="${esc(r.normalizedPhone)}">פתיחת כרטיס ←</button></td>
-                </tr>
-              `;
-            }).join('')}
-          </tbody>
-        </table>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr><th>לקוח</th><th>טלפון</th><th>תגובה</th><th>מה נשאר לאסוף</th><th>יתרה</th><th>מקור</th><th></th></tr></thead>
+            <tbody>
+              ${responses.map((r) => {
+                const c = customerByPhone.get(r.normalizedPhone);
+                const total = remainingToCollectTotal(c);
+                const balanceHtml = c
+                  ? `<span style="color:${c.balanceDue > 0 ? 'var(--wine)' : c.balanceDue < 0 ? 'var(--sage)' : 'inherit'}">${c.balanceDue < 0 ? `זכות ${money(-c.balanceDue)}` : money(c.balanceDue)}</span>`
+                  : '—';
+                const sourceHtml = r.source === 'manual'
+                  ? `✏️ ידני (${esc(r.adminName)})<br><span class="meta">${new Date(r.time).toLocaleString('he-IL')}</span>`
+                  : `SMS<br><span class="meta">${new Date(r.time).toLocaleString('he-IL')}</span>`;
+                return `
+                  <tr>
+                    <td>${c ? esc(c.customerName) : '(לא נמצא לקוח)'}</td>
+                    <td>${esc(r.phone)}</td>
+                    <td><span class="pill ${r.answer === 1 ? 'paid' : 'unpaid'}">${esc(r.label)}${total != null ? ` · ${total} עופות` : ''}</span></td>
+                    <td>${remainingToCollectHtml(c)}</td>
+                    <td>${balanceHtml}</td>
+                    <td>${sourceHtml}</td>
+                    <td><button type="button" class="ghost" data-open-customer="${esc(r.normalizedPhone)}">פתיחת כרטיס ←</button></td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
       ` : `<p class="hint">אין עדיין תגובות "1" או "2".</p>`}
     </div>
     <div class="card">
-      <h2>📥 הודעות נכנסות (${messages.length})</h2>
-      <p class="hint">כל ה-SMS שהתקבלו ממספרי לקוחות, מכל הלקוחות יחד — החדשות ביותר למעלה.</p>
+      <h2>❓ לא הגיבו ולא אספו (${unresponded.length})</h2>
+      <p class="hint">יש להם עדיין עופות שלא נאספו, ולא התקבלה מהם תגובה (לא SMS ולא סימון ידני) — אפשר לברר מולם (למשל בטלפון) ולסמן ידנית מה מצבם.</p>
+      <input type="text" id="unrespondedSearch" placeholder="חיפוש לפי שם או טלפון…" value="${esc(unrespondedSearchText)}" style="margin-bottom:10px">
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>לקוח</th><th>טלפון</th><th>מה נשאר לאסוף</th><th>סימון ידני</th></tr></thead>
+          <tbody id="unrespondedTbody">${unrespondedRowsHtml(filteredUnresponded)}</tbody>
+        </table>
+      </div>
     </div>
-    ${messages.length ? messages.map((m) => {
-      const c = customerByPhone.get(m.normalizedPhone);
-      return `
-        <div class="card">
-          <div class="order-row-header">
-            <b>${c ? esc(c.customerName) + ' · ' : ''}${esc(m.phone)}</b>
-            <span class="meta">${new Date(m.time).toLocaleString('he-IL')}</span>
-          </div>
-          <p style="white-space:pre-wrap;margin:6px 0">${esc(m.message)}</p>
-          <button type="button" class="ghost" data-open-customer="${esc(m.normalizedPhone)}">פתיחת כרטיס לקוח ←</button>
-        </div>
-      `;
-    }).join('') : `<div class="card"><p class="hint">אין הודעות נכנסות.</p></div>`}
   `;
-  content.querySelectorAll('[data-open-customer]').forEach((b) => {
-    b.onclick = () => openCustomerFromIncomingSms(b.dataset.openCustomer);
-  });
+  content.querySelectorAll('[data-sms-view]').forEach((b) => { b.onclick = () => { incomingSmsView = b.dataset.smsView; renderIncomingSmsTab(); }; });
+  content.querySelectorAll('[data-open-customer]').forEach((b) => { b.onclick = () => openCustomerFromIncomingSms(b.dataset.openCustomer); });
+  wireUnrespondedButtons(content);
+  document.getElementById('unrespondedSearch').oninput = (e) => {
+    unrespondedSearchText = e.target.value;
+    const query = unrespondedSearchText.trim();
+    const filtered = query ? unresponded.filter((c) => c.customerName.includes(query) || c.phone.includes(query)) : unresponded;
+    const tbody = document.getElementById('unrespondedTbody');
+    tbody.innerHTML = unrespondedRowsHtml(filtered);
+    wireUnrespondedButtons(tbody);
+  };
 }
 
 // קפיצה מ"הודעות נכנסות" לכרטיס הלקוח בטאב הזמנות (עם חיפוש ממולא לפי
@@ -1079,14 +1167,6 @@ function aggregateSlotSummaryHtml(customersList, title) {
       <div class="meta" style="margin-top:4px">${rows.map((r) => `${esc(r.slotName)}: ${r.remMale} זכרים, ${r.remFemale} נקבות`).join(' · ')}</div>
     </div>
   `;
-}
-
-// סה"כ סכום ששולם בפועל ע"י קבוצת לקוחות — רלוונטי למי שהשיב "לא מגיע"
-// ומבקש זיכוי: זה הסכום שכבר בכיס המערכת ועלול לדרוש זיכוי/החזר.
-function totalAmountPaidHtml(customersList, title) {
-  const total = customersList.filter(Boolean).reduce((s, c) => s + c.amountPaid, 0);
-  if (total <= 0) return '';
-  return `<p class="hint">${esc(title)}: <b>${money(total)}</b></p>`;
 }
 
 // שורות תקציר לכרטיס המכווץ — זמן חלוקה + כמות, ומספר שכבר נמשך אם יש (0 לא מוצג, כדי לא להעמיס לפני יום החלוקה).

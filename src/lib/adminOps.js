@@ -1,5 +1,6 @@
 import { pool, withTransaction } from '../db/pool.js';
 import { logAction } from './actionLog.js';
+import { normalizePhone } from './normalize.js';
 
 export async function listAllOrders() {
   const { rows: orderRows } = await pool.query(
@@ -614,4 +615,41 @@ export async function hardReset(performedBy) {
   await pool.query(`ALTER SEQUENCE order_number_seq RESTART WITH 1001`);
   await logAction('hard_reset', { performedBy: performedBy || null });
   return { success: true };
+}
+
+/**
+ * סימון ידני של תגובת לקוח לעדכון קבוצתי (מגיע/לא מגיע) — למי שלא הגיב
+ * ב-SMS אבל המנהל בירר איתו (למשל בטלפון) מה מצבו. נשמר בטבלה נפרדת
+ * וממוזג עם התגובות שהגיעו כ-SMS אמיתי ב-GET /admin/sms/responses (ראו
+ * routes/api.js) — פנייה חוזרת לאותו טלפון פשוט מעדכנת (upsert).
+ */
+export async function setManualBroadcastResponse(phone, answer, adminName) {
+  const answerNum = Number(answer);
+  if (![1, 2].includes(answerNum)) {
+    const err = new Error('סטטוס לא תקין.');
+    err.status = 400;
+    throw err;
+  }
+  const normalizedPhone = normalizePhone(phone);
+  await pool.query(
+    `INSERT INTO broadcast_manual_responses (normalized_phone, phone, answer, admin_name, created_at)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (normalized_phone) DO UPDATE SET phone = $2, answer = $3, admin_name = $4, created_at = now()`,
+    [normalizedPhone, phone, answerNum, adminName]
+  );
+  await logAction('broadcast_response_marked_manually', { normalizedPhone, phone, answer: answerNum, adminName });
+  return { success: true };
+}
+
+export async function getManualBroadcastResponses() {
+  const { rows } = await pool.query(
+    `SELECT normalized_phone, phone, answer, admin_name, created_at FROM broadcast_manual_responses`
+  );
+  return rows.map((r) => ({
+    normalizedPhone: r.normalized_phone,
+    phone: r.phone,
+    answer: r.answer,
+    adminName: r.admin_name,
+    time: r.created_at,
+  }));
 }

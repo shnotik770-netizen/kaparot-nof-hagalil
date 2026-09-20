@@ -248,4 +248,16 @@ CREATE TABLE IF NOT EXISTS admin_actions (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ================= תגובות ידניות לעדכון קבוצתי (מגיע/לא מגיע) =================
+-- כשמנהל בודק ידנית מול לקוח (למשל בטלפון) שלא הגיב ל-SMS, אפשר לסמן את
+-- תשובתו ידנית — מוצג ומשוקלל יחד עם התגובות שהגיעו כ-SMS אמיתי (ראו
+-- GET /admin/sms/responses, שממזג sms.js/getBroadcastResponses עם הטבלה הזו).
+CREATE TABLE IF NOT EXISTS broadcast_manual_responses (
+  normalized_phone TEXT PRIMARY KEY,
+  phone            TEXT NOT NULL,
+  answer           SMALLINT NOT NULL CHECK (answer IN (1,2)),
+  admin_name       TEXT NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- טבלת session ל-express-session תיווצר אוטומטית ע"י connect-pg-simple (createTableIfMissing: true)

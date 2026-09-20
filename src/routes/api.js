@@ -22,11 +22,11 @@ import {
 import {
   listAllOrders, listCustomersSummary, getDashboardStats, hardReset,
   updateOrderItemQuantity, deleteOrderItem, deleteOrder, setItemRedeemedQuantity, setOrderPaymentCoordinated, setCustomerPaymentCoordinated,
-  setItemNoShowStatus,
+  setItemNoShowStatus, setManualBroadcastResponse, getManualBroadcastResponses,
 } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
 import { listActions, logAction } from '../lib/actionLog.js';
-import { sendSms, sendBulkSms, getSmsHistoryForPhone, getAllIncomingSms, getBroadcastResponses } from '../lib/sms.js';
+import { sendSms, sendBulkSms, getSmsHistoryForPhone, getAllIncomingSms, getBroadcastResponses, BROADCAST_ANSWER_LABEL } from '../lib/sms.js';
 import { runYemotTestCalls } from '../lib/yemotIvr.js';
 
 const router = Router();
@@ -455,8 +455,28 @@ router.get('/admin/sms/incoming', requireAdmin, requirePermission('orders'), wra
 }));
 
 // תגובות "1"/"2" להודעת עדכון קבוצתית — לטבלת התגובות בטאב "הודעות נכנסות".
+// ממזג תגובות SMS אמיתיות עם סימונים ידניים (broadcast_manual_responses) —
+// לכל טלפון, מה שיותר עדכני מבין השניים הוא זה שמוצג (כך שסימון ידני אחרי
+// שיחת טלפון יכול "לעקוף" תגובת SMS ישנה, ולהפך).
 router.get('/admin/sms/responses', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
-  res.json(await getBroadcastResponses());
+  const [smsResponses, manualResponses] = await Promise.all([getBroadcastResponses(), getManualBroadcastResponses()]);
+  const byPhone = new Map();
+  for (const r of smsResponses) byPhone.set(r.normalizedPhone, { ...r, source: 'sms' });
+  for (const r of manualResponses) {
+    const existing = byPhone.get(r.normalizedPhone);
+    if (!existing || new Date(r.time) >= new Date(existing.time)) {
+      byPhone.set(r.normalizedPhone, {
+        phone: r.phone, normalizedPhone: r.normalizedPhone, answer: r.answer,
+        label: BROADCAST_ANSWER_LABEL[r.answer], time: r.time, source: 'manual', adminName: r.adminName,
+      });
+    }
+  }
+  res.json([...byPhone.values()].sort((a, b) => new Date(b.time) - new Date(a.time)));
+}));
+
+// סימון ידני של תגובת לקוח (מגיע/לא מגיע) שלא הגיב ב-SMS בעצמו.
+router.put('/admin/customers/:phone/broadcast-response', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await setManualBroadcastResponse(req.params.phone, req.body?.answer, req.session.adminName || 'admin'));
 }));
 
 // שליחת הודעת SMS אישית ללקוח בודד — מריבוע הכתיבה בראש פאנל ההתכתבות.
