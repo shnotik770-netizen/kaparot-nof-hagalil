@@ -148,6 +148,14 @@ CREATE TABLE IF NOT EXISTS order_items (
 CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_items_slot ON order_items(slot_id);
 
+-- סימון "לא מגיע לאסוף" על שורת הזמנה בודדת (לא כל ההזמנה — לקוח עשוי
+-- לאסוף חלק מהזמנתו ולהשאיר שורה אחרת): 'donation' = משאיר את הסכום
+-- כתרומה, 'refund' = מבקש החזר מלא, 'partial_refund' = מבקש החזר חלקי
+-- (הפרטים/הסכום ב-no_show_note, טקסט חופשי — אין כאן זרימת החזר כספי
+-- אוטומטית, רק תיעוד לצוות המשרד).
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS no_show_status TEXT CHECK (no_show_status IN ('donation','refund','partial_refund'));
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS no_show_note TEXT;
+
 -- ================= תשלומים: יומן, לא שדה יחיד — מאפשר תשלום חלקי + ריבוי אמצעים =================
 CREATE TABLE IF NOT EXISTS payments (
   id                      SERIAL PRIMARY KEY,

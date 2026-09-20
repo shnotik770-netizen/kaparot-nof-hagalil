@@ -101,6 +101,8 @@ function customerPaymentPillHtml(c) {
   return `<span class="pill ${c.paymentStatus}${coordinated ? ' coordinated' : ''}">${STATUS_LABEL[c.paymentStatus]}${coordinated ? ' · מתואם' : ''}</span>`;
 }
 const METHOD_LABEL = { nedarim_plus: 'נדרים פלוס', manual_cash: 'מזומן', manual_card: 'אשראי ידני', manual_admin: 'אחר' };
+const NO_SHOW_LABEL = { donation: '🎁 לא מגיע — תרומה', refund: '💸 לא מגיע — מבקש החזר מלא', partial_refund: '💰 לא מגיע — מבקש החזר חלקי' };
+const NO_SHOW_PILL_CLASS = { donation: 'paid', refund: 'unpaid', partial_refund: 'partial' };
 
 function triggerCsvDownload(filenameBase, phonesFilter, header, rows) {
   const csv = '﻿' + [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
@@ -1559,8 +1561,19 @@ function customerPanelHtml(c) {
               <span>${esc(it.slotName)} · ${GENDER_LABEL[it.gender]}</span>
               <span class="meta">${it.quantity} × ${money(it.unitPrice)} = ${money(it.lineTotal)}</span>
             </div>
+            ${it.noShowStatus ? `<div class="pill ${NO_SHOW_PILL_CLASS[it.noShowStatus]}" style="margin-top:6px">${NO_SHOW_LABEL[it.noShowStatus]}${it.noShowNote ? ' · ' + esc(it.noShowNote) : ''}</div>` : ''}
             <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center">
               <button class="ghost" data-del-item="${o.id}:${it.id}" style="color:var(--wine)" ${it.quantityRedeemed > 0 ? 'disabled title="לא ניתן למחוק — כבר נמשך ממנה"' : ''}>מחיקת שורה</button>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center">
+              <select id="${pid}-noshow-${it.id}" style="width:auto">
+                <option value="">לא הגיע: ללא</option>
+                <option value="donation" ${it.noShowStatus === 'donation' ? 'selected' : ''}>לא מגיע — משאיר כתרומה</option>
+                <option value="refund" ${it.noShowStatus === 'refund' ? 'selected' : ''}>לא מגיע — מבקש החזר מלא</option>
+                <option value="partial_refund" ${it.noShowStatus === 'partial_refund' ? 'selected' : ''}>לא מגיע — מבקש החזר חלקי</option>
+              </select>
+              <input type="text" id="${pid}-noshownote-${it.id}" placeholder="הערה (למשל סכום ההחזר)" value="${esc(it.noShowNote || '')}" style="width:auto;flex:1;min-width:140px">
+              <button class="ghost" type="button" data-save-noshow="${it.id}" style="width:auto">שמירה</button>
             </div>
           </div>
         `).join('')}
@@ -1677,6 +1690,17 @@ async function wireCustomerPanel(c, refetch) {
       }
     };
   }
+  panel.querySelectorAll('[data-save-noshow]').forEach((b) => {
+    b.onclick = async () => {
+      const itemId = b.dataset.saveNoshow;
+      const noShowStatus = document.getElementById(`${pid}-noshow-${itemId}`).value || null;
+      const noShowNote = document.getElementById(`${pid}-noshownote-${itemId}`).value.trim() || null;
+      try {
+        await api(`/admin/order-items/${itemId}/no-show`, { method: 'PUT', body: { noShowStatus, noShowNote } });
+        refreshCustomerCard(c.phone, { keepEditOpen: true });
+      } catch (err) { alert(err.message); }
+    };
+  });
   panel.querySelectorAll('[data-del-item]').forEach((b) => {
     b.onclick = async () => {
       if (!confirm('למחוק את שורת ההזמנה הזו?')) return;

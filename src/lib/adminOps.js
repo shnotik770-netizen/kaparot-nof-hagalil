@@ -39,8 +39,35 @@ export async function listAllOrders() {
         dayLabel: it.day_label, hoursLabel: it.hours_label,
         gender: it.gender, quantity: it.quantity, unitPrice: Number(it.unit_price), lineTotal: Number(it.line_total),
         quantityRedeemed: it.quantity_redeemed,
+        noShowStatus: it.no_show_status,
+        noShowNote: it.no_show_note,
       })),
   }));
+}
+
+/**
+ * מסמן שורת הזמנה (לא כל ההזמנה) כ"לא מגיע לאסוף" — תרומה/החזר מלא/החזר
+ * חלקי, עם הערה חופשית (למשל סכום ההחזר). לא מבצע שום פעולה כספית
+ * אוטומטית (לא יוצר תשלום שלילי/זיכוי) — רק תיעוד לצוות המשרד, ראו
+ * data-save-noshow בכרטיס הלקוח. noShowStatus=null מבטל את הסימון.
+ */
+export async function setItemNoShowStatus(itemId, noShowStatus, noShowNote, adminName) {
+  if (noShowStatus != null && !['donation', 'refund', 'partial_refund'].includes(noShowStatus)) {
+    const err = new Error('סטטוס לא תקין.');
+    err.status = 400;
+    throw err;
+  }
+  const { rows } = await pool.query(
+    `UPDATE order_items SET no_show_status = $2, no_show_note = $3 WHERE id = $1 RETURNING *`,
+    [itemId, noShowStatus, noShowNote || null]
+  );
+  if (!rows.length) {
+    const err = new Error('שורת הזמנה לא נמצאה.');
+    err.status = 404;
+    throw err;
+  }
+  await logAction('order_item_no_show_marked', { itemId, noShowStatus, noShowNote: noShowNote || null, adminName });
+  return { success: true };
 }
 
 /**
