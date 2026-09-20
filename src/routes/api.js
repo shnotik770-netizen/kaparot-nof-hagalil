@@ -23,6 +23,7 @@ import {
   listAllOrders, listCustomersSummary, getDashboardStats, hardReset,
   updateOrderItemQuantity, deleteOrderItem, deleteOrder, setItemRedeemedQuantity, setOrderPaymentCoordinated, setCustomerPaymentCoordinated,
   setItemNoShowStatus, setManualBroadcastResponse, getManualBroadcastResponses,
+  listStuckOrphanedPayments, acknowledgeOrphanedPayments,
 } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
 import { listActions, logAction } from '../lib/actionLog.js';
@@ -542,6 +543,15 @@ router.post('/admin/sms/bulk', requireAdmin, requirePermission('orders'), wrap(a
 
 router.get('/admin/dashboard', requireAdmin, requirePermission('dashboard'), wrap(async (req, res) => {
   res.json(await getDashboardStats());
+}));
+
+// תשלומים שנתקעו על הזמנות שנמחקו (ראו reassignOrphanedPayments) — מסך
+// לבירור ולסימון ידני כטופל, כדי שיפסיקו להטריד את אזהרת הדיפלוי.
+router.get('/admin/orphaned-payments', requireAdmin, requirePermission('dashboard'), wrap(async (req, res) => {
+  res.json(await listStuckOrphanedPayments());
+}));
+router.put('/admin/orphaned-payments/:orderId/acknowledge', requireAdmin, requirePermission('dashboard'), wrap(async (req, res) => {
+  res.json(await acknowledgeOrphanedPayments(Number(req.params.orderId), req.session.adminName || 'admin'));
 }));
 
 // ---- איפוס קשיח ----

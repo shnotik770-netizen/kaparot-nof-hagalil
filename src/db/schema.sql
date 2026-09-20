@@ -182,6 +182,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_order_transaction
 ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_amount_check;
 ALTER TABLE payments ADD CONSTRAINT payments_amount_check CHECK (amount <> 0);
 
+-- מנהל "מסמן כטופל" תשלום שנשאר תקוע על הזמנה מחוקה בלי הזמנה פעילה
+-- להעביר אליה (ראו reassignOrphanedPayments/reconcileOrphanedPayments
+-- ב-adminOps.js) — אחרי בירור ידני מול הלקוח. משתיק את האזהרה החוזרת
+-- בכל דיפלוי ואת השורה במסך "תשלומים תקועים" בדשבורד, בלי למחוק כלום.
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS orphan_acknowledged_at TIMESTAMPTZ;
+
 -- כפתור "תשלום" באזור האישי יוצר כאן שורה אחת (עם token אקראי כ-Param2 מול
 -- נדרים פלוס), לפני קריאת CreateTransaction — כך שכשה-Webhook חוזר אנחנו
 -- יודעים בדיוק לאיזה טלפון ולאיזה סכום מבוקש הוא שייך, ומקצים אותו ל"מפל"

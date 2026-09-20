@@ -331,11 +331,14 @@ export async function deleteOrder(orderId, adminName) {
  * בכל דיפלוי (ראו migrate.js).
  */
 export async function reconcileOrphanedPayments() {
+  // מדלג על תשלומים שכבר סומנו "טופל" ידנית (orphan_acknowledged_at) — אחרי
+  // שמנהל בירר את המקרה וסימן אותו, הוא לא אמור לחזור ולהטריד בכל דיפלוי,
+  // ראו listStuckOrphanedPayments/acknowledgeOrphanedPayments למטה.
   const { rows: orphanedOrders } = await pool.query(
     `SELECT DISTINCT o.id, o.normalized_phone
        FROM payments p
        JOIN orders o ON o.id = p.order_id
-      WHERE o.is_deleted`
+      WHERE o.is_deleted AND p.orphan_acknowledged_at IS NULL`
   );
   let fixedCount = 0;
   let unresolvedCount = 0;
@@ -345,6 +348,53 @@ export async function reconcileOrphanedPayments() {
     else if (result.reason === 'no_active_orders') unresolvedCount++;
   }
   return { fixedCount, unresolvedCount };
+}
+
+/**
+ * תשלומים שנשארו "תקועים" על הזמנות שנמחקו ולא הצלחנו להעביר להזמנה
+ * פעילה אחרת של אותו לקוח — למסך ניהול ייעודי ("תשלומים תקועים" בדשבורד)
+ * שבו אפשר לברר מול הלקוח ואז לסמן כטופל (ראו acknowledgeOrphanedPayments).
+ */
+export async function listStuckOrphanedPayments() {
+  const { rows } = await pool.query(
+    `SELECT o.id AS order_id, o.order_number, o.customer_name, o.phone, o.normalized_phone,
+            COALESCE(SUM(p.amount), 0) AS total_amount,
+            array_agg(p.id ORDER BY p.id) AS payment_ids,
+            MIN(p.created_at) AS earliest_payment_at
+       FROM payments p
+       JOIN orders o ON o.id = p.order_id
+      WHERE o.is_deleted AND p.orphan_acknowledged_at IS NULL
+      GROUP BY o.id, o.order_number, o.customer_name, o.phone, o.normalized_phone
+      ORDER BY MIN(p.created_at) DESC`
+  );
+  return rows.map((r) => ({
+    orderId: r.order_id,
+    orderNumber: r.order_number,
+    customerName: r.customer_name,
+    phone: r.phone,
+    normalizedPhone: r.normalized_phone,
+    totalAmount: Number(r.total_amount),
+    paymentIds: r.payment_ids,
+    earliestPaymentAt: r.earliest_payment_at,
+  }));
+}
+
+/** מסמן את כל התשלומים התקועים על הזמנה מחוקה מסוימת כ"טופל" — ראו listStuckOrphanedPayments. */
+export async function acknowledgeOrphanedPayments(orderId, adminName) {
+  const { rows } = await pool.query(
+    `UPDATE payments SET orphan_acknowledged_at = now()
+      WHERE order_id = $1 AND orphan_acknowledged_at IS NULL
+      RETURNING id, amount`,
+    [orderId]
+  );
+  if (!rows.length) {
+    const err = new Error('לא נמצאו תשלומים תקועים על הזמנה זו.');
+    err.status = 404;
+    throw err;
+  }
+  const totalAmount = rows.reduce((s, p) => s + Number(p.amount), 0);
+  await logAction('orphaned_payment_acknowledged', { orderId, paymentIds: rows.map((p) => p.id), totalAmount, adminName });
+  return { success: true };
 }
 
 /**

@@ -2776,7 +2776,31 @@ function denseRedemptionBuckets(buckets) {
 let dashboardShowAllOrdered = false;
 
 async function renderDashboardTab() {
-  const stats = await api('/admin/dashboard');
+  const [stats, stuckPayments] = await Promise.all([api('/admin/dashboard'), api('/admin/orphaned-payments')]);
+
+  function stuckPaymentsCardHtml() {
+    if (!stuckPayments.length) return '';
+    return `
+      <div class="card">
+        <h2>⚠️ תשלומים תקועים על הזמנות שנמחקו (${stuckPayments.length})</h2>
+        <p class="hint">התשלום עדיין קיים במערכת אבל מקושר להזמנה שנמחקה, ולכן לא נספר ביתרה/סטטוס של הלקוח. בררו מול הלקוח (יש הזמנה אחרת? צריך ליצור אחת חדשה? זו הייתה טעות?) ואז סמנו כטופל — זה משתיק את השורה כאן ואת האזהרה שחוזרת בכל דיפלוי, בלי למחוק או לשנות שום דבר בפועל.</p>
+        <table>
+          <thead><tr><th>לקוח</th><th>טלפון</th><th>הזמנה שנמחקה</th><th>סכום תקוע</th><th></th></tr></thead>
+          <tbody>
+            ${stuckPayments.map((p) => `
+              <tr>
+                <td>${esc(p.customerName)}</td>
+                <td>${esc(p.phone)}</td>
+                <td>#${p.orderId} (מס' ${p.orderNumber})</td>
+                <td>${money(p.totalAmount)}</td>
+                <td><button type="button" class="ghost" data-ack-orphan="${p.orderId}">✓ סימנתי כטופל</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
 
   function orderedCardHtml() {
     const list = dashboardShowAllOrdered ? stats.bySlotAll : stats.bySlotSecured;
@@ -2817,6 +2841,7 @@ async function renderDashboardTab() {
 
   function render() {
     document.getElementById('tabContent').innerHTML = `
+      ${stuckPaymentsCardHtml()}
       ${orderedCardHtml()}
       <div class="card">
         <h2>ציר זמן הזמנות (סה"כ עופות שהוזמנו לפי תאריך)</h2>
@@ -2852,6 +2877,17 @@ async function renderDashboardTab() {
       dashboardShowAllOrdered = !dashboardShowAllOrdered;
       render();
     };
+    document.querySelectorAll('[data-ack-orphan]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm('לסמן את התשלום התקוע הזה כטופל? הוא יפסיק להופיע כאן ובאזהרת הדיפלוי (הנתונים עצמם לא משתנים).')) return;
+        try {
+          await api(`/admin/orphaned-payments/${b.dataset.ackOrphan}/acknowledge`, { method: 'PUT' });
+          await renderDashboardTab();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    });
   }
 
   render();
@@ -2875,6 +2911,7 @@ const ACTION_LABELS = {
   order_deleted: 'הזמנה נמחקה',
   payments_reassigned_from_deleted_order: 'תשלומים הועברו מהזמנה שנמחקה להזמנה פעילה',
   payment_reassign_failed_no_active_order: '⚠️ תשלום נתקע על הזמנה שנמחקה — ללקוח אין הזמנה פעילה להעביר אליה, דורש בדיקה ידנית',
+  orphaned_payment_acknowledged: '✓ תשלום תקוע על הזמנה מחוקה סומן כטופל',
   order_cancelled_by_customer: 'הזמנה בוטלה ע"י הלקוח (לא שולם)',
   payment_coordinated_set: 'סטטוס "תיאום תשלום" עודכן',
   customer_phone_changed: 'מספר הטלפון של לקוח שונה',
@@ -2925,6 +2962,8 @@ function actionSummaryHtml(a) {
       return `<span style="color:var(--sage)">הזמנה #${d.fromOrderId ?? ''} ← הזמנה #${d.toOrderId ?? ''} · ${money(d.totalAmount || 0)} (${(d.paymentIds || []).length} תשלומים) · ${esc(d.adminName || '')}</span>`;
     case 'payment_reassign_failed_no_active_order':
       return `<span style="color:var(--wine)">${esc(d.customerName || '')} · ${esc(d.phone || '')} · ${money(d.totalAmount || 0)} נתקעו על הזמנה #${d.fromOrderId ?? ''} שנמחקה, אין ללקוח הזמנה פעילה אחרת</span>`;
+    case 'orphaned_payment_acknowledged':
+      return `<span style="color:var(--sage)">הזמנה #${d.orderId ?? ''} · ${money(d.totalAmount || 0)} (${(d.paymentIds || []).length} תשלומים) · ע"י ${esc(d.adminName || '')}</span>`;
     case 'order_cancelled_by_customer':
       return `הזמנה #${d.orderId ?? ''} (מס' ${d.orderNumber ?? ''}) · ${esc(d.customerName || '')} · ${esc(d.phone || '')}`;
     case 'payment_coordinated_set':
