@@ -152,9 +152,9 @@ function downloadCustomersCsv(customers, slots, phonesFilter) {
 }
 // סדר המפתחות כאן קובע את סדר הטאבים בתפריט. 'settings' ו'slots' אוחדו
 // לכפתור אחד (ראו renderSettingsTab) — עדיין שתי הרשאות נפרדות, אבל ניווט משותף.
-const TAB_TITLES = { orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', settings: 'הגדרות וזמני חלוקה', actionLog: 'יומן פעולות' };
+const TAB_TITLES = { orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', incomingSms: '📥 הודעות נכנסות', settings: 'הגדרות וזמני חלוקה', actionLog: 'יומן פעולות' };
 // 'יומן פעולות' משתמש בהרשאת 'הגדרות' (אין לו הרשאה נפרדת משלו — כל מי שרואה הגדרות רואה גם את היומן)
-const TAB_PERMISSION = { actionLog: 'settings' };
+const TAB_PERMISSION = { actionLog: 'settings', incomingSms: 'orders' };
 
 let currentTab = null;
 let myPermissions = {};
@@ -465,6 +465,7 @@ async function showTab(tab) {
   if (tab === 'orders') return renderOrdersTab();
   if (tab === 'dashboard') return renderDashboardTab();
   if (tab === 'actionLog') return renderActionLogTab();
+  if (tab === 'incomingSms') return renderIncomingSmsTab();
 }
 
 // פתיחת טאב היומן עם חיפוש ממולא מראש לפי טלפון — משמש מכפתור "היסטוריית
@@ -475,6 +476,63 @@ async function openActionLogForPhone(phone) {
   quickEventModeOn = false;
   document.getElementById('tabContent').innerHTML = '<div class="loading">טוען…</div>';
   await renderActionLogTab(phone);
+}
+
+// ============== הודעות נכנסות (כל הלקוחות יחד) ==============
+// טאב נפרד שמרכז את כל ה-SMS הנכנסים מכל הלקוחות במקום אחד, בלי צורך
+// לפתוח כרטיס לקוח בכל פעם כדי לגלות שהגיעה הודעה חדשה — ראו getAllIncomingSms.
+
+async function renderIncomingSmsTab() {
+  const content = document.getElementById('tabContent');
+  let messages, customers;
+  try {
+    [messages, customers] = await Promise.all([api('/admin/sms/incoming'), api('/admin/customers')]);
+  } catch (err) {
+    content.innerHTML = `<div class="card"><div class="error">${err.message}</div></div>`;
+    return;
+  }
+  const nameByPhone = new Map();
+  customers.forEach((c) => { nameByPhone.set(normalizePhoneClient(c.phone), c.customerName); });
+
+  content.innerHTML = `
+    <div class="card">
+      <h2>📥 הודעות נכנסות (${messages.length})</h2>
+      <p class="hint">כל ה-SMS שהתקבלו ממספרי לקוחות, מכל הלקוחות יחד — החדשות ביותר למעלה.</p>
+    </div>
+    ${messages.length ? messages.map((m) => {
+      const name = nameByPhone.get(m.normalizedPhone);
+      return `
+        <div class="card">
+          <div class="order-row-header">
+            <b>${name ? esc(name) + ' · ' : ''}${esc(m.phone)}</b>
+            <span class="meta">${new Date(m.time).toLocaleString('he-IL')}</span>
+          </div>
+          <p style="white-space:pre-wrap;margin:6px 0">${esc(m.message)}</p>
+          <button type="button" class="ghost" data-open-customer="${esc(m.normalizedPhone)}">פתיחת כרטיס לקוח ←</button>
+        </div>
+      `;
+    }).join('') : `<div class="card"><p class="hint">אין הודעות נכנסות.</p></div>`}
+  `;
+  content.querySelectorAll('[data-open-customer]').forEach((b) => {
+    b.onclick = () => openCustomerFromIncomingSms(b.dataset.openCustomer);
+  });
+}
+
+// קפיצה מ"הודעות נכנסות" לכרטיס הלקוח בטאב הזמנות (עם חיפוש ממולא לפי
+// טלפון, כדי לבודד אותו ברשימה) ופתיחת פאנל ה-SMS שלו ישירות.
+async function openCustomerFromIncomingSms(normalizedPhone) {
+  currentTab = 'orders';
+  markActiveTab('orders');
+  quickEventModeOn = false;
+  ordersFilterState = { ...ordersFilterState, search: normalizedPhone };
+  document.getElementById('tabContent').innerHTML = '<div class="loading">טוען…</div>';
+  await renderOrdersTab();
+  const containerId = `${panelSafeId(normalizedPhone)}-sms`;
+  const panel = document.getElementById(containerId);
+  if (panel) {
+    panel.hidden = false;
+    loadCustomerSmsHistory(normalizedPhone, containerId);
+  }
 }
 
 // ============== הגדרות ==============

@@ -25,7 +25,7 @@ import {
 } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
 import { listActions, logAction } from '../lib/actionLog.js';
-import { sendSms, sendBulkSms, getSmsHistoryForPhone } from '../lib/sms.js';
+import { sendSms, sendBulkSms, getSmsHistoryForPhone, getAllIncomingSms } from '../lib/sms.js';
 import { runYemotTestCalls } from '../lib/yemotIvr.js';
 
 const router = Router();
@@ -439,6 +439,11 @@ router.get('/admin/customers/:phone/redemption-history', requireAdmin, requirePe
 router.get('/admin/customers/:phone/sms-history', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   const normalized = normalizePhone(req.params.phone);
   res.json(await getSmsHistoryForPhone(normalized));
+}));
+
+// כל ה-SMS הנכנסים מכל הלקוחות — לטאב "הודעות נכנסות" הנפרד.
+router.get('/admin/sms/incoming', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await getAllIncomingSms());
 }));
 
 // שליחת הודעת SMS אישית ללקוח בודד — מריבוע הכתיבה בראש פאנל ההתכתבות.

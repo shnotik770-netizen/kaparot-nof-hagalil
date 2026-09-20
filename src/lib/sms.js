@@ -171,3 +171,21 @@ export async function getSmsHistoryForPhone(normalizedPhone) {
   messages.sort((a, b) => new Date(b.time) - new Date(a.time));
   return messages;
 }
+
+/**
+ * כל ה-SMS הנכנסים מכל הלקוחות יחד (לא פר-לקוח) — לטאב "הודעות נכנסות"
+ * הנפרד בפאנל הניהול, כדי שלא יהיה צריך לפתוח כל כרטיס לקוח בנפרד כדי
+ * לגלות שהגיעה הודעה חדשה. אותו מקור נתונים בדיוק כמו getSmsHistoryForPhone,
+ * רק בלי הסינון לטלפון ספציפי ובלי חלון הזמן של שבועיים.
+ */
+export async function getAllIncomingSms() {
+  const incoming = await fetchSmsLog(GET_INCOMING_SMS_URL);
+  return incoming
+    .map((row) => ({
+      phone: row.source,
+      normalizedPhone: normalizePhone(row.source),
+      message: row.message,
+      time: row.receive_date,
+    }))
+    .sort((a, b) => new Date(b.time) - new Date(a.time));
+}
