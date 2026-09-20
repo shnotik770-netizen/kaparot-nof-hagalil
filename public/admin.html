@@ -497,10 +497,40 @@ async function openActionLogForPhone(phone) {
 
 let incomingSmsView = 'responses'; // 'responses' | 'raw'
 let unrespondedSearchText = '';
+let responsesSearchText = '';
 
 function remainingToCollectTotal(c) {
   if (!c) return null;
   return c.bySlot.reduce((sum, s) => sum + Math.max(s.male - s.maleRedeemed, 0) + Math.max(s.female - s.femaleRedeemed, 0), 0);
+}
+
+function responseRowsHtml(list, customerByPhone) {
+  if (!list.length) return `<tr><td colspan="7" class="hint">אין תגובות תואמות.</td></tr>`;
+  return list.map((r) => {
+    const c = customerByPhone.get(r.normalizedPhone);
+    const total = remainingToCollectTotal(c);
+    const balanceHtml = c
+      ? `<span style="color:${c.balanceDue > 0 ? 'var(--wine)' : c.balanceDue < 0 ? 'var(--sage)' : 'inherit'}">${c.balanceDue < 0 ? `זכות ${money(-c.balanceDue)}` : money(c.balanceDue)}</span>`
+      : '—';
+    const sourceHtml = r.source === 'manual'
+      ? `✏️ ידני (${esc(r.adminName)})<br><span class="meta">${new Date(r.time).toLocaleString('he-IL')}</span>`
+      : `SMS<br><span class="meta">${new Date(r.time).toLocaleString('he-IL')}</span>`;
+    return `
+      <tr>
+        <td>${c ? esc(c.customerName) : '(לא נמצא לקוח)'}</td>
+        <td>${esc(r.phone)}</td>
+        <td><span class="pill ${r.answer === 1 ? 'paid' : 'unpaid'}">${esc(r.label)}${total != null ? ` · ${total} עופות` : ''}</span></td>
+        <td>${remainingToCollectHtml(c)}</td>
+        <td>${balanceHtml}</td>
+        <td>${sourceHtml}</td>
+        <td><button type="button" class="ghost" data-open-customer="${esc(r.normalizedPhone)}">פתיחת כרטיס ←</button></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function wireResponseRowButtons(container) {
+  container.querySelectorAll('[data-open-customer]').forEach((b) => { b.onclick = () => openCustomerFromIncomingSms(b.dataset.openCustomer); });
 }
 
 function unrespondedRowsHtml(list) {
@@ -591,8 +621,14 @@ async function renderIncomingSmsTab() {
 
   const respondedPhones = new Set(responses.map((r) => r.normalizedPhone));
   const unresponded = customers.filter((c) => !c.fullyRedeemed && !respondedPhones.has(normalizePhoneClient(c.phone)));
-  const q = unrespondedSearchText.trim();
-  const filteredUnresponded = q ? unresponded.filter((c) => c.customerName.includes(q) || c.phone.includes(q)) : unresponded;
+  const uq = unrespondedSearchText.trim();
+  const filteredUnresponded = uq ? unresponded.filter((c) => c.customerName.includes(uq) || c.phone.includes(uq)) : unresponded;
+
+  const rq = responsesSearchText.trim();
+  const filteredResponses = rq ? responses.filter((r) => {
+    const c = customerByPhone.get(r.normalizedPhone);
+    return (c && c.customerName.includes(rq)) || r.phone.includes(rq);
+  }) : responses;
 
   content.innerHTML = `
     ${viewTabsHtml}
@@ -603,32 +639,11 @@ async function renderIncomingSmsTab() {
         <p class="hint"><b>${comingResponses.length}</b> משיבים "מגיע" · <b>${notComingResponses.length}</b> משיבים "לא מגיע — מבקש זיכוי"</p>
         ${aggregateSlotSummaryHtml(comingCustomers, 'סה"כ עופות שנשארו לאסוף אצל המשיבים "מגיע"')}
         ${aggregateSlotSummaryHtml(notComingCustomers, 'סה"כ עופות שלא ייאספו אצל המשיבים "לא מגיע"')}
+        <input type="text" id="responsesSearch" placeholder="חיפוש לפי שם או טלפון…" value="${esc(responsesSearchText)}" style="margin-bottom:10px">
         <div style="overflow-x:auto">
           <table>
             <thead><tr><th>לקוח</th><th>טלפון</th><th>תגובה</th><th>מה נשאר לאסוף</th><th>יתרה</th><th>מקור</th><th></th></tr></thead>
-            <tbody>
-              ${responses.map((r) => {
-                const c = customerByPhone.get(r.normalizedPhone);
-                const total = remainingToCollectTotal(c);
-                const balanceHtml = c
-                  ? `<span style="color:${c.balanceDue > 0 ? 'var(--wine)' : c.balanceDue < 0 ? 'var(--sage)' : 'inherit'}">${c.balanceDue < 0 ? `זכות ${money(-c.balanceDue)}` : money(c.balanceDue)}</span>`
-                  : '—';
-                const sourceHtml = r.source === 'manual'
-                  ? `✏️ ידני (${esc(r.adminName)})<br><span class="meta">${new Date(r.time).toLocaleString('he-IL')}</span>`
-                  : `SMS<br><span class="meta">${new Date(r.time).toLocaleString('he-IL')}</span>`;
-                return `
-                  <tr>
-                    <td>${c ? esc(c.customerName) : '(לא נמצא לקוח)'}</td>
-                    <td>${esc(r.phone)}</td>
-                    <td><span class="pill ${r.answer === 1 ? 'paid' : 'unpaid'}">${esc(r.label)}${total != null ? ` · ${total} עופות` : ''}</span></td>
-                    <td>${remainingToCollectHtml(c)}</td>
-                    <td>${balanceHtml}</td>
-                    <td>${sourceHtml}</td>
-                    <td><button type="button" class="ghost" data-open-customer="${esc(r.normalizedPhone)}">פתיחת כרטיס ←</button></td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
+            <tbody id="responsesTbody">${responseRowsHtml(filteredResponses, customerByPhone)}</tbody>
           </table>
         </div>
       ` : `<p class="hint">אין עדיין תגובות "1" או "2".</p>`}
@@ -646,8 +661,22 @@ async function renderIncomingSmsTab() {
     </div>
   `;
   content.querySelectorAll('[data-sms-view]').forEach((b) => { b.onclick = () => { incomingSmsView = b.dataset.smsView; renderIncomingSmsTab(); }; });
-  content.querySelectorAll('[data-open-customer]').forEach((b) => { b.onclick = () => openCustomerFromIncomingSms(b.dataset.openCustomer); });
+  wireResponseRowButtons(content);
   wireUnrespondedButtons(content);
+  const responsesSearchInput = document.getElementById('responsesSearch');
+  if (responsesSearchInput) {
+    responsesSearchInput.oninput = (e) => {
+      responsesSearchText = e.target.value;
+      const query = responsesSearchText.trim();
+      const filtered = query ? responses.filter((r) => {
+        const c = customerByPhone.get(r.normalizedPhone);
+        return (c && c.customerName.includes(query)) || r.phone.includes(query);
+      }) : responses;
+      const tbody = document.getElementById('responsesTbody');
+      tbody.innerHTML = responseRowsHtml(filtered, customerByPhone);
+      wireResponseRowButtons(tbody);
+    };
+  }
   document.getElementById('unrespondedSearch').oninput = (e) => {
     unrespondedSearchText = e.target.value;
     const query = unrespondedSearchText.trim();
