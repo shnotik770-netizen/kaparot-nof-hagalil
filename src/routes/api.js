@@ -423,7 +423,7 @@ router.put('/admin/order-items/:id/redeemed', requireAdmin, requirePermission('o
 // סימון שורת הזמנה כ"לא מגיע לאסוף" — תרומה/החזר מלא/החזר חלקי (ראו setItemNoShowStatus).
 router.put('/admin/order-items/:id/no-show', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
   res.json(await setItemNoShowStatus(
-    Number(req.params.id), req.body?.noShowStatus, req.body?.noShowNote, req.session.adminName || 'admin'
+    Number(req.params.id), req.body?.noShowStatus, req.body?.refundAmount, req.session.adminName || 'admin'
   ));
 }));
 
