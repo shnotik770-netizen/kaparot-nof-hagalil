@@ -495,27 +495,60 @@ async function openActionLogForPhone(phone) {
 
 async function renderIncomingSmsTab() {
   const content = document.getElementById('tabContent');
-  let messages, customers;
+  let messages, customers, responses;
   try {
-    [messages, customers] = await Promise.all([api('/admin/sms/incoming'), api('/admin/customers')]);
+    [messages, customers, responses] = await Promise.all([
+      api('/admin/sms/incoming'), api('/admin/customers'), api('/admin/sms/responses'),
+    ]);
   } catch (err) {
     content.innerHTML = `<div class="card"><div class="error">${err.message}</div></div>`;
     return;
   }
-  const nameByPhone = new Map();
-  customers.forEach((c) => { nameByPhone.set(normalizePhoneClient(c.phone), c.customerName); });
+  const customerByPhone = new Map();
+  customers.forEach((c) => customerByPhone.set(normalizePhoneClient(c.phone), c));
+
+  const comingCount = responses.filter((r) => r.answer === 1).length;
+  const notComingCount = responses.filter((r) => r.answer === 2).length;
 
   content.innerHTML = `
+    <div class="card">
+      <h2>📋 תגובות לעדכון (${responses.length})</h2>
+      <p class="hint">תגובות "1"/"2" להודעת עדכון קבוצתית (מגיע / לא מגיע ומבקש זיכוי). לקוח שהשיב פעמיים — מוצגת רק תגובתו האחרונה.</p>
+      ${responses.length ? `
+        <p class="hint"><b>${comingCount}</b> משיבים "מגיע" · <b>${notComingCount}</b> משיבים "לא מגיע — מבקש זיכוי"</p>
+        <table>
+          <thead><tr><th>לקוח</th><th>טלפון</th><th>תגובה</th><th>יתרה</th><th>זמן</th><th></th></tr></thead>
+          <tbody>
+            ${responses.map((r) => {
+              const c = customerByPhone.get(r.normalizedPhone);
+              const balanceHtml = c
+                ? `<span style="color:${c.balanceDue > 0 ? 'var(--wine)' : c.balanceDue < 0 ? 'var(--sage)' : 'inherit'}">${c.balanceDue < 0 ? `זכות ${money(-c.balanceDue)}` : money(c.balanceDue)}</span>`
+                : '—';
+              return `
+                <tr>
+                  <td>${c ? esc(c.customerName) : '(לא נמצא לקוח)'}</td>
+                  <td>${esc(r.phone)}</td>
+                  <td><span class="pill ${r.answer === 1 ? 'paid' : 'unpaid'}">${esc(r.label)}</span></td>
+                  <td>${balanceHtml}</td>
+                  <td>${new Date(r.time).toLocaleString('he-IL')}</td>
+                  <td><button type="button" class="ghost" data-open-customer="${esc(r.normalizedPhone)}">פתיחת כרטיס ←</button></td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      ` : `<p class="hint">אין עדיין תגובות "1" או "2".</p>`}
+    </div>
     <div class="card">
       <h2>📥 הודעות נכנסות (${messages.length})</h2>
       <p class="hint">כל ה-SMS שהתקבלו ממספרי לקוחות, מכל הלקוחות יחד — החדשות ביותר למעלה.</p>
     </div>
     ${messages.length ? messages.map((m) => {
-      const name = nameByPhone.get(m.normalizedPhone);
+      const c = customerByPhone.get(m.normalizedPhone);
       return `
         <div class="card">
           <div class="order-row-header">
-            <b>${name ? esc(name) + ' · ' : ''}${esc(m.phone)}</b>
+            <b>${c ? esc(c.customerName) + ' · ' : ''}${esc(m.phone)}</b>
             <span class="meta">${new Date(m.time).toLocaleString('he-IL')}</span>
           </div>
           <p style="white-space:pre-wrap;margin:6px 0">${esc(m.message)}</p>

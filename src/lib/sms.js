@@ -189,3 +189,31 @@ export async function getAllIncomingSms() {
     }))
     .sort((a, b) => new Date(b.time) - new Date(a.time));
 }
+
+const BROADCAST_ANSWER_LABEL = { 1: 'מגיע', 2: 'לא מגיע — מבקש זיכוי' };
+
+/**
+ * תגובות ("1"/"2") להודעת עדכון קבוצתית ("אם מגיעים השיבו 1, אם לא — 2") —
+ * לטבלת "תגובות" בפאנל הניהול. לוקח רק הודעות נכנסות שהתוכן שלהן (אחרי
+ * חיתוך רווחים) הוא בדיוק "1" או "2" — מתעלם מכל שאר ההתכתבות. לקוח
+ * שהשיב פעמיים (למשל טעה ותיקן) — נלקחת התגובה המאוחרת ביותר שלו בלבד.
+ */
+export async function getBroadcastResponses() {
+  const incoming = await fetchSmsLog(GET_INCOMING_SMS_URL);
+  const latestByPhone = new Map();
+  for (const row of incoming) {
+    const text = String(row.message || '').trim();
+    if (text !== '1' && text !== '2') continue;
+    const normalizedPhone = normalizePhone(row.source);
+    const existing = latestByPhone.get(normalizedPhone);
+    if (existing && new Date(existing.time) >= new Date(row.receive_date)) continue;
+    latestByPhone.set(normalizedPhone, {
+      phone: row.source,
+      normalizedPhone,
+      answer: Number(text),
+      label: BROADCAST_ANSWER_LABEL[Number(text)],
+      time: row.receive_date,
+    });
+  }
+  return [...latestByPhone.values()].sort((a, b) => new Date(b.time) - new Date(a.time));
+}
