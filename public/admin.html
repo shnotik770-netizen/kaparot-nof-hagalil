@@ -1689,10 +1689,8 @@ async function wireCustomerPaymentsPanel(c) {
       } else {
         if (!confirm('הלקוח לא שילם כלום — סגירת התיק תהיה מול 0 ₪, בלי שום השלכה כספית. להמשיך?')) return;
       }
-      const note = prompt('הערה (אופציונלי, אפשר לערוך):', noteDefault);
-      if (note === null) return;
       try {
-        await api(`/admin/customers/${encodeURIComponent(c.phone)}/case-closed`, { method: 'PUT', body: { note: note.trim() || noteDefault || undefined } });
+        await api(`/admin/customers/${encodeURIComponent(c.phone)}/case-closed`, { method: 'PUT', body: { note: noteDefault || undefined } });
         refreshCustomerCard(c.phone, { keepPayOpen: true });
       } catch (err) {
         alert(err.message);
