@@ -244,6 +244,17 @@ CREATE TABLE IF NOT EXISTS redemptions (
 );
 CREATE INDEX IF NOT EXISTS idx_redemptions_item ON redemptions(order_item_id);
 
+-- ================= SMS נכנסים שסומנו "טופל" =================
+-- ה-SMS הנכנסים עצמם לא מאוחסנים אצלנו כלל (נשלפים בכל בקשה מ-API של ימות
+-- המשיח, שאין לו מזהה יציב פר-הודעה) — לכן message_key הוא hash של
+-- טלפון+זמן+תוכן ההודעה (ראו incomingSmsMessageKey ב-sms.js), לא מפתח זר.
+CREATE TABLE IF NOT EXISTS incoming_sms_handled (
+  message_key TEXT PRIMARY KEY,
+  phone       TEXT NOT NULL,
+  admin_name  TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ================= יומן פעולות מנהל =================
 CREATE TABLE IF NOT EXISTS admin_actions (
   id          SERIAL PRIMARY KEY,

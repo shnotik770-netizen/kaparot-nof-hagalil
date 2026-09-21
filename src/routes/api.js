@@ -25,6 +25,7 @@ import {
   setManualBroadcastResponse, getManualBroadcastResponses,
   listStuckOrphanedPayments, acknowledgeOrphanedPayments,
   setCustomerCaseClosed, reopenCustomerCase,
+  markIncomingSmsHandled, unmarkIncomingSmsHandled, getHandledIncomingSmsKeys,
 } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
 import { listActions, logAction } from '../lib/actionLog.js';
@@ -444,9 +445,19 @@ router.get('/admin/customers/:phone/sms-history', requireAdmin, requirePermissio
   res.json(await getSmsHistoryForPhone(normalized));
 }));
 
-// כל ה-SMS הנכנסים מכל הלקוחות — לטאב "הודעות נכנסות" הנפרד.
+// כל ה-SMS הנכנסים מכל הלקוחות — לטאב "הודעות נכנסות" הנפרד. ממזג סטטוס
+// "טופל" (ראו incoming_sms_handled) לכל הודעה לפי מפתחה היציב (key).
 router.get('/admin/sms/incoming', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
-  res.json(await getAllIncomingSms());
+  const [messages, handledKeys] = await Promise.all([getAllIncomingSms(), getHandledIncomingSmsKeys()]);
+  res.json(messages.map((m) => ({ ...m, handled: handledKeys.has(m.key) })));
+}));
+
+// סימון/ביטול סימון הודעה נכנסת כ"טופל".
+router.put('/admin/sms/incoming/:key/handled', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await markIncomingSmsHandled(req.params.key, req.body?.phone, req.session.adminName || 'admin'));
+}));
+router.delete('/admin/sms/incoming/:key/handled', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+  res.json(await unmarkIncomingSmsHandled(req.params.key));
 }));
 
 // תגובות "1"/"2" להודעת עדכון קבוצתית — לטבלת התגובות בטאב "הודעות נכנסות".

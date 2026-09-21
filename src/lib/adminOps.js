@@ -695,3 +695,25 @@ export async function getManualBroadcastResponses() {
     time: r.created_at,
   }));
 }
+
+/** מסמן/מבטל סימון SMS נכנס כ"טופל" — ראו incomingSmsMessageKey ב-sms.js. */
+export async function markIncomingSmsHandled(messageKey, phone, adminName) {
+  await pool.query(
+    `INSERT INTO incoming_sms_handled (message_key, phone, admin_name, created_at)
+     VALUES ($1, $2, $3, now())
+     ON CONFLICT (message_key) DO NOTHING`,
+    [messageKey, phone, adminName]
+  );
+  await logAction('incoming_sms_marked_handled', { messageKey, phone, adminName });
+  return { success: true };
+}
+
+export async function unmarkIncomingSmsHandled(messageKey) {
+  await pool.query(`DELETE FROM incoming_sms_handled WHERE message_key = $1`, [messageKey]);
+  return { success: true };
+}
+
+export async function getHandledIncomingSmsKeys() {
+  const { rows } = await pool.query(`SELECT message_key FROM incoming_sms_handled`);
+  return new Set(rows.map((r) => r.message_key));
+}

@@ -2,6 +2,7 @@
 // שסופק (Google Apps Script, processBulkSms). מפתח API יחיד (apik_...) הוא
 // כל מה שצריך ב-token — אין צורך גם במספר-מערכת+סיסמה בנוסף אליו.
 
+import crypto from 'node:crypto';
 import { normalizePhone } from './normalize.js';
 
 const SEND_SMS_URL = 'https://www.call2all.co.il/ym/api/SendSms';
@@ -172,6 +173,13 @@ export async function getSmsHistoryForPhone(normalizedPhone) {
   return messages;
 }
 
+// ל-API של ימות המשיח אין מזהה יציב פר-הודעה נכנסת (רק source/message/
+// receive_date) — כדי לאפשר "סימון כטופל" בכל זאת, בונים מפתח יציב מ-hash
+// של טלפון+זמן+תוכן. אותה הודעה תמיד תניב אותו מפתח, גם בין בקשות שונות.
+export function incomingSmsMessageKey({ normalizedPhone, time, message }) {
+  return crypto.createHash('sha1').update(`${normalizedPhone}|${time}|${message}`).digest('hex');
+}
+
 /**
  * כל ה-SMS הנכנסים מכל הלקוחות יחד (לא פר-לקוח) — לטאב "הודעות נכנסות"
  * הנפרד בפאנל הניהול, כדי שלא יהיה צריך לפתוח כל כרטיס לקוח בנפרד כדי
@@ -181,12 +189,13 @@ export async function getSmsHistoryForPhone(normalizedPhone) {
 export async function getAllIncomingSms() {
   const incoming = await fetchSmsLog(GET_INCOMING_SMS_URL);
   return incoming
-    .map((row) => ({
-      phone: row.source,
-      normalizedPhone: normalizePhone(row.source),
-      message: row.message,
-      time: row.receive_date,
-    }))
+    .map((row) => {
+      const phone = row.source;
+      const normalizedPhone = normalizePhone(phone);
+      const message = row.message;
+      const time = row.receive_date;
+      return { phone, normalizedPhone, message, time, key: incomingSmsMessageKey({ normalizedPhone, time, message }) };
+    })
     .sort((a, b) => new Date(b.time) - new Date(a.time));
 }
 

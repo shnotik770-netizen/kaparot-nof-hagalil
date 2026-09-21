@@ -487,6 +487,7 @@ async function openActionLogForPhone(phone) {
 let incomingSmsView = 'responses'; // 'responses' | 'raw'
 let unrespondedSearchText = '';
 let responsesSearchText = '';
+let rawSmsHideHandled = false;
 
 function remainingToCollectTotal(c) {
   if (!c) return null;
@@ -582,24 +583,48 @@ async function renderIncomingSmsTab() {
   `;
 
   if (incomingSmsView === 'raw') {
+    const visibleMessages = rawSmsHideHandled ? messages.filter((m) => !m.handled) : messages;
     content.innerHTML = `
       ${viewTabsHtml}
-      ${messages.length ? messages.map((m) => {
+      <div class="card">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:normal;margin:0">
+          <input type="checkbox" id="filterHideHandledSms" style="width:auto" ${rawSmsHideHandled ? 'checked' : ''}>
+          הצג רק הודעות שלא טופלו
+        </label>
+      </div>
+      ${visibleMessages.length ? visibleMessages.map((m) => {
         const c = customerByPhone.get(m.normalizedPhone);
         return `
-          <div class="card">
+          <div class="card" style="${m.handled ? 'opacity:0.6' : ''}">
             <div class="order-row-header">
               <b>${c ? esc(c.customerName) + ' · ' : ''}${esc(m.phone)}</b>
               <span class="meta">${new Date(m.time).toLocaleString('he-IL')}</span>
             </div>
             <p style="white-space:pre-wrap;margin:6px 0">${esc(m.message)}</p>
-            <button type="button" class="ghost" data-open-customer="${esc(m.normalizedPhone)}">פתיחת כרטיס לקוח ←</button>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+              <button type="button" class="ghost" data-open-customer="${esc(m.normalizedPhone)}">פתיחת כרטיס לקוח ←</button>
+              <button type="button" class="ghost" data-toggle-handled="${m.key}" data-phone="${esc(m.phone)}" data-handled="${m.handled ? '1' : '0'}">${m.handled ? '↩ ביטול סימון "טופל"' : '✓ סימון כ"טופל"'}</button>
+            </div>
           </div>
         `;
-      }).join('') : `<div class="card"><p class="hint">אין הודעות נכנסות.</p></div>`}
+      }).join('') : `<div class="card"><p class="hint">${rawSmsHideHandled ? 'כל ההודעות טופלו.' : 'אין הודעות נכנסות.'}</p></div>`}
     `;
     content.querySelectorAll('[data-sms-view]').forEach((b) => { b.onclick = () => { incomingSmsView = b.dataset.smsView; renderIncomingSmsTab(); }; });
     content.querySelectorAll('[data-open-customer]').forEach((b) => { b.onclick = () => openCustomerFromIncomingSms(b.dataset.openCustomer); });
+    document.getElementById('filterHideHandledSms').onchange = (e) => { rawSmsHideHandled = e.target.checked; renderIncomingSmsTab(); };
+    content.querySelectorAll('[data-toggle-handled]').forEach((b) => {
+      b.onclick = async () => {
+        const key = b.dataset.toggleHandled;
+        const isHandled = b.dataset.handled === '1';
+        try {
+          if (isHandled) await api(`/admin/sms/incoming/${key}/handled`, { method: 'DELETE' });
+          else await api(`/admin/sms/incoming/${key}/handled`, { method: 'PUT', body: { phone: b.dataset.phone } });
+          renderIncomingSmsTab();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+    });
     return;
   }
 
@@ -2957,6 +2982,7 @@ const ACTION_LABELS = {
   orphaned_payment_acknowledged: '✓ תשלום תקוע על הזמנה מחוקה סומן כטופל',
   customer_case_closed: '🔒 תיק לקוח נסגר',
   customer_case_reopened: 'תיק לקוח נפתח מחדש',
+  incoming_sms_marked_handled: 'הודעה נכנסת סומנה כטופלה',
   order_cancelled_by_customer: 'הזמנה בוטלה ע"י הלקוח (לא שולם)',
   payment_coordinated_set: 'סטטוס "תיאום תשלום" עודכן',
   customer_phone_changed: 'מספר הטלפון של לקוח שונה',
