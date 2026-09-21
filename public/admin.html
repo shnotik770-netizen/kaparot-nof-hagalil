@@ -1287,17 +1287,26 @@ function wireSmsComposer(phone, containerId) {
   };
 }
 
+// חשוב: הקומפוזר (textarea) נבנה רק בפעם הראשונה שהפאנל נפתח, ומאז נשאר
+// במקום ולא נבנה מחדש — אחרת כל רענון של ההיסטוריה (כולל הטעינה הראשונית
+// האסינכרונית, שרצה במקביל לזמן שהמנהל עשוי כבר להתחיל להקליד) היה מוחק
+// טיוטת הודעה שהמנהל כותב תוך כדי. רק אזור ה"שרשור" (thread) מתעדכן.
 async function loadCustomerSmsHistory(phone, containerId) {
   const box = document.getElementById(containerId);
   if (!box) return;
-  box.innerHTML = smsComposerHtml(containerId) + `<div class="loading">טוען…</div>`;
-  wireSmsComposer(phone, containerId);
+  const threadId = `${containerId}-thread`;
+  if (!document.getElementById(`${containerId}-compose`)) {
+    box.innerHTML = smsComposerHtml(containerId) + `<div id="${threadId}"></div>`;
+    wireSmsComposer(phone, containerId);
+  }
+  const threadBox = document.getElementById(threadId);
+  if (threadBox) threadBox.innerHTML = `<div class="loading">טוען…</div>`;
+
   let messages;
   try {
     messages = await api(`/admin/customers/${encodeURIComponent(phone)}/sms-history`);
   } catch (err) {
-    box.innerHTML = smsComposerHtml(containerId) + `<div class="error">${err.message}</div>`;
-    wireSmsComposer(phone, containerId);
+    if (threadBox) threadBox.innerHTML = `<div class="error">${err.message}</div>`;
     return;
   }
   const threadHtml = !messages.length
@@ -1308,8 +1317,7 @@ async function loadCustomerSmsHistory(phone, containerId) {
           <span class="meta" style="font-size:11px;margin-top:3px">${m.time ? new Date(m.time).toLocaleString('he-IL') : ''}${m.deliveryStatus ? ' · ' + esc(m.deliveryStatus) : ''}</span>
         </div>
       `).join('');
-  box.innerHTML = smsComposerHtml(containerId) + threadHtml;
-  wireSmsComposer(phone, containerId);
+  if (document.getElementById(threadId)) document.getElementById(threadId).innerHTML = threadHtml;
 }
 
 // "איסוף מהיר" על כרטיס לקוח סגור — אותה לוגיקה בדיוק כמו מסך "מצב איסוף"
