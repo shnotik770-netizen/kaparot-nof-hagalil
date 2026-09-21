@@ -487,7 +487,18 @@ async function openActionLogForPhone(phone) {
 let incomingSmsView = 'responses'; // 'responses' | 'raw'
 let unrespondedSearchText = '';
 let responsesSearchText = '';
+let responsesUncheckedAnswers = new Set(); // אילו ערכי תגובה (1/2) מוסתרים - ריק = מציג הכל
 let rawSmsHideHandled = false;
+
+function filterResponsesList(responses, customerByPhone) {
+  const q = responsesSearchText.trim();
+  return responses.filter((r) => {
+    if (responsesUncheckedAnswers.has(String(r.answer))) return false;
+    if (!q) return true;
+    const c = customerByPhone.get(r.normalizedPhone);
+    return (c && c.customerName.includes(q)) || r.phone.includes(q);
+  });
+}
 
 function remainingToCollectTotal(c) {
   if (!c) return null;
@@ -638,11 +649,7 @@ async function renderIncomingSmsTab() {
   const uq = unrespondedSearchText.trim();
   const filteredUnresponded = uq ? unresponded.filter((c) => c.customerName.includes(uq) || c.phone.includes(uq)) : unresponded;
 
-  const rq = responsesSearchText.trim();
-  const filteredResponses = rq ? responses.filter((r) => {
-    const c = customerByPhone.get(r.normalizedPhone);
-    return (c && c.customerName.includes(rq)) || r.phone.includes(rq);
-  }) : responses;
+  const filteredResponses = filterResponsesList(responses, customerByPhone);
 
   content.innerHTML = `
     ${viewTabsHtml}
@@ -653,6 +660,10 @@ async function renderIncomingSmsTab() {
         <p class="hint"><b>${comingResponses.length}</b> משיבים "מגיע" · <b>${notComingResponses.length}</b> משיבים "לא מגיע — מבקש זיכוי"</p>
         ${aggregateSlotSummaryHtml(comingCustomers, 'סה"כ עופות שנשארו לאסוף אצל המשיבים "מגיע"')}
         ${aggregateSlotSummaryHtml(notComingCustomers, 'סה"כ עופות שלא ייאספו אצל המשיבים "לא מגיע"')}
+        <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:10px">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:normal;margin:0"><input type="checkbox" class="filterAnswerCheck" value="1" style="width:auto" ${responsesUncheckedAnswers.has('1') ? '' : 'checked'}> מגיע</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:normal;margin:0"><input type="checkbox" class="filterAnswerCheck" value="2" style="width:auto" ${responsesUncheckedAnswers.has('2') ? '' : 'checked'}> לא מגיע — מבקש זיכוי</label>
+        </div>
         <input type="text" id="responsesSearch" placeholder="חיפוש לפי שם או טלפון…" value="${esc(responsesSearchText)}" style="margin-bottom:10px">
         <div style="overflow-x:auto">
           <table>
@@ -678,19 +689,25 @@ async function renderIncomingSmsTab() {
   wireResponseRowButtons(content);
   wireUnrespondedButtons(content);
   const responsesSearchInput = document.getElementById('responsesSearch');
+  const refreshResponsesTbody = () => {
+    const tbody = document.getElementById('responsesTbody');
+    if (!tbody) return;
+    tbody.innerHTML = responseRowsHtml(filterResponsesList(responses, customerByPhone), customerByPhone);
+    wireResponseRowButtons(tbody);
+  };
   if (responsesSearchInput) {
     responsesSearchInput.oninput = (e) => {
       responsesSearchText = e.target.value;
-      const query = responsesSearchText.trim();
-      const filtered = query ? responses.filter((r) => {
-        const c = customerByPhone.get(r.normalizedPhone);
-        return (c && c.customerName.includes(query)) || r.phone.includes(query);
-      }) : responses;
-      const tbody = document.getElementById('responsesTbody');
-      tbody.innerHTML = responseRowsHtml(filtered, customerByPhone);
-      wireResponseRowButtons(tbody);
+      refreshResponsesTbody();
     };
   }
+  content.querySelectorAll('.filterAnswerCheck').forEach((cb) => {
+    cb.onchange = () => {
+      if (cb.checked) responsesUncheckedAnswers.delete(cb.value);
+      else responsesUncheckedAnswers.add(cb.value);
+      refreshResponsesTbody();
+    };
+  });
   document.getElementById('unrespondedSearch').oninput = (e) => {
     unrespondedSearchText = e.target.value;
     const query = unrespondedSearchText.trim();
