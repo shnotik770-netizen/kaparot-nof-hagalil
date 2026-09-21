@@ -1674,6 +1674,13 @@ async function wireCustomerPaymentsPanel(c) {
     const note = pnoteInput.hidden ? undefined : pnoteInput.value.trim() || undefined;
     try {
       await api(`/admin/customers/${encodeURIComponent(c.phone)}/payments`, { method: 'POST', body: { amount, method, note } });
+      if (isCredit && confirm(`לשלוח ללקוח הודעת SMS שזוכה ${money(rawAmount)}?`)) {
+        try {
+          await api(`/admin/customers/${encodeURIComponent(c.phone)}/sms`, { method: 'POST', body: { message: `זוכית ב-${money(rawAmount)}` } });
+        } catch (err) {
+          alert(`שליחת הסמס נכשלה: ${err.message}`);
+        }
+      }
       // זיכוי חלקי (פחות ממלוא שווי העופות שלא נאספו) לא נסגר אוטומטית
       // בשרת — שואלים כאן, באותה פעולה, אם לסגור את התיק ולסמן שהיתרה
       // שלא זוכתה נשארת כתרומה (זיכוי מלא כבר נסגר לבד, ראו recordCustomerCredit).
