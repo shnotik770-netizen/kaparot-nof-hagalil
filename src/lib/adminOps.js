@@ -97,6 +97,7 @@ export async function listCustomersSummary() {
     let fullyRedeemed = true;
     let hasAnyItem = false;
     let uncollectedValue = 0;
+    let rawUncollectedValue = 0;
     for (const o of c.orders) {
       let orderUncollected = 0;
       for (const it of o.items) {
@@ -117,6 +118,10 @@ export async function listCustomersSummary() {
       // פחות מה שכבר נאסף", רק בניסוח פשוט יותר: כמה שווה מה שלא נאסף,
       // מינוס כמה מזה עדיין לא שולם.
       uncollectedValue += Math.max(0, Math.min(orderUncollected, orderUncollected - o.balanceDue));
+      // שווי גולמי (לא מוגבל בעודף תשלום) — לתצוגה בלבד, "כמה עדיין לא
+      // נאסף" בלי קשר לשאלה אם יש עליו כסף פנוי לזיכוי. משמש למשל לקביעה
+      // אם צריך להציג כפתור "סגירת תיק" (רלוונטי גם ללקוח שלא שילם כלום).
+      rawUncollectedValue += orderUncollected;
     }
 
     // "ייתכן שיש תשלום שלא אושר" — התראה אחת בלבד ללקוח, לא אחת לכל ניסיון
@@ -143,6 +148,7 @@ export async function listCustomersSummary() {
       unpaidOrdersCount,
       caseClosed: closureByPhone.get(c.normalizedPhone) || null,
       uncollectedValue,
+      rawUncollectedValue,
     };
   }).sort((a, b) => new Date(b.orders[0]?.createdAt || 0) - new Date(a.orders[0]?.createdAt || 0));
 }

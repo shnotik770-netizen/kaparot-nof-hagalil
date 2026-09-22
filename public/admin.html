@@ -1625,8 +1625,8 @@ function customerPaymentsPanelHtml(c) {
         <div class="meta">ע"י ${esc(c.caseClosed.adminName)} · ${new Date(c.caseClosed.closedAt).toLocaleString('he-IL')}</div>
         <div style="margin-top:6px"><button type="button" class="ghost" data-reopen-case="${esc(c.phone)}">פתיחת תיק מחדש</button></div>
       </div>
-    ` : c.uncollectedValue > 0 ? `
-      <button type="button" class="ghost" data-close-case="${esc(c.phone)}" data-uncollected="${c.uncollectedValue}" data-amount-paid="${c.amountPaid}" style="margin-bottom:12px">🔒 סגירת תיק (נגמר הסיפור)</button>
+    ` : !c.fullyRedeemed ? `
+      <button type="button" class="ghost" data-close-case="${esc(c.phone)}" data-uncollected="${c.uncollectedValue}" data-raw-uncollected="${c.rawUncollectedValue}" style="margin-bottom:12px">🔒 סגירת תיק (נגמר הסיפור)</button>
     ` : ''}
     <h3 style="margin:0 0 8px;font-size:14px">רישום תשלום (מוקצה אוטומטית להזמנות הפתוחות, הישנה קודם)</h3>
     <div class="row">
@@ -1637,7 +1637,7 @@ function customerPaymentsPanelHtml(c) {
         <option value="manual_admin">אחר</option>
       </select>
     </div>
-    <p class="hint" style="margin:8px 0 0">שווי העופות שעדיין לא נאספו: <b>${money(c.uncollectedValue)}</b> — ניתן לזכות עד לסכום זה (אי אפשר לזכות על עופות שכבר נמסרו).</p>
+    <p class="hint" style="margin:8px 0 0">שווי העופות שעדיין לא נאספו: <b>${money(c.rawUncollectedValue)}</b>. ניתן לזכות עד <b>${money(c.uncollectedValue)}</b> — מוגבל למה ששולם בפועל ועדיין לא מכסה עופות שכבר נאספו (אי אפשר לזכות על עופות שכבר נמסרו, ולא על עופות שטרם שולמו).</p>
     <label style="margin-top:4px;display:flex;align-items:center;gap:6px;font-weight:normal">
       <input type="checkbox" id="${pid}-pcredit" data-max-credit="${c.uncollectedValue}" style="width:auto">
       זיכוי (הסכום יירשם במינוס — לתיקון עודף תשלום, למשל אחרי תיקון הזמנה ידני, או זיכוי ללקוח שלא אוסף)
@@ -1733,18 +1733,20 @@ async function wireCustomerPaymentsPanel(c) {
   const closeCaseBtn = panel.querySelector('[data-close-case]');
   if (closeCaseBtn) {
     closeCaseBtn.onclick = async () => {
-      // מגיעים לכפתור הזה רק אם לא זוכה מלוא שווי העופות שלא נאספו (אחרת
-      // התיק כבר נסגר אוטומטית — ראו recordCustomerCredit). "נשאר כתרומה"
-      // רלוונטי רק אם בכלל שולם משהו (amountPaid > 0) — אם הלקוח לא שילם
-      // כלום, אין כסף שיכול "להישאר" אצלנו, אז לא שואלים על זה בכלל.
+      // מגיעים לכפתור הזה כל עוד יש ללקוח עופות שלא נאספו (fullyRedeemed
+      // false) וטרם נסגר תיק (אם כבר זוכה מלוא הסכום הניתן לזיכוי, התיק
+      // נסגר אוטומטית — ראו recordCustomerCredit). uncollected הוא הסכום
+      // שעדיין ניתן לזכות עליו בפועל (עשוי להיות 0, אם מה ששולם כבר מכסה
+      // את מה שנאסף); rawUncollected הוא שווי העופות שלא נאספו בלי קשר
+      // לתשלום. "נשאר כתרומה" רלוונטי רק אם יש בכלל עודף תשלום לזכות עליו.
       const uncollected = Number(closeCaseBtn.dataset.uncollected);
-      const amountPaid = Number(closeCaseBtn.dataset.amountPaid);
+      const rawUncollected = Number(closeCaseBtn.dataset.rawUncollected);
       let noteDefault = '';
-      if (amountPaid > 0) {
-        if (!confirm(`ללקוח יש עופות בשווי ${money(uncollected)} שעדיין לא נאספו. אם לא זיכית אותו על מלוא הסכום (זיכוי חלקי או בכלל לא) — סגירת התיק תסמן שהיתרה שלא זוכתה נשארת כתרומה. להמשיך?`)) return;
+      if (uncollected > 0) {
+        if (!confirm(`ללקוח יש עופות בשווי ${money(rawUncollected)} שעדיין לא נאספו, ומתוכם ניתן לזכות עד ${money(uncollected)} (טרם זוכה). סגירת התיק תסמן שהסכום הזה נשאר כתרומה. להמשיך?`)) return;
         noteDefault = `משאיר ${money(uncollected)} כתרומה`;
       } else {
-        if (!confirm('הלקוח לא שילם כלום — סגירת התיק תהיה מול 0 ₪, בלי שום השלכה כספית. להמשיך?')) return;
+        if (!confirm(`ללקוח יש עופות בשווי ${money(rawUncollected)} שעדיין לא נאספו, אבל אין עודף תשלום לזכות עליהם (מה ששולם כבר מכסה את מה שנאסף) — סגירת התיק לא תהיה בעלת שום השלכה כספית. להמשיך?`)) return;
       }
       try {
         await api(`/admin/customers/${encodeURIComponent(c.phone)}/case-closed`, { method: 'PUT', body: { note: noteDefault || undefined } });
@@ -2579,9 +2581,9 @@ async function renderOrdersTab() {
         const usedMethods = paymentMethodsByPhoneCache.get(c.phone);
         if (!usedMethods || !methodFilters.some((m) => usedMethods.has(m))) return false;
       }
-      // סגירת תיק רלוונטית רק למי שיש לו עופות שלא נאספו (אפשר לזכות עליהם) —
-      // מציג רק לקוחות כאלה שעדיין לא סגרו תיק.
-      if (needsCaseClosure && !(c.uncollectedValue > 0 && !c.caseClosed)) return false;
+      // סגירת תיק רלוונטית לכל מי שיש לו עופות שלא נאספו (בין אם יש עודף
+      // תשלום לזכות עליהם ובין אם לא) — מציג רק לקוחות כאלה שעדיין לא סגרו תיק.
+      if (needsCaseClosure && !(!c.fullyRedeemed && !c.caseClosed)) return false;
       return true;
     });
     const filtersActive = !!q || paidFilters.length < allPaidChecks.length || redeemedFilters.length < allRedeemedChecks.length || slotFilterActive || methodFilterActive || needsCaseClosure;
