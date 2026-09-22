@@ -118,33 +118,33 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
 
 /**
  * זיכוי/תיקון (סכום שלילי) ברמת הלקוח — מזהה אוטומטית הזמנה להצמיד אליה
- * את התשלום השלילי. מעדיפה הזמנה שכבר במצב עודף תשלום (balance_due שלילי,
- * הכי גדול קודם — בד"כ תיקון מחיר ידני שהוריד את הסכום אחרי ששולם), ואם
- * אין כזו — הזמנה ששולמה במלואה בדיוק (balance_due = 0), כדי לתמוך גם
- * בזיכוי/החזר יזום ללקוח (למשל השיב "לא מגיע" ומבקש זיכוי על מה ששילם).
- * חסום לסכום שלא עולה על שווי העופות שעדיין לא נאספו אצל הלקוח (ראו
- * uncollectedValue) — אי אפשר לזכות על עופות שכבר נמסרו בפועל. לא "מפל"
- * כמו סכום חיובי — זו תמיד הזמנה אחת.
+ * את התשלום השלילי (רק כדי לענות על מבנה הנתונים — payments.order_id הוא
+ * NOT NULL; אין משמעות עסקית לכך שדווקא ההזמנה הזו "מזוכה" מבין הזמנות
+ * הלקוח). מעדיפה הזמנה שכבר במצב עודף תשלום (balance_due הכי שלילי),
+ * ואם אין כזו — ההזמנה עם יתרת החוב הנמוכה ביותר, כדי לעוות הכי פחות
+ * את התמונה שלה. התקרה עצמה (uncollectedValue) היא ברמת הלקוח כולו —
+ * מוגבלת גם בשווי הפריטים שלא נאספו על פני *כל* ההזמנות יחד, וגם בסכום
+ * שבאמת שולם (אי אפשר לזכות על כסף שמעולם לא התקבל) — ראו listCustomersSummary.
+ * לא "מפל" כמו סכום חיובי — זו תמיד הזמנה אחת.
  */
 async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, note) {
   return withTransaction(async (client) => {
-    // חוסם זיכוי מעבר לשווי העופות שעדיין לא נאספו — עופות שכבר נמסרו
-    // ללקוח כבר "נוצלו", ואי אפשר לזכות עליהם בדיעבד. סופר רק פריטים
-    // מהזמנות עם balance_due <= 0 — בדיוק אותו תנאי שלפיו נבחרת למטה
-    // הזמנת-היעד לזיכוי; הזמנה עם חוב פתוח לא יכולה לשמש יעד, אז אין
-    // טעם לספור את הפריטים שלה בתקרה (אחרת הלקוח "יכול" לזכות על סכום
-    // שהשרת בפועל ידחה כי אין הזמנה מתאימה לרשום מולה).
+    // אותה נוסחה בדיוק כמו uncollectedValue ב-listCustomersSummary
+    // (adminOps.js) — תקרה כפולה: שווי מה שלא נאסף, וגם לא יותר ממה
+    // ששולם בפועל.
     const { rows: valueRows } = await client.query(
-      `SELECT COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS uncollected_value
+      `SELECT
+         COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS uncollected_raw,
+         COALESCE((SELECT SUM(b2.amount_paid) FROM orders o2 JOIN order_balances b2 ON b2.order_id = o2.id
+                    WHERE o2.normalized_phone = $1 AND NOT o2.is_deleted), 0) AS amount_paid
          FROM order_items oi
          JOIN orders o ON o.id = oi.order_id
-         JOIN order_balances b ON b.order_id = o.id
-        WHERE o.normalized_phone = $1 AND NOT o.is_deleted AND b.balance_due <= 0`,
+        WHERE o.normalized_phone = $1 AND NOT o.is_deleted`,
       [normalizedPhone]
     );
-    const uncollectedValue = Number(valueRows[0].uncollected_value);
+    const uncollectedValue = Math.min(Number(valueRows[0].uncollected_raw), Number(valueRows[0].amount_paid));
     if (Math.abs(amt) > uncollectedValue) {
-      const err = new Error(`אפשר לזכות עד ${uncollectedValue} — שווי העופות שעדיין לא נאספו (לא ניתן לזכות על עופות שכבר נמסרו).`);
+      const err = new Error(`אפשר לזכות עד ${uncollectedValue} — שווי העופות שעדיין לא נאספו (לא ניתן לזכות על עופות שכבר נמסרו, ולא מעבר למה ששולם בפועל).`);
       err.status = 400;
       throw err;
     }
@@ -153,13 +153,13 @@ async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, no
       `SELECT o.id, b.balance_due
          FROM orders o
          JOIN order_balances b ON b.order_id = o.id
-        WHERE o.normalized_phone = $1 AND NOT o.is_deleted AND b.balance_due <= 0
+        WHERE o.normalized_phone = $1 AND NOT o.is_deleted
         ORDER BY b.balance_due ASC, o.order_sequence ASC
         FOR UPDATE OF o`,
       [normalizedPhone]
     );
     if (!orders.length) {
-      const err = new Error('לא נמצאה ללקוח זה הזמנה ששולמה (חלקית או במלואה) לרישום הזיכוי מולה.');
+      const err = new Error('ללקוח זה אין הזמנות פעילות לרישום הזיכוי מולן.');
       err.status = 400;
       throw err;
     }

@@ -96,16 +96,12 @@ export async function listCustomersSummary() {
     const bySlot = new Map();
     let fullyRedeemed = true;
     let hasAnyItem = false;
-    let uncollectedValue = 0;
+    let uncollectedRaw = 0;
     for (const o of c.orders) {
       for (const it of o.items) {
         hasAnyItem = true;
         if (it.quantityRedeemed < it.quantity) fullyRedeemed = false;
-        // סכום נספר לזיכוי רק מהזמנות ששולמו במלואן (balanceDue <= 0) —
-        // בדיוק אותו תנאי שממנו recordCustomerCredit בוחר הזמנת-יעד לזיכוי
-        // (payments.js). הזמנה עם יתרת חוב פתוחה לא יכולה לשמש יעד לזיכוי,
-        // אז אין טעם לספור את הפריטים שלה בסכום המוצג כ"ניתן לזכות עד".
-        if (o.balanceDue <= 0) uncollectedValue += (it.quantity - it.quantityRedeemed) * it.unitPrice;
+        uncollectedRaw += (it.quantity - it.quantityRedeemed) * it.unitPrice;
         if (!bySlot.has(it.slotId)) {
           bySlot.set(it.slotId, { slotId: it.slotId, slotName: it.slotName, slotColor: it.slotColor, male: 0, maleRedeemed: 0, female: 0, femaleRedeemed: 0 });
         }
@@ -127,6 +123,15 @@ export async function listCustomersSummary() {
     // כלשהו) — 2+ מסמן מצב "מפל תשלום מפוזר" שכדאי למנהל לשים לב אליו: אף
     // הזמנה בודדת לא בהכרח "נסגרה" למרות שהתקבל תשלום כלשהו.
     const unpaidOrdersCount = c.orders.filter((o) => o.paymentStatus !== 'paid').length;
+
+    // תקרת הזיכוי היא ברמת הלקוח כולו, לא הזמנה בודדת — מוגבלת גם בשווי
+    // הפריטים שלא נאספו (uncollectedRaw, על פני כל ההזמנות יחד) וגם בסכום
+    // שבאמת שולם (amountPaid) — אי אפשר לזכות על כסף שמעולם לא התקבל.
+    // recordCustomerCredit (payments.js) בוחר את הזמנת-היעד לרישום, אבל
+    // זה פרט טכני-פנימי של איפה נשמרת השורה — לא צריך להגביל אליו את
+    // הסכום המוצג/הנאכף, אחרת לקוח עם כמה הזמנות (חלקן לא שולמו) מקבל
+    // תקרה נמוכה ומטעה.
+    const uncollectedValue = Math.min(uncollectedRaw, amountPaid);
 
     return {
       phone: c.phone,
