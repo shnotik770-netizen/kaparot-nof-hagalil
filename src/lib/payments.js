@@ -126,29 +126,28 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
  *
  * התקרה עצמה (uncollectedValue) מחושבת *לכל הזמנה בנפרד* ואז מסוכמת —
  * לא ברמת לקוח גורפת (זיהינו קודם שגם זה שגוי, ראו היסטוריית git). לכל
- * הזמנה: מה ששולם עליה "מכסה" קודם כל את מה שכבר נאסף ממנה (אי אפשר
- * לזכות על עופות שכבר נמסרו) — רק העודף מעבר לכיסוי הזה, אם יש, זמין
- * לזיכוי, ומוגבל בכל מקרה בשווי מה שעוד לא נאסף. לדוגמה: הזמנה עם 5
- * עופות (280₪), 4 נאספו (220₪), שולם 220₪ — כל מה ששולם כבר מכוסה
- * ע"י מה שנמסר, אין עודף לזיכוי, גם אם יש עוד עוף אחד (60₪) שלא נאסף
- * וטרם שולם. נוסחה: clamp(paid - collectedValue, 0, uncollectedValue).
+ * הזמנה: כמה שווה מה שלא נאסף ממנה, פחות כמה מזה עדיין לא שולם (balance
+ * due) — אם החוב הפתוח על ההזמנה גדול/שווה לשווי מה שלא נאסף ממנה, אין
+ * עודף תשלום פנוי לזיכוי. מוגבל למעלה בשווי מה שלא נאסף (למקרה של עודף
+ * תשלום, balance_due שלילי). לדוגמה: הזמנה עם 5 עופות (280₪), 4 נאספו,
+ * שווי מה שלא נאסף 60₪, שולם 220₪ (חוב פתוח 60₪) — 60 פחות 60 = 0, אין
+ * עודף לזיכוי, למרות שיש עוף אחד שלא נאסף.
  */
 async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, note) {
   return withTransaction(async (client) => {
     const { rows: perOrderRows } = await client.query(
-      `SELECT b.amount_paid,
-              COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS order_uncollected,
-              COALESCE(SUM(oi.quantity_redeemed * oi.unit_price), 0) AS order_collected
+      `SELECT b.balance_due,
+              COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS order_uncollected
          FROM orders o
          JOIN order_balances b ON b.order_id = o.id
          LEFT JOIN order_items oi ON oi.order_id = o.id
         WHERE o.normalized_phone = $1 AND NOT o.is_deleted
-        GROUP BY o.id, b.amount_paid`,
+        GROUP BY o.id, b.balance_due`,
       [normalizedPhone]
     );
     const uncollectedValue = perOrderRows.reduce((sum, r) => {
-      const surplus = Math.max(Number(r.amount_paid) - Number(r.order_collected), 0);
-      return sum + Math.min(surplus, Number(r.order_uncollected));
+      const orderUncollected = Number(r.order_uncollected);
+      return sum + Math.max(0, Math.min(orderUncollected, orderUncollected - Number(r.balance_due)));
     }, 0);
     if (Math.abs(amt) > uncollectedValue) {
       const err = new Error(`אפשר לזכות עד ${uncollectedValue} — שווי העופות שעדיין לא נאספו שכבר שולם עליהן בפועל (לא ניתן לזכות על עופות שכבר נמסרו, ולא על עופות שטרם שולמו).`);
