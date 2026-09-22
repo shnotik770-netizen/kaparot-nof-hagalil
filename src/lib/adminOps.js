@@ -96,12 +96,13 @@ export async function listCustomersSummary() {
     const bySlot = new Map();
     let fullyRedeemed = true;
     let hasAnyItem = false;
-    let uncollectedRaw = 0;
+    let uncollectedValue = 0;
     for (const o of c.orders) {
+      let orderUncollected = 0;
       for (const it of o.items) {
         hasAnyItem = true;
         if (it.quantityRedeemed < it.quantity) fullyRedeemed = false;
-        uncollectedRaw += (it.quantity - it.quantityRedeemed) * it.unitPrice;
+        orderUncollected += (it.quantity - it.quantityRedeemed) * it.unitPrice;
         if (!bySlot.has(it.slotId)) {
           bySlot.set(it.slotId, { slotId: it.slotId, slotName: it.slotName, slotColor: it.slotColor, male: 0, maleRedeemed: 0, female: 0, femaleRedeemed: 0 });
         }
@@ -109,6 +110,11 @@ export async function listCustomersSummary() {
         s[it.gender] += it.quantity;
         s[`${it.gender}Redeemed`] += it.quantityRedeemed;
       }
+      // לכל הזמנה בנפרד: מה שבאמת שולם עליה מול מה ששווה מה שלא נאסף
+      // ממנה — המינימום מביניהם, לא סתם "יש כסף אצל הלקוח" ברמה כללית.
+      // בלי זה, תשלום ששולם על הזמנה אחת שכבר נאספה במלואה (אין בה כלום
+      // להחזיר) "מלווה" בטעות זיכוי על עופות מהזמנה אחרת שכלל לא שולמה.
+      uncollectedValue += Math.min(o.amountPaid, orderUncollected);
     }
 
     // "ייתכן שיש תשלום שלא אושר" — התראה אחת בלבד ללקוח, לא אחת לכל ניסיון
@@ -123,15 +129,6 @@ export async function listCustomersSummary() {
     // כלשהו) — 2+ מסמן מצב "מפל תשלום מפוזר" שכדאי למנהל לשים לב אליו: אף
     // הזמנה בודדת לא בהכרח "נסגרה" למרות שהתקבל תשלום כלשהו.
     const unpaidOrdersCount = c.orders.filter((o) => o.paymentStatus !== 'paid').length;
-
-    // תקרת הזיכוי היא ברמת הלקוח כולו, לא הזמנה בודדת — מוגבלת גם בשווי
-    // הפריטים שלא נאספו (uncollectedRaw, על פני כל ההזמנות יחד) וגם בסכום
-    // שבאמת שולם (amountPaid) — אי אפשר לזכות על כסף שמעולם לא התקבל.
-    // recordCustomerCredit (payments.js) בוחר את הזמנת-היעד לרישום, אבל
-    // זה פרט טכני-פנימי של איפה נשמרת השורה — לא צריך להגביל אליו את
-    // הסכום המוצג/הנאכף, אחרת לקוח עם כמה הזמנות (חלקן לא שולמו) מקבל
-    // תקרה נמוכה ומטעה.
-    const uncollectedValue = Math.min(uncollectedRaw, amountPaid);
 
     return {
       phone: c.phone,

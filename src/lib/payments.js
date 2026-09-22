@@ -122,29 +122,37 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
  * NOT NULL; אין משמעות עסקית לכך שדווקא ההזמנה הזו "מזוכה" מבין הזמנות
  * הלקוח). מעדיפה הזמנה שכבר במצב עודף תשלום (balance_due הכי שלילי),
  * ואם אין כזו — ההזמנה עם יתרת החוב הנמוכה ביותר, כדי לעוות הכי פחות
- * את התמונה שלה. התקרה עצמה (uncollectedValue) היא ברמת הלקוח כולו —
- * מוגבלת גם בשווי הפריטים שלא נאספו על פני *כל* ההזמנות יחד, וגם בסכום
- * שבאמת שולם (אי אפשר לזכות על כסף שמעולם לא התקבל) — ראו listCustomersSummary.
- * לא "מפל" כמו סכום חיובי — זו תמיד הזמנה אחת.
+ * את התמונה שלה.
+ *
+ * התקרה עצמה (uncollectedValue) מחושבת *לכל הזמנה בנפרד* ואז מסוכמת —
+ * לא ברמת לקוח גורפת. לכל הזמנה: min(מה ששולם עליה בפועל, שווי הפריטים
+ * שלא נאספו ממנה). קריטי לא לחשב "כמה שולם בסך הכל" מול "כמה לא נאסף
+ * בסך הכל" בנפרד ואז למזער בין השניים ברמת הלקוח (כפי שנוסה קודם) —
+ * זה מאפשר מצב שבו הזמנה א' שולמה במלואה ונאספה במלואה (אין בה שום
+ * דבר להחזיר), אבל "משאילה" בטעות את הכסף ששולם עליה לזיכוי על עופות
+ * מהזמנה ב' שמעולם לא שולמה כלל (paid=0 בהזמנה ב') — התוצאה: זיכוי
+ * שמייצר ללקוח *חוב גדול יותר* משהיה לו לפני הזיכוי, כי הכסף שהיה
+ * מכסה הזמנה סגורה "עבר" להזמנה שעדיין פתוחה. חישוב פר-הזמנה מונע את
+ * זה: הזמנה א' תורמת 0 (אין בה לא-נאסף), הזמנה ב' תורמת 0 (לא שולם
+ * עליה כלום) — אין מה לזכות, נכון עסקית.
  */
 async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, note) {
   return withTransaction(async (client) => {
-    // אותה נוסחה בדיוק כמו uncollectedValue ב-listCustomersSummary
-    // (adminOps.js) — תקרה כפולה: שווי מה שלא נאסף, וגם לא יותר ממה
-    // ששולם בפועל.
-    const { rows: valueRows } = await client.query(
-      `SELECT
-         COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS uncollected_raw,
-         COALESCE((SELECT SUM(b2.amount_paid) FROM orders o2 JOIN order_balances b2 ON b2.order_id = o2.id
-                    WHERE o2.normalized_phone = $1 AND NOT o2.is_deleted), 0) AS amount_paid
-         FROM order_items oi
-         JOIN orders o ON o.id = oi.order_id
-        WHERE o.normalized_phone = $1 AND NOT o.is_deleted`,
+    const { rows: perOrderRows } = await client.query(
+      `SELECT b.amount_paid,
+              COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS order_uncollected
+         FROM orders o
+         JOIN order_balances b ON b.order_id = o.id
+         LEFT JOIN order_items oi ON oi.order_id = o.id
+        WHERE o.normalized_phone = $1 AND NOT o.is_deleted
+        GROUP BY o.id, b.amount_paid`,
       [normalizedPhone]
     );
-    const uncollectedValue = Math.min(Number(valueRows[0].uncollected_raw), Number(valueRows[0].amount_paid));
+    const uncollectedValue = perOrderRows.reduce(
+      (sum, r) => sum + Math.min(Number(r.amount_paid), Number(r.order_uncollected)), 0
+    );
     if (Math.abs(amt) > uncollectedValue) {
-      const err = new Error(`אפשר לזכות עד ${uncollectedValue} — שווי העופות שעדיין לא נאספו (לא ניתן לזכות על עופות שכבר נמסרו, ולא מעבר למה ששולם בפועל).`);
+      const err = new Error(`אפשר לזכות עד ${uncollectedValue} — שווי העופות שעדיין לא נאספו (לא ניתן לזכות על עופות שכבר נמסרו, ולא מעבר למה ששולם בפועל על ההזמנה שמכילה אותם).`);
       err.status = 400;
       throw err;
     }
