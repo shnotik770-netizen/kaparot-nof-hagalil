@@ -129,12 +129,17 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
 async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, note) {
   return withTransaction(async (client) => {
     // חוסם זיכוי מעבר לשווי העופות שעדיין לא נאספו — עופות שכבר נמסרו
-    // ללקוח כבר "נוצלו", ואי אפשר לזכות עליהם בדיעבד.
+    // ללקוח כבר "נוצלו", ואי אפשר לזכות עליהם בדיעבד. סופר רק פריטים
+    // מהזמנות עם balance_due <= 0 — בדיוק אותו תנאי שלפיו נבחרת למטה
+    // הזמנת-היעד לזיכוי; הזמנה עם חוב פתוח לא יכולה לשמש יעד, אז אין
+    // טעם לספור את הפריטים שלה בתקרה (אחרת הלקוח "יכול" לזכות על סכום
+    // שהשרת בפועל ידחה כי אין הזמנה מתאימה לרשום מולה).
     const { rows: valueRows } = await client.query(
       `SELECT COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS uncollected_value
          FROM order_items oi
          JOIN orders o ON o.id = oi.order_id
-        WHERE o.normalized_phone = $1 AND NOT o.is_deleted`,
+         JOIN order_balances b ON b.order_id = o.id
+        WHERE o.normalized_phone = $1 AND NOT o.is_deleted AND b.balance_due <= 0`,
       [normalizedPhone]
     );
     const uncollectedValue = Number(valueRows[0].uncollected_value);

@@ -101,7 +101,11 @@ export async function listCustomersSummary() {
       for (const it of o.items) {
         hasAnyItem = true;
         if (it.quantityRedeemed < it.quantity) fullyRedeemed = false;
-        uncollectedValue += (it.quantity - it.quantityRedeemed) * it.unitPrice;
+        // סכום נספר לזיכוי רק מהזמנות ששולמו במלואן (balanceDue <= 0) —
+        // בדיוק אותו תנאי שממנו recordCustomerCredit בוחר הזמנת-יעד לזיכוי
+        // (payments.js). הזמנה עם יתרת חוב פתוחה לא יכולה לשמש יעד לזיכוי,
+        // אז אין טעם לספור את הפריטים שלה בסכום המוצג כ"ניתן לזכות עד".
+        if (o.balanceDue <= 0) uncollectedValue += (it.quantity - it.quantityRedeemed) * it.unitPrice;
         if (!bySlot.has(it.slotId)) {
           bySlot.set(it.slotId, { slotId: it.slotId, slotName: it.slotName, slotColor: it.slotColor, male: 0, maleRedeemed: 0, female: 0, femaleRedeemed: 0 });
         }
