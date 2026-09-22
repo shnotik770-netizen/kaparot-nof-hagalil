@@ -125,22 +125,20 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
  * את התמונה שלה.
  *
  * התקרה עצמה (uncollectedValue) מחושבת *לכל הזמנה בנפרד* ואז מסוכמת —
- * לא ברמת לקוח גורפת. לכל הזמנה: min(מה ששולם עליה בפועל, שווי הפריטים
- * שלא נאספו ממנה). קריטי לא לחשב "כמה שולם בסך הכל" מול "כמה לא נאסף
- * בסך הכל" בנפרד ואז למזער בין השניים ברמת הלקוח (כפי שנוסה קודם) —
- * זה מאפשר מצב שבו הזמנה א' שולמה במלואה ונאספה במלואה (אין בה שום
- * דבר להחזיר), אבל "משאילה" בטעות את הכסף ששולם עליה לזיכוי על עופות
- * מהזמנה ב' שמעולם לא שולמה כלל (paid=0 בהזמנה ב') — התוצאה: זיכוי
- * שמייצר ללקוח *חוב גדול יותר* משהיה לו לפני הזיכוי, כי הכסף שהיה
- * מכסה הזמנה סגורה "עבר" להזמנה שעדיין פתוחה. חישוב פר-הזמנה מונע את
- * זה: הזמנה א' תורמת 0 (אין בה לא-נאסף), הזמנה ב' תורמת 0 (לא שולם
- * עליה כלום) — אין מה לזכות, נכון עסקית.
+ * לא ברמת לקוח גורפת (זיהינו קודם שגם זה שגוי, ראו היסטוריית git). לכל
+ * הזמנה: מה ששולם עליה "מכסה" קודם כל את מה שכבר נאסף ממנה (אי אפשר
+ * לזכות על עופות שכבר נמסרו) — רק העודף מעבר לכיסוי הזה, אם יש, זמין
+ * לזיכוי, ומוגבל בכל מקרה בשווי מה שעוד לא נאסף. לדוגמה: הזמנה עם 5
+ * עופות (280₪), 4 נאספו (220₪), שולם 220₪ — כל מה ששולם כבר מכוסה
+ * ע"י מה שנמסר, אין עודף לזיכוי, גם אם יש עוד עוף אחד (60₪) שלא נאסף
+ * וטרם שולם. נוסחה: clamp(paid - collectedValue, 0, uncollectedValue).
  */
 async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, note) {
   return withTransaction(async (client) => {
     const { rows: perOrderRows } = await client.query(
       `SELECT b.amount_paid,
-              COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS order_uncollected
+              COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS order_uncollected,
+              COALESCE(SUM(oi.quantity_redeemed * oi.unit_price), 0) AS order_collected
          FROM orders o
          JOIN order_balances b ON b.order_id = o.id
          LEFT JOIN order_items oi ON oi.order_id = o.id
@@ -148,11 +146,12 @@ async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, no
         GROUP BY o.id, b.amount_paid`,
       [normalizedPhone]
     );
-    const uncollectedValue = perOrderRows.reduce(
-      (sum, r) => sum + Math.min(Number(r.amount_paid), Number(r.order_uncollected)), 0
-    );
+    const uncollectedValue = perOrderRows.reduce((sum, r) => {
+      const surplus = Math.max(Number(r.amount_paid) - Number(r.order_collected), 0);
+      return sum + Math.min(surplus, Number(r.order_uncollected));
+    }, 0);
     if (Math.abs(amt) > uncollectedValue) {
-      const err = new Error(`אפשר לזכות עד ${uncollectedValue} — שווי העופות שעדיין לא נאספו (לא ניתן לזכות על עופות שכבר נמסרו, ולא מעבר למה ששולם בפועל על ההזמנה שמכילה אותם).`);
+      const err = new Error(`אפשר לזכות עד ${uncollectedValue} — שווי העופות שעדיין לא נאספו שכבר שולם עליהן בפועל (לא ניתן לזכות על עופות שכבר נמסרו, ולא על עופות שטרם שולמו).`);
       err.status = 400;
       throw err;
     }

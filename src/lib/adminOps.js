@@ -99,10 +99,12 @@ export async function listCustomersSummary() {
     let uncollectedValue = 0;
     for (const o of c.orders) {
       let orderUncollected = 0;
+      let orderCollected = 0;
       for (const it of o.items) {
         hasAnyItem = true;
         if (it.quantityRedeemed < it.quantity) fullyRedeemed = false;
         orderUncollected += (it.quantity - it.quantityRedeemed) * it.unitPrice;
+        orderCollected += it.quantityRedeemed * it.unitPrice;
         if (!bySlot.has(it.slotId)) {
           bySlot.set(it.slotId, { slotId: it.slotId, slotName: it.slotName, slotColor: it.slotColor, male: 0, maleRedeemed: 0, female: 0, femaleRedeemed: 0 });
         }
@@ -110,11 +112,13 @@ export async function listCustomersSummary() {
         s[it.gender] += it.quantity;
         s[`${it.gender}Redeemed`] += it.quantityRedeemed;
       }
-      // לכל הזמנה בנפרד: מה שבאמת שולם עליה מול מה ששווה מה שלא נאסף
-      // ממנה — המינימום מביניהם, לא סתם "יש כסף אצל הלקוח" ברמה כללית.
-      // בלי זה, תשלום ששולם על הזמנה אחת שכבר נאספה במלואה (אין בה כלום
-      // להחזיר) "מלווה" בטעות זיכוי על עופות מהזמנה אחרת שכלל לא שולמה.
-      uncollectedValue += Math.min(o.amountPaid, orderUncollected);
+      // לכל הזמנה בנפרד: מה ששולם עליה "מכסה" קודם כל את מה שכבר נאסף
+      // ממנה (אי אפשר לזכות על עופות שכבר נמסרו) — רק העודף מעבר לזה,
+      // אם יש, זמין לזיכוי, ומוגבל בכל מקרה בשווי מה שעוד לא נאסף.
+      // לדוגמה: הזמנה עם 5 עופות (280 ש"ח), 4 נאספו (220 ש"ח), שולם
+      // 220 ש"ח — כל מה ששולם כבר "מכוסה" ע"י מה שנמסר, אז אין שום
+      // עודף לזיכוי, גם אם יש עוד עוף אחד (60 ש"ח) שלא נאסף וטרם שולם.
+      uncollectedValue += Math.min(Math.max(o.amountPaid - orderCollected, 0), orderUncollected);
     }
 
     // "ייתכן שיש תשלום שלא אושר" — התראה אחת בלבד ללקוח, לא אחת לכל ניסיון
