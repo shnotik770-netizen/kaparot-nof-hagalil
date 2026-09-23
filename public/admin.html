@@ -251,6 +251,12 @@ function customerMatchesActiveOrdersFilter(c) {
     const usedMethods = paymentMethodsByPhoneCache.get(c.phone);
     if (!usedMethods || !methodFilters.some((m) => usedMethods.has(m))) return false;
   }
+
+  // היה חסר כאן (ראו renderOrdersTab) — לכן סגירת תיק מתוך תצוגה מסוננת
+  // ל"צריך לסגור תיק" עדכנה את הכרטיס במקום, אבל לא הסירה אותו מהרשימה.
+  const needsCaseClosureEl = document.getElementById('filterNeedsCaseClosure');
+  if (needsCaseClosureEl?.checked && !(!c.fullyRedeemed && !c.caseClosed)) return false;
+
   return true;
 }
 // תצוגת תוצאות קריאות בדיקה חופשיות לימות המשיח: לכל שורה — מה נשלח
