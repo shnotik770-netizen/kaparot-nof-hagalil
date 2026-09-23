@@ -519,7 +519,7 @@ async function openActionLogForPhone(phone) {
 // שני תת-מסכים נפרדים (לא מוצגים יחד): "סיכום תגובות" (טבלת מגיע/לא מגיע +
 // לקוחות שלא הגיבו כלל) ו"הודעות גולמיות" (כל SMS שהתקבל, כמו קודם).
 
-let incomingSmsView = 'responses'; // 'responses' | 'raw'
+let incomingSmsView = 'responses'; // 'responses' | 'raw' | 'phoneRequests'
 let unrespondedSearchText = '';
 let responsesSearchText = '';
 let responsesUncheckedAnswers = new Set(); // אילו ערכי תגובה (1/2) מוסתרים - ריק = מציג הכל
@@ -606,10 +606,10 @@ function wireUnrespondedButtons(container) {
 
 async function renderIncomingSmsTab() {
   const content = document.getElementById('tabContent');
-  let messages, customers, responses;
+  let messages, customers, responses, phoneRequests;
   try {
-    [messages, customers, responses] = await Promise.all([
-      api('/admin/sms/incoming'), api('/admin/customers'), api('/admin/sms/responses'),
+    [messages, customers, responses, phoneRequests] = await Promise.all([
+      api('/admin/sms/incoming'), api('/admin/customers'), api('/admin/sms/responses'), api('/admin/phone-credit-requests'),
     ]);
   } catch (err) {
     content.innerHTML = `<div class="card"><div class="error">${err.message}</div></div>`;
@@ -617,6 +617,7 @@ async function renderIncomingSmsTab() {
   }
   const customerByPhone = new Map();
   customers.forEach((c) => customerByPhone.set(normalizePhoneClient(c.phone), c));
+  const pendingPhoneRequestsCount = phoneRequests.filter((r) => r.status === 'pending').length;
 
   const viewTabsHtml = `
     <div class="card">
@@ -624,9 +625,63 @@ async function renderIncomingSmsTab() {
       <div class="tabs" style="margin:10px 0 0">
         <button type="button" data-sms-view="responses" class="${incomingSmsView === 'responses' ? 'active' : ''}">📋 סיכום תגובות</button>
         <button type="button" data-sms-view="raw" class="${incomingSmsView === 'raw' ? 'active' : ''}">💬 הודעות גולמיות (${messages.length})</button>
+        <button type="button" data-sms-view="phoneRequests" class="${incomingSmsView === 'phoneRequests' ? 'active' : ''}">☎️ בקשות דרך הטלפון (${pendingPhoneRequestsCount})</button>
       </div>
     </div>
   `;
+
+  if (incomingSmsView === 'phoneRequests') {
+    content.innerHTML = `
+      ${viewTabsHtml}
+      <div class="card">
+        <p class="hint">בקשות זיכוי שהוגשו טלפונית (שלוחה 9, הקשה 3) ע"י לקוחות שהזמינו ולא קיבלו. "תקרה" היא הסכום שהוקרא ללקוח כזכאי לו — למידע בלבד, לא הגבלה. סימון "טופל" לא מבצע זיכוי בפועל — יש לרשום את הזיכוי בנפרד דרך כרטיס הלקוח, ורק לסמן כאן שטופל ובאיזה סכום.</p>
+      </div>
+      ${phoneRequests.length ? phoneRequests.map((r) => {
+        const c = customerByPhone.get(r.normalizedPhone);
+        return `
+          <div class="card" style="${r.status === 'handled' ? 'opacity:0.7' : ''}">
+            <div class="order-row-header">
+              <b>${c ? esc(c.customerName) + ' · ' : ''}${esc(r.phone)}</b>
+              <span class="pill ${r.status === 'handled' ? 'paid' : 'unpaid'}">${r.status === 'handled' ? 'טופל' : 'ממתין לטיפול'}</span>
+            </div>
+            <p style="margin:6px 0">תקרת זיכוי: <b>${money(r.ceilingAmount)}</b> · הלקוח ביקש: <b>${money(r.requestedAmount)}</b>${r.status === 'handled' ? ` · זוכה בפועל: <b>${money(r.creditedAmount)}</b>` : ''}</p>
+            <span class="meta">${new Date(r.createdAt).toLocaleString('he-IL')}${r.status === 'handled' ? ` · טופל ע"י ${esc(r.handledBy)} · ${new Date(r.handledAt).toLocaleString('he-IL')}` : ''}</span>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+              <button type="button" class="ghost" data-open-customer="${esc(r.normalizedPhone)}">פתיחת כרטיס לקוח ←</button>
+              ${r.status === 'pending' ? `
+                <input type="number" min="0" value="${r.requestedAmount}" id="handleAmt-${panelSafeId(r.phone)}" style="width:100px">
+                <button type="button" class="ghost" data-mark-request-handled="${esc(r.phone)}">✓ סימון כטופל</button>
+              ` : ''}
+              <button type="button" class="ghost" data-del-request="${esc(r.phone)}" style="color:var(--wine)">מחיקה</button>
+            </div>
+          </div>
+        `;
+      }).join('') : `<div class="card"><p class="hint">אין בקשות זיכוי טלפוניות.</p></div>`}
+    `;
+    content.querySelectorAll('[data-sms-view]').forEach((b) => { b.onclick = () => { incomingSmsView = b.dataset.smsView; renderIncomingSmsTab(); }; });
+    content.querySelectorAll('[data-open-customer]').forEach((b) => { b.onclick = () => openCustomerFromIncomingSms(b.dataset.openCustomer); });
+    content.querySelectorAll('[data-mark-request-handled]').forEach((b) => {
+      b.onclick = async () => {
+        const phone = b.dataset.markRequestHandled;
+        const creditedAmount = Number(document.getElementById(`handleAmt-${panelSafeId(phone)}`).value);
+        try {
+          await api(`/admin/phone-credit-requests/${encodeURIComponent(phone)}/handled`, { method: 'PUT', body: { creditedAmount } });
+          renderIncomingSmsTab();
+        } catch (err) { alert(err.message); }
+      };
+    });
+    content.querySelectorAll('[data-del-request]').forEach((b) => {
+      b.onclick = async () => {
+        const phone = b.dataset.delRequest;
+        if (!confirm('למחוק את הבקשה הזו? הלקוח יוכל להגיש בקשה חדשה בפעם הבאה שיתקשר.')) return;
+        try {
+          await api(`/admin/phone-credit-requests/${encodeURIComponent(phone)}`, { method: 'DELETE' });
+          renderIncomingSmsTab();
+        } catch (err) { alert(err.message); }
+      };
+    });
+    return;
+  }
 
   if (incomingSmsView === 'raw') {
     const visibleMessages = rawSmsHideHandled ? messages.filter((m) => !m.handled) : messages;

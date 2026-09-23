@@ -1,15 +1,16 @@
 // נקודות קצה שנקראות ישירות ע"י ימות המשיח (מודול type=api): שלוחה 9/2
-// "שמיעת מצב הזמנה קיימת" ושלוחה 9/1 "רישום הזמנה חדשה". לא דרך /api
-// ולא מאומתות בסשן: הזיהוי כאן הוא ApiPhone (מספר הטלפון המתקשר, לפי
-// Caller ID) בלבד — מודל אמון כמקובל בשלוחות IVR טלפוניות, ולא זהה
-// לאימות ה-OTP שבאתר. תגובה חייבת להיות טקסט פשוט בלבד (ראו סקיל
-// yemot-hamashiach-api) — לעולם לא JSON.
+// "שמיעת מצב הזמנה קיימת", שלוחה 9/1 "רישום הזמנה חדשה" ושלוחה 9/3
+// "בקשת זיכוי בעקבות אי קבלת עופות". לא דרך /api ולא מאומתות בסשן: הזיהוי
+// כאן הוא ApiPhone (מספר הטלפון המתקשר, לפי Caller ID) בלבד — מודל אמון
+// כמקובל בשלוחות IVR טלפוניות, ולא זהה לאימות ה-OTP שבאתר. תגובה חייבת
+// להיות טקסט פשוט בלבד (ראו סקיל yemot-hamashiach-api) — לעולם לא JSON.
 
 import { Router } from 'express';
 import { normalizePhone } from '../lib/normalize.js';
 import { listOrdersForPhone, createOrder } from '../lib/orders.js';
 import { getIvrRegistrationSlots, priceForGender } from '../lib/slots.js';
-import { recordIvrNedarimPayment } from '../lib/payments.js';
+import { recordIvrNedarimPayment, getCustomerCreditCeiling } from '../lib/payments.js';
+import { getPhoneCreditRequest, createPhoneCreditRequest } from '../lib/adminOps.js';
 import { logAction } from '../lib/actionLog.js';
 import { textSegment, idListMessage, readAction } from '../lib/ivrFormat.js';
 
@@ -54,6 +55,62 @@ router.all('/order-status', wrap(async (req, res) => {
     ));
   }
   res.send(idListMessage(segments));
+}));
+
+/**
+ * שלוחת "בקשת זיכוי" (9/3) — למי שהזמין ולא קיבל. ללא הגנת ivr_secret,
+ * מאותה סיבה כמו 9/2: לא יוצרת שום חיוב/זיכוי אמיתי בעצמה, רק שורת בקשה
+ * שממתינה לאישור ידני של מנהל (ראו markPhoneCreditRequestHandled) — הכי
+ * גרוע שיכול לקרות עם שיחה מזויפת הוא בקשת סרק שהמנהל יזהה וימחק.
+ *
+ * שלושה מסלולים לפי מה שכבר קיים ללקוח הזה (getPhoneCreditRequest, שורה
+ * אחת פר טלפון): בקשה ממתינה -> משמיע שהיא ממתינה. בקשה שטופלה -> משמיע
+ * את הסכום שזוכה (או "לא אושר זיכוי" אם 0). אין בקשה בכלל -> מקריא את
+ * התקרה (getCustomerCreditCeiling, אותה נוסחה בדיוק כמו זיכוי ידני מהפאנל)
+ * ואוסף read= אחד עם הסכום שהלקוח מבקש בפועל, ואז יוצר בקשה.
+ */
+router.all('/credit-request', wrap(async (req, res) => {
+  const params = { ...req.query, ...req.body };
+  res.type('text/plain');
+
+  if (params.hangup === 'yes') return res.send('ok');
+
+  const normalizedPhone = normalizePhone(params.ApiPhone);
+  const existing = await getPhoneCreditRequest(normalizedPhone);
+
+  if (existing) {
+    if (existing.status === 'pending') {
+      return res.send(idListMessage([
+        textSegment(`הבקשה שלכם לזיכוי בסך ${Math.round(existing.requestedAmount)} שקלים כבר התקבלה וממתינה לטיפול`),
+      ]));
+    }
+    if (existing.creditedAmount > 0) {
+      return res.send(idListMessage([
+        textSegment(`הבקשה שלכם טופלה, זוכיתם בסך ${Math.round(existing.creditedAmount)} שקלים`),
+      ]));
+    }
+    return res.send(idListMessage([textSegment('הבקשה שלכם טופלה, לא אושר זיכוי')]));
+  }
+
+  if (!params.RequestedAmount) {
+    const ceiling = await getCustomerCreditCeiling(normalizedPhone);
+    if (ceiling <= 0) {
+      return res.send(idListMessage([
+        textSegment('לא נמצאה יתרת זיכוי זמינה עבור מספר הטלפון ממנו התקשרתם'),
+      ]));
+    }
+    return res.send(readAction(
+      [textSegment(`אתם זכאים לבקש זיכוי עד ${Math.round(ceiling)} שקלים, אנא הקישו את הסכום שאתם מבקשים לזכות ולסיום הקישו סולמית`)],
+      ['RequestedAmount', '', 5, 1, 15, 'Number', '', 'yes', '', '', '', '', '', '', 'no'],
+    ));
+  }
+
+  const ceiling = await getCustomerCreditCeiling(normalizedPhone);
+  await createPhoneCreditRequest({
+    normalizedPhone, phone: params.ApiPhone, ceilingAmount: ceiling,
+    requestedAmount: Number(params.RequestedAmount), apiCallId: params.ApiCallId || null,
+  });
+  return res.send(idListMessage([textSegment('בקשתכם לזיכוי נקלטה בהצלחה ותטופל בהקדם')]));
 }));
 
 const GENDER_KEY_LABEL = { 1: 'זכרים', 2: 'נקבות' };

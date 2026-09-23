@@ -909,3 +909,83 @@ export async function getHandledIncomingSmsKeys() {
   const { rows } = await pool.query(`SELECT message_key FROM incoming_sms_handled`);
   return new Set(rows.map((r) => r.message_key));
 }
+
+function mapPhoneCreditRequest(r) {
+  return {
+    normalizedPhone: r.normalized_phone,
+    phone: r.phone,
+    ceilingAmount: Number(r.ceiling_amount),
+    requestedAmount: Number(r.requested_amount),
+    status: r.status,
+    creditedAmount: r.credited_amount == null ? null : Number(r.credited_amount),
+    handledBy: r.handled_by,
+    handledAt: r.handled_at,
+    apiCallId: r.api_call_id,
+    createdAt: r.created_at,
+  };
+}
+
+/** בקשת זיכוי שהוגשה טלפונית (שלוחה 9/3) — ראו routes/ivr.js וטבלת phone_credit_requests בסכימה. */
+export async function getPhoneCreditRequest(normalizedPhone) {
+  const { rows } = await pool.query(`SELECT * FROM phone_credit_requests WHERE normalized_phone = $1`, [normalizedPhone]);
+  return rows[0] ? mapPhoneCreditRequest(rows[0]) : null;
+}
+
+// ON CONFLICT קיים בעיקר להגנה מפני מצב מירוץ (שתי שיחות בו-זמנית) — בפועל
+// שלוחת ה-IVR עצמה לא קוראת לפונקציה הזו כשכבר יש בקשה קיימת (ראו שם).
+export async function createPhoneCreditRequest({ normalizedPhone, phone, ceilingAmount, requestedAmount, apiCallId }) {
+  await pool.query(
+    `INSERT INTO phone_credit_requests(normalized_phone, phone, ceiling_amount, requested_amount, api_call_id)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (normalized_phone) DO UPDATE SET
+       phone = $2, ceiling_amount = $3, requested_amount = $4, api_call_id = $5,
+       status = 'pending', credited_amount = NULL, handled_by = NULL, handled_at = NULL, created_at = now()`,
+    [normalizedPhone, phone, ceilingAmount, requestedAmount, apiCallId || null]
+  );
+  await logAction('phone_credit_request_submitted', { normalizedPhone, phone, ceilingAmount, requestedAmount, apiCallId: apiCallId || null });
+}
+
+/** לטאב "בקשות דרך הטלפון" (תת-טאב של הודעות נכנסות) בפאנל הניהול. */
+export async function listPhoneCreditRequests() {
+  const { rows } = await pool.query(`SELECT * FROM phone_credit_requests ORDER BY created_at DESC`);
+  return rows.map(mapPhoneCreditRequest);
+}
+
+/**
+ * מנהל מסמן בקשה כ"טופלה" ומזין את הסכום שבאמת זוכה (יכול להיות שונה
+ * מהסכום שהלקוח ביקש, וגם 0 אם לא אושר זיכוי כלל) — זה מה שיוקרא ללקוח
+ * בפעם הבאה שיתקשר לאותה שלוחה. לא מבצע שום זיכוי בפועל בעצמו — הזיכוי
+ * האמיתי עדיין נרשם ידנית ע"י המנהל דרך "רישום תשלום" הרגיל, כמו כל זיכוי.
+ */
+export async function markPhoneCreditRequestHandled(normalizedPhone, creditedAmount, adminName) {
+  const amt = Number(creditedAmount);
+  if (!Number.isFinite(amt) || amt < 0) {
+    const err = new Error('סכום הזיכוי שאושר אינו תקין.');
+    err.status = 400;
+    throw err;
+  }
+  const { rows } = await pool.query(
+    `UPDATE phone_credit_requests SET status='handled', credited_amount=$2, handled_by=$3, handled_at=now()
+      WHERE normalized_phone = $1 RETURNING *`,
+    [normalizedPhone, amt, adminName]
+  );
+  if (!rows.length) {
+    const err = new Error('בקשה לא נמצאה.');
+    err.status = 404;
+    throw err;
+  }
+  await logAction('phone_credit_request_handled', { normalizedPhone, creditedAmount: amt, adminName });
+  return mapPhoneCreditRequest(rows[0]);
+}
+
+/** מוחקת את הבקשה — מאפשרת ללקוח להגיש בקשה חדשה בפעם הבאה שיתקשר. */
+export async function deletePhoneCreditRequest(normalizedPhone, adminName) {
+  const { rowCount } = await pool.query(`DELETE FROM phone_credit_requests WHERE normalized_phone = $1`, [normalizedPhone]);
+  if (!rowCount) {
+    const err = new Error('בקשה לא נמצאה.');
+    err.status = 404;
+    throw err;
+  }
+  await logAction('phone_credit_request_deleted', { normalizedPhone, adminName });
+  return { success: true };
+}

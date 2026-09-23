@@ -276,6 +276,27 @@ CREATE TABLE IF NOT EXISTS incoming_sms_handled (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ================= בקשות זיכוי שהוגשו טלפונית (שלוחה 9/3) =================
+-- לקוח שהזמין ולא קיבל מתקשר לשלוחה 9, מקיש 3: שומע את תקרת הזיכוי שמגיעה
+-- לו (ceiling_amount, למידע/השוואה בלבד — לא אכיפה, ראו getCustomerCreditCeiling
+-- ב-payments.js) ומקליד את הסכום שהוא מבקש בפועל (requested_amount). שורה
+-- אחת פר טלפון (לא היסטוריה): טיפול (status='handled') קובע את מה שיישמע
+-- בפעם הבאה שיתקשר, ומחיקה (ע"י מנהל) מאפשרת לו להגיש בקשה חדשה בעתיד.
+-- אין כאן שום פעולה כספית אוטומטית — המנהל מזכה בפועל דרך "רישום תשלום"/
+-- זיכוי הרגיל, ורק מסמן כאן שטיפל ובאיזה סכום, ראו routes/ivr.js.
+CREATE TABLE IF NOT EXISTS phone_credit_requests (
+  normalized_phone  TEXT PRIMARY KEY,
+  phone             TEXT NOT NULL,
+  ceiling_amount    NUMERIC(10,2) NOT NULL,
+  requested_amount  NUMERIC(10,2) NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','handled')),
+  credited_amount   NUMERIC(10,2),
+  handled_by        TEXT,
+  handled_at        TIMESTAMPTZ,
+  api_call_id       TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ================= יומן פעולות מנהל =================
 CREATE TABLE IF NOT EXISTS admin_actions (
   id          SERIAL PRIMARY KEY,

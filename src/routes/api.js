@@ -26,6 +26,7 @@ import {
   listStuckOrphanedPayments, acknowledgeOrphanedPayments,
   setCustomerCaseClosed, reopenCustomerCase,
   markIncomingSmsHandled, unmarkIncomingSmsHandled, getHandledIncomingSmsKeys,
+  listPhoneCreditRequests, markPhoneCreditRequestHandled, deletePhoneCreditRequest,
 } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
 import {
@@ -619,6 +620,20 @@ router.get('/admin/sms/responses', requireAdmin, requirePermission('incomingSms'
 // סימון ידני של תגובת לקוח (מגיע/לא מגיע) שלא הגיב ב-SMS בעצמו.
 router.put('/admin/customers/:phone/broadcast-response', requireAdmin, requirePermission('incomingSms'), wrap(async (req, res) => {
   res.json(await setManualBroadcastResponse(req.params.phone, req.body?.answer, req.session.adminName || 'admin'));
+}));
+
+// בקשות זיכוי שהוגשו טלפונית (שלוחה 9/3, ראו routes/ivr.js) — לתת-טאב
+// "בקשות דרך הטלפון" בתוך "הודעות נכנסות".
+router.get('/admin/phone-credit-requests', requireAdmin, requirePermission('incomingSms'), wrap(async (req, res) => {
+  res.json(await listPhoneCreditRequests());
+}));
+router.put('/admin/phone-credit-requests/:phone/handled', requireAdmin, requirePermission('incomingSms'), wrap(async (req, res) => {
+  const normalized = normalizePhone(req.params.phone);
+  res.json(await markPhoneCreditRequestHandled(normalized, req.body?.creditedAmount, req.session.adminName || 'admin'));
+}));
+router.delete('/admin/phone-credit-requests/:phone', requireAdmin, requirePermission('incomingSms'), wrap(async (req, res) => {
+  const normalized = normalizePhone(req.params.phone);
+  res.json(await deletePhoneCreditRequest(normalized, req.session.adminName || 'admin'));
 }));
 
 // "סגירת תיק" ללקוח (אחרי זיכוי מלא/חלקי) — ופתיחתו מחדש אם צריך.

@@ -139,22 +139,32 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
  * שווי מה שלא נאסף 60₪, שולם 220₪ (חוב פתוח 60₪) — 60 פחות 60 = 0, אין
  * עודף לזיכוי, למרות שיש עוף אחד שלא נאסף.
  */
+/**
+ * תקרת הזיכוי הכוללת ללקוח (סכום לכל ההזמנות הפעילות שלו) — נקודת אמת
+ * יחידה לנוסחה (ראו הסבר מלא ב-recordCustomerCredit למטה, שהיא צרכן שלה).
+ * בשימוש גם משלוחה טלפונית "בקשת זיכוי" (9/3, ראו routes/ivr.js) כדי
+ * להקריא ללקוח כמה מגיע לו לפני שהוא מקליד כמה הוא מבקש.
+ */
+export async function getCustomerCreditCeiling(normalizedPhone, client = pool) {
+  const { rows: perOrderRows } = await client.query(
+    `SELECT b.balance_due,
+            COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS order_uncollected
+       FROM orders o
+       JOIN order_balances b ON b.order_id = o.id
+       LEFT JOIN order_items oi ON oi.order_id = o.id
+      WHERE o.normalized_phone = $1 AND NOT o.is_deleted
+      GROUP BY o.id, b.balance_due`,
+    [normalizedPhone]
+  );
+  return perOrderRows.reduce((sum, r) => {
+    const orderUncollected = Number(r.order_uncollected);
+    return sum + Math.max(0, Math.min(orderUncollected, orderUncollected - Number(r.balance_due)));
+  }, 0);
+}
+
 async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, note) {
   return withTransaction(async (client) => {
-    const { rows: perOrderRows } = await client.query(
-      `SELECT b.balance_due,
-              COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS order_uncollected
-         FROM orders o
-         JOIN order_balances b ON b.order_id = o.id
-         LEFT JOIN order_items oi ON oi.order_id = o.id
-        WHERE o.normalized_phone = $1 AND NOT o.is_deleted
-        GROUP BY o.id, b.balance_due`,
-      [normalizedPhone]
-    );
-    const uncollectedValue = perOrderRows.reduce((sum, r) => {
-      const orderUncollected = Number(r.order_uncollected);
-      return sum + Math.max(0, Math.min(orderUncollected, orderUncollected - Number(r.balance_due)));
-    }, 0);
+    const uncollectedValue = await getCustomerCreditCeiling(normalizedPhone, client);
     if (Math.abs(amt) > uncollectedValue) {
       const err = new Error(`אפשר לזכות עד ${uncollectedValue} — שווי העופות שעדיין לא נאספו שכבר שולם עליהן בפועל (לא ניתן לזכות על עופות שכבר נמסרו, ולא על עופות שטרם שולמו).`);
       err.status = 400;
