@@ -3036,22 +3036,22 @@ async function renderSeudotTab() {
     api('/admin/seudot'),
     api('/admin/seudot/settings'),
   ]);
-  const paid = registrations.filter((r) => r.status === 'paid');
+  // registrations מגיע כבר מסונן ל-status='paid' בלבד (ראו listSeudotRegistrations
+  // ב-lib/seudot.js) — מי שמילא טופס ולא שילם לא "נרשם" ולא אמור להופיע כאן בכלל,
+  // רק בלוג הפעולות (admin_actions, seudot_registration_created) למי שצריך לחפש שם.
   const viaCoupon = registrations.filter((r) => r.viaCoupon);
-  const totalAdults = paid.reduce((s, r) => s + r.adultsCount, 0);
-  const totalChildren = paid.reduce((s, r) => s + r.childrenCount, 0);
-  const totalRevenue = paid.reduce((s, r) => s + r.amount, 0);
-  const pendingCount = registrations.length - paid.length;
+  const totalAdults = registrations.reduce((s, r) => s + r.adultsCount, 0);
+  const totalChildren = registrations.reduce((s, r) => s + r.childrenCount, 0);
+  const totalRevenue = registrations.reduce((s, r) => s + r.amount, 0);
 
   content.innerHTML = `
     <div class="card">
       <h2 style="margin:0 0 4px">🍽️ סעודות שמחת תורה תשפ"ז</h2>
       <p class="hint" style="margin:0 0 10px">בית הכנסת חב"ד מרכז העיר נוף הגליל · טופס נפרד ב-<a href="/seudot" target="_blank">/seudot</a></p>
-      <div class="item-row"><span>נרשמו ושילמו</span><span><b>${paid.length}</b> משפחות</span></div>
-      <div class="item-row"><span>סה"כ נפשות (ששילמו)</span><span>${totalAdults} מבוגרים · ${totalChildren} ילדים</span></div>
+      <div class="item-row"><span>נרשמו ושילמו</span><span><b>${registrations.length}</b> משפחות</span></div>
+      <div class="item-row"><span>סה"כ נפשות</span><span>${totalAdults} מבוגרים · ${totalChildren} ילדים</span></div>
       <div class="item-row"><span>סה"כ הכנסה</span><span>${money(totalRevenue)}</span></div>
       ${viaCoupon.length ? `<div class="item-row"><span>נרשמו בקוד קופון (בלי תשלום)</span><span><b>${viaCoupon.length}</b></span></div>` : ''}
-      ${pendingCount > 0 ? `<p class="hint" style="margin-top:8px">+ ${pendingCount} מילאו את הטופס אך לא השלימו תשלום (מופיעים למטה כ"ממתין").</p>` : ''}
     </div>
     <div class="card">
       <h3 style="margin:0 0 8px;font-size:14px">מתי הטופס פתוח</h3>
@@ -3079,18 +3079,14 @@ async function renderSeudotTab() {
     const filtered = q ? registrations.filter((r) => r.fullName.includes(q)) : registrations;
     document.getElementById('seudotListWrap').innerHTML = filtered.length ? `
       <table>
-        <thead><tr><th>שם</th><th>מבוגרים</th><th>ילדים</th><th>סטטוס</th><th>תאריך</th></tr></thead>
+        <thead><tr><th>שם</th><th>מבוגרים</th><th>ילדים</th><th>אופן</th><th>תאריך</th></tr></thead>
         <tbody>
           ${filtered.map((r) => `
             <tr>
               <td>${esc(r.fullName)}</td>
               <td>${r.adultsCount}</td>
               <td>${r.childrenCount}</td>
-              <td>
-                ${r.viaCoupon
-                  ? `<span class="pill partial" title="נרשם בקוד קופון, בלי תשלום">🎟️ קופון</span>`
-                  : `<span class="pill ${r.status === 'paid' ? 'paid' : 'unpaid'}">${r.status === 'paid' ? 'שולם' : 'ממתין'}</span>`}
-              </td>
+              <td>${r.viaCoupon ? `<span class="pill partial" title="נרשם בקוד קופון, בלי תשלום">🎟️ קופון</span>` : `<span class="pill paid">שולם</span>`}</td>
               <td class="meta">${new Date(r.createdAt).toLocaleString('he-IL')}</td>
             </tr>
           `).join('')}
@@ -3102,10 +3098,9 @@ async function renderSeudotTab() {
   document.getElementById('seudotSearch').oninput = (e) => { seudotSearchText = e.target.value; renderList(); };
 
   document.getElementById('seudotCsvBtn').onclick = () => {
-    const header = ['שם', 'מבוגרים', 'ילדים', 'סכום', 'סטטוס', 'קופון?', 'תאריך הרשמה', 'תאריך תשלום'];
+    const header = ['שם', 'מבוגרים', 'ילדים', 'סכום', 'קופון?', 'תאריך הרשמה', 'תאריך תשלום'];
     const rows = registrations.map((r) => [
       r.fullName, r.adultsCount, r.childrenCount, r.amount,
-      r.status === 'paid' ? 'שולם' : 'ממתין',
       r.viaCoupon ? 'כן' : 'לא',
       new Date(r.createdAt).toLocaleString('he-IL'),
       r.paidAt ? new Date(r.paidAt).toLocaleString('he-IL') : '',

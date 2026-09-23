@@ -108,7 +108,11 @@ export async function allocateSeudotPayment({ token, transactionId }) {
   return { allocated: true };
 }
 
+// רק הרשמות ששולמו בפועל (כולל קופון) — מי שמילא את הטופס ולא השלים
+// תשלום לא "נרשם" בפועל ולא אמור להופיע בדוח למנהל; עדיין קיים כרשומה
+// ב-DB ומתועד ב-admin_actions (seudot_registration_created), למי שצריך
+// לחפש שם ספציפית, ראו logAction ב-createSeudotRegistration.
 export async function listSeudotRegistrations() {
-  const { rows } = await pool.query(`SELECT * FROM seudot_registrations ORDER BY created_at DESC`);
+  const { rows } = await pool.query(`SELECT * FROM seudot_registrations WHERE status = 'paid' ORDER BY created_at DESC`);
   return rows.map(mapRow);
 }
