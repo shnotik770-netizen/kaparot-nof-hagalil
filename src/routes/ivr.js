@@ -9,7 +9,7 @@ import { Router } from 'express';
 import { normalizePhone } from '../lib/normalize.js';
 import { listOrdersForPhone, createOrder } from '../lib/orders.js';
 import { getIvrRegistrationSlots, priceForGender } from '../lib/slots.js';
-import { recordIvrNedarimPayment, getCustomerCreditCeiling } from '../lib/payments.js';
+import { recordIvrNedarimPayment, getCustomerCreditSummary } from '../lib/payments.js';
 import { getPhoneCreditRequest, createPhoneCreditRequest } from '../lib/adminOps.js';
 import { logAction } from '../lib/actionLog.js';
 import { textSegment, idListMessage, readAction } from '../lib/ivrFormat.js';
@@ -93,21 +93,33 @@ router.all('/credit-request', wrap(async (req, res) => {
   }
 
   if (!params.RequestedAmount) {
-    const ceiling = await getCustomerCreditCeiling(normalizedPhone);
-    if (ceiling <= 0) {
+    const summary = await getCustomerCreditSummary(normalizedPhone);
+    if (!summary.hasOrders) {
       return res.send(idListMessage([
-        textSegment('לא נמצאה יתרת זיכוי זמינה עבור מספר הטלפון ממנו התקשרתם'),
+        textSegment('לא נמצאה הזמנה רשומה עבור מספר הטלפון ממנו התקשרתם'),
+      ]));
+    }
+    if (summary.uncollectedCount <= 0) {
+      // מימשו את מלוא ההזמנה — אין מה לבקש עליו זיכוי, לא משנה מה שולם.
+      return res.send(idListMessage([
+        textSegment(`ההזמנה שלכם הייתה בסך ${Math.round(summary.totalAmount)} שקלים, ולפי הרישומים שלנו מימשתם את מלוא ההזמנה, ולכן אינכם זכאים לזיכוי`),
+      ]));
+    }
+    if (summary.ceiling <= 0) {
+      // יש עופות שלא נאספו, אבל גם לא שולם עליהם — אין עודף תשלום לזכות.
+      return res.send(idListMessage([
+        textSegment(`ההזמנה שלכם הייתה בסך ${Math.round(summary.totalAmount)} שקלים, ולפי הרישומים שלנו לא קיבלתם ${summary.uncollectedCount} עופות מתוך ההזמנה, אך גם לא שולם עבורם, ולכן אין לכם יתרת זיכוי זמינה כרגע`),
       ]));
     }
     return res.send(readAction(
-      [textSegment(`אתם זכאים לבקש זיכוי עד ${Math.round(ceiling)} שקלים, אנא הקישו את הסכום שאתם מבקשים לזכות ולסיום הקישו סולמית`)],
+      [textSegment(`ההזמנה שלכם הייתה בסך ${Math.round(summary.totalAmount)} שקלים, ולפי הרישומים שלנו לא קיבלתם ${summary.uncollectedCount} עופות מתוך ההזמנה, שווי ההחזר המקסימלי העומד לזכותכם הוא ${Math.round(summary.ceiling)} שקלים, אנא הקישו את הסכום שאתם מבקשים לזכות ולסיום הקישו סולמית`)],
       ['RequestedAmount', '', 5, 1, 15, 'Number', '', 'yes', '', '', '', '', '', '', 'no'],
     ));
   }
 
-  const ceiling = await getCustomerCreditCeiling(normalizedPhone);
+  const summary = await getCustomerCreditSummary(normalizedPhone);
   await createPhoneCreditRequest({
-    normalizedPhone, phone: params.ApiPhone, ceilingAmount: ceiling,
+    normalizedPhone, phone: params.ApiPhone, ceilingAmount: summary.ceiling,
     requestedAmount: Number(params.RequestedAmount), apiCallId: params.ApiCallId || null,
   });
   return res.send(idListMessage([textSegment('בקשתכם לזיכוי נקלטה בהצלחה, הבקשה תטופל בימים הקרובים')]));

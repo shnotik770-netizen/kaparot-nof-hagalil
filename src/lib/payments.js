@@ -123,45 +123,56 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
 }
 
 /**
+ * תמונת מצב הזיכוי הכוללת ללקוח (סכום לכל ההזמנות הפעילות שלו) — נקודת
+ * אמת יחידה לנוסחה, גם ל-recordCustomerCredit למטה וגם לשלוחה טלפונית
+ * "בקשת זיכוי" (9/3, ראו routes/ivr.js) שמקריאה ללקוח הסבר לפני שהוא
+ * מקליד כמה הוא מבקש.
+ *
+ * ceiling (תקרת הזיכוי) מחושב *לכל הזמנה בנפרד* ואז מסוכם — לא ברמת לקוח
+ * גורפת (זיהינו קודם שגם זה שגוי, ראו היסטוריית git). לכל הזמנה: כמה שווה
+ * מה שלא נאסף ממנה, פחות כמה מזה עדיין לא שולם (balance due) — אם החוב
+ * הפתוח על ההזמנה גדול/שווה לשווי מה שלא נאסף ממנה, אין עודף תשלום פנוי
+ * לזיכוי. מוגבל למעלה בשווי מה שלא נאסף (למקרה של עודף תשלום, balance_due
+ * שלילי). לדוגמה: הזמנה עם 5 עופות (280₪), 4 נאספו, שווי מה שלא נאסף 60₪,
+ * שולם 220₪ (חוב פתוח 60₪) — 60 פחות 60 = 0, אין עודף לזיכוי, למרות שיש
+ * עוף אחד שלא נאסף (זה בדיוק המקרה ש-uncollectedCount>0 אבל ceiling=0).
+ */
+export async function getCustomerCreditSummary(normalizedPhone, client = pool) {
+  const { rows: perOrderRows } = await client.query(
+    `SELECT o.total_amount, b.balance_due,
+            COALESCE(SUM(oi.quantity - oi.quantity_redeemed), 0) AS uncollected_count,
+            COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS order_uncollected
+       FROM orders o
+       JOIN order_balances b ON b.order_id = o.id
+       LEFT JOIN order_items oi ON oi.order_id = o.id
+      WHERE o.normalized_phone = $1 AND NOT o.is_deleted
+      GROUP BY o.id, o.total_amount, b.balance_due`,
+    [normalizedPhone]
+  );
+  let totalAmount = 0;
+  let uncollectedCount = 0;
+  let ceiling = 0;
+  for (const r of perOrderRows) {
+    totalAmount += Number(r.total_amount);
+    uncollectedCount += Number(r.uncollected_count);
+    const orderUncollected = Number(r.order_uncollected);
+    ceiling += Math.max(0, Math.min(orderUncollected, orderUncollected - Number(r.balance_due)));
+  }
+  return { hasOrders: perOrderRows.length > 0, totalAmount, uncollectedCount, ceiling };
+}
+
+export async function getCustomerCreditCeiling(normalizedPhone, client = pool) {
+  return (await getCustomerCreditSummary(normalizedPhone, client)).ceiling;
+}
+
+/**
  * זיכוי/תיקון (סכום שלילי) ברמת הלקוח — מזהה אוטומטית הזמנה להצמיד אליה
  * את התשלום השלילי (רק כדי לענות על מבנה הנתונים — payments.order_id הוא
  * NOT NULL; אין משמעות עסקית לכך שדווקא ההזמנה הזו "מזוכה" מבין הזמנות
  * הלקוח). מעדיפה הזמנה שכבר במצב עודף תשלום (balance_due הכי שלילי),
  * ואם אין כזו — ההזמנה עם יתרת החוב הנמוכה ביותר, כדי לעוות הכי פחות
  * את התמונה שלה.
- *
- * התקרה עצמה (uncollectedValue) מחושבת *לכל הזמנה בנפרד* ואז מסוכמת —
- * לא ברמת לקוח גורפת (זיהינו קודם שגם זה שגוי, ראו היסטוריית git). לכל
- * הזמנה: כמה שווה מה שלא נאסף ממנה, פחות כמה מזה עדיין לא שולם (balance
- * due) — אם החוב הפתוח על ההזמנה גדול/שווה לשווי מה שלא נאסף ממנה, אין
- * עודף תשלום פנוי לזיכוי. מוגבל למעלה בשווי מה שלא נאסף (למקרה של עודף
- * תשלום, balance_due שלילי). לדוגמה: הזמנה עם 5 עופות (280₪), 4 נאספו,
- * שווי מה שלא נאסף 60₪, שולם 220₪ (חוב פתוח 60₪) — 60 פחות 60 = 0, אין
- * עודף לזיכוי, למרות שיש עוף אחד שלא נאסף.
  */
-/**
- * תקרת הזיכוי הכוללת ללקוח (סכום לכל ההזמנות הפעילות שלו) — נקודת אמת
- * יחידה לנוסחה (ראו הסבר מלא ב-recordCustomerCredit למטה, שהיא צרכן שלה).
- * בשימוש גם משלוחה טלפונית "בקשת זיכוי" (9/3, ראו routes/ivr.js) כדי
- * להקריא ללקוח כמה מגיע לו לפני שהוא מקליד כמה הוא מבקש.
- */
-export async function getCustomerCreditCeiling(normalizedPhone, client = pool) {
-  const { rows: perOrderRows } = await client.query(
-    `SELECT b.balance_due,
-            COALESCE(SUM((oi.quantity - oi.quantity_redeemed) * oi.unit_price), 0) AS order_uncollected
-       FROM orders o
-       JOIN order_balances b ON b.order_id = o.id
-       LEFT JOIN order_items oi ON oi.order_id = o.id
-      WHERE o.normalized_phone = $1 AND NOT o.is_deleted
-      GROUP BY o.id, b.balance_due`,
-    [normalizedPhone]
-  );
-  return perOrderRows.reduce((sum, r) => {
-    const orderUncollected = Number(r.order_uncollected);
-    return sum + Math.max(0, Math.min(orderUncollected, orderUncollected - Number(r.balance_due)));
-  }, 0);
-}
-
 async function recordCustomerCredit(normalizedPhone, amt, method, recordedBy, note) {
   return withTransaction(async (client) => {
     const uncollectedValue = await getCustomerCreditCeiling(normalizedPhone, client);
