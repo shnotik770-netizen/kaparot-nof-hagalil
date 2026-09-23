@@ -14,7 +14,7 @@ import { requestOtp, verifyOtp } from './otp.js';
 import { countAdmins, getAdminByPhone, verifyAdminCredentials } from './admins.js';
 import { logAction } from './actionLog.js';
 
-const FULL_PERMISSIONS = { settings: true, orders: true, dashboard: true, slots: true };
+const FULL_PERMISSIONS = { settings: true, orders: true, dashboard: true, slots: true, incomingSms: true, seudot: true };
 
 export async function loginWithPassword(phone, password) {
   const normalized = normalizePhone(phone);

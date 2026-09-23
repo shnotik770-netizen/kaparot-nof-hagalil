@@ -17,6 +17,11 @@ const DEFAULTS = {
   sheetsSyncEnabled: true,
   lateRegistrationPriceNotice: 'שימו לב: יש זמן חלוקה שנפתח ידנית אחרי סיום זמן הרישום הרגיל — ייתכן שהמחיר התייקר בעקבות כך.',
   lateRegistrationPriceNoticeEnabled: true,
+  // טופס סעודות שמחת תורה (עצמאי, לא קשור לכפרות) — ריק = בלי דדליין, הטופס תמיד פתוח.
+  seudotCloseAt: '',
+  seudotClosedMessage: 'ההרשמה לסעודות שמחת תורה נסגרה.',
+  // קוד קופון שמאפשר למי שקיבל אותו מהמנהל להירשם בלי תשלום — ריק = אין קופון פעיל.
+  seudotCouponCode: '',
 };
 
 export async function getSettings() {
@@ -48,6 +53,10 @@ export async function getSettings() {
     lateRegistrationPriceNoticeEnabled: map.late_registration_price_notice_enabled == null
       ? DEFAULTS.lateRegistrationPriceNoticeEnabled
       : map.late_registration_price_notice_enabled === 'true',
+    // מועד סגירת טופס סעודות שמחת תורה (ISO, ריק = תמיד פתוח) + ההודעה שמוצגת כשסגור.
+    seudotCloseAt: (map.seudot_close_at || '').trim(),
+    seudotClosedMessage: (map.seudot_closed_message || '').trim() || DEFAULTS.seudotClosedMessage,
+    seudotCouponCode: (map.seudot_coupon_code || '').trim(),
   };
 }
 

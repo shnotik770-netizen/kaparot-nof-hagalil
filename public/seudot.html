@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>רישום סעודות שמחת תורה תשפ"ז</title>
+<link rel="stylesheet" href="/shared.css">
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <h1>רישום סעודות שמחת תורה תשפ"ז</h1>
+    <div class="topbar-subtitle">בית הכנסת חב"ד מרכז העיר נוף הגליל</div>
+  </div>
+</div>
+<div class="wrap" id="app">
+  <div class="loading" id="initialLoading">טוען…</div>
+
+  <div class="card" id="closedCard" style="display:none">
+    <div class="notice critical" id="closedMessage"></div>
+  </div>
+
+  <div class="card" id="formCard" style="display:none">
+    <label for="fullNameInput">שם ושם משפחה</label>
+    <input type="text" id="fullNameInput" placeholder="לדוגמה: ישראל ישראלי">
+    <label for="adultsInput">כמות נפשות מבוגרים</label>
+    <input type="number" id="adultsInput" min="0" step="1" inputmode="numeric" placeholder="0">
+    <label for="childrenInput">כמות נפשות ילדים</label>
+    <input type="number" id="childrenInput" min="0" step="1" inputmode="numeric" placeholder="0">
+    <label for="couponInput">קוד קופון (אם קיבלתם אחד מהמזכירות — אופציונלי)</label>
+    <input type="text" id="couponInput" placeholder="קוד קופון">
+    <div class="total-row"><span>עלות הרשמה למשפחה</span><span id="amountDisplay"></span></div>
+    <div class="spacer"></div>
+    <button class="primary" id="submitBtn">המשך לתשלום</button>
+    <div id="formError" class="error" style="display:none"></div>
+  </div>
+
+  <!--
+    האייפרם קבוע ב-DOM (לא נבנה מחדש) מרגע שנטען פעם ראשונה — בדיוק כמו
+    ב-index.html: רישום המאזין וטעינת ה-src חייבים לקרות פעם אחת בלבד
+    בחיי הדף, אחרת תוצאת עסקה עלולה להיות מטופלת פעמיים.
+  -->
+  <div class="card" id="paymentCard" style="display:none">
+    <h2>תשלום</h2>
+    <p class="hint">ההרשמה תיחשב סופית רק אחרי השלמת התשלום.</p>
+    <button class="primary" id="payBtn">פתח חלון תשלום</button>
+    <div id="paymentFrameWrap" style="display:none;margin-top:16px">
+      <iframe id="NedarimFrame" allow="payment" scrolling="no"
+              style="width:100%;border:none;height:0"></iframe>
+    </div>
+    <div id="paymentError" class="error" style="display:none"></div>
+  </div>
+
+  <div class="card" id="successCard" style="display:none">
+    <div class="success">ההרשמה נקלטה בהצלחה! תודה, ונתראה בשמחת תורה 🎉</div>
+    <p class="hint" id="successEditHint"></p>
+  </div>
+
+  <!-- מצב עריכה (?edit=TOKEN) — "עריכת תשובה" כמו בגוגל פורמס: אותו token
+       ששימש להרשמה/תשלום הוא גם הקישור האישי לעריכה, עד לסגירת הרשימה. -->
+  <div class="card" id="editCard" style="display:none">
+    <h2>עריכת ההרשמה</h2>
+    <label for="editFullNameInput">שם ושם משפחה</label>
+    <input type="text" id="editFullNameInput">
+    <label for="editAdultsInput">כמות נפשות מבוגרים</label>
+    <input type="number" id="editAdultsInput" min="0" step="1" inputmode="numeric">
+    <label for="editChildrenInput">כמות נפשות ילדים</label>
+    <input type="number" id="editChildrenInput" min="0" step="1" inputmode="numeric">
+    <div class="spacer"></div>
+    <button class="primary" id="editSaveBtn">שמירת שינויים</button>
+    <div id="editError" class="error" style="display:none"></div>
+    <div id="editSuccess" class="success" style="display:none">השינויים נשמרו.</div>
+  </div>
+  <div class="card" id="editClosedCard" style="display:none">
+    <div class="notice critical" id="editClosedMessage"></div>
+  </div>
+</div>
+
+<script>
+function money(n) { return `₪${Number(n).toLocaleString('he-IL', { maximumFractionDigits: 0 })}`; }
+
+async function api(path, options = {}) {
+  const res = await fetch(`/api${path}`, {
+    method: options.method || 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'שגיאה לא צפויה.');
+  return data;
+}
+
+// רישום המאזין וטעינת ה-src של האייפרם — פעם אחת בלבד בחיי הדף (ראו האזהרה למעלה).
+const nedarimFrame = document.getElementById('NedarimFrame');
+function PostNedarim(data) { nedarimFrame.contentWindow.postMessage(data, '*'); }
+window.addEventListener('message', (event) => {
+  const msg = event.data || {};
+  if (msg.Name === 'Height') {
+    nedarimFrame.style.height = (parseInt(msg.Value, 10) + 15) + 'px';
+  } else if (msg.Name === 'TransactionResponse') {
+    onNedarimTransactionResponse(msg.Value || {});
+  }
+});
+nedarimFrame.src = 'https://www.matara.pro/nedarimplus/iframe/v3/?language=he';
+
+let currentToken = null;
+let currentTransactionId = null;
+
+function showSuccess() {
+  document.getElementById('formCard').style.display = 'none';
+  document.getElementById('paymentCard').style.display = 'none';
+  document.getElementById('successCard').style.display = '';
+  const editUrl = `${location.origin}/seudot?edit=${currentToken}`;
+  document.getElementById('successEditHint').innerHTML =
+    `ניתן לעדכן את פרטי ההרשמה (שם/כמות נפשות) עד לסגירת הרשימה, דרך הקישור האישי הזה — מומלץ לשמור אותו: <a href="${editUrl}">${editUrl}</a>`;
+}
+
+async function init() {
+  const editToken = new URLSearchParams(location.search).get('edit');
+  if (editToken) return initEditMode(editToken);
+
+  try {
+    const settings = await api('/seudot/settings');
+    document.getElementById('initialLoading').style.display = 'none';
+    document.getElementById('amountDisplay').textContent = money(settings.amount);
+    if (!settings.isOpen) {
+      document.getElementById('closedMessage').textContent = settings.closedMessage;
+      document.getElementById('closedCard').style.display = '';
+      return;
+    }
+    document.getElementById('formCard').style.display = '';
+  } catch (err) {
+    document.getElementById('initialLoading').textContent = err.message;
+  }
+}
+init();
+
+document.getElementById('submitBtn').onclick = async () => {
+  const btn = document.getElementById('submitBtn');
+  const errorEl = document.getElementById('formError');
+  errorEl.style.display = 'none';
+  const fullName = document.getElementById('fullNameInput').value.trim();
+  const adultsCount = Number(document.getElementById('adultsInput').value || 0);
+  const childrenCount = Number(document.getElementById('childrenInput').value || 0);
+  const couponCode = document.getElementById('couponInput').value.trim();
+  btn.disabled = true; btn.textContent = 'שולח…';
+  try {
+    const result = await api('/seudot/register', { method: 'POST', body: { fullName, adultsCount, childrenCount, couponCode } });
+    currentToken = result.token;
+    if (result.viaCoupon) {
+      showSuccess();
+      return;
+    }
+    currentTransactionId = result.transactionId;
+    document.getElementById('formCard').style.display = 'none';
+    document.getElementById('paymentCard').style.display = '';
+    showPayButton(result.transactionId, result.key, 'פתח חלון תשלום');
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = '';
+    btn.disabled = false; btn.textContent = 'המשך לתשלום';
+  }
+};
+
+function openPaymentFrame(transactionId, key) {
+  document.getElementById('payBtn').style.display = 'none';
+  document.getElementById('paymentFrameWrap').style.display = '';
+  document.getElementById('paymentError').style.display = 'none';
+  // ButtonText מחליף את כפתור "תרומה" בתוך האייפרם בטקסט "תשלום X ₪".
+  PostNedarim({ Name: 'StartPayment', Value: { TransactionId: transactionId, Key: key, ButtonText: 'תשלום' } });
+}
+
+/** מציג/מרענן את כפתור הפתיחה — משמש גם לניסיון הראשון וגם ל"נסה שוב" אחרי כישלון. */
+function showPayButton(transactionId, key, label) {
+  const btn = document.getElementById('payBtn');
+  btn.textContent = label;
+  btn.disabled = false;
+  btn.style.display = '';
+  btn.onclick = () => openPaymentFrame(transactionId, key);
+}
+
+/** "נסה שוב": מקים עסקת נדרים פלוס חדשה מול אותו token (לא רושם הרשמה כפולה), ואז פותח אותה. */
+function showRetryButton() {
+  const btn = document.getElementById('payBtn');
+  btn.textContent = 'נסה שוב';
+  btn.disabled = false;
+  btn.style.display = '';
+  btn.onclick = async () => {
+    btn.disabled = true;
+    const errorEl = document.getElementById('paymentError');
+    try {
+      const result = await api('/seudot/retry-payment', { method: 'POST', body: { token: currentToken } });
+      if (result.alreadyPaid) {
+        showSuccess();
+        return;
+      }
+      currentTransactionId = result.transactionId;
+      errorEl.style.display = 'none';
+      openPaymentFrame(result.transactionId, result.key);
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.style.display = '';
+      btn.disabled = false;
+    }
+  };
+}
+
+async function onNedarimTransactionResponse(value) {
+  document.getElementById('paymentFrameWrap').style.display = 'none';
+  if (value.Status === 'OK') {
+    currentTransactionId = value.TransactionId || currentTransactionId;
+    try {
+      await api('/seudot/confirm-client', { method: 'POST', body: { token: currentToken, transactionId: currentTransactionId } });
+    } catch (err) {
+      // התשלום בפועל כן עבר מול נדרים פלוס — ה-Webhook ישלים את זה גם אם הקריאה
+      // האופטימית הזו נכשלה (למשל בעיית רשת). לא מציגים שגיאה מבהילה ללקוח.
+      console.error('אישור תשלום אופטימי נכשל (ה-Webhook עדיין ישלים את זה):', err);
+    }
+    showSuccess();
+  } else {
+    const errorEl = document.getElementById('paymentError');
+    errorEl.textContent = (value.Message || 'התשלום לא הושלם.') + ' ניתן לנסות שוב.';
+    errorEl.style.display = '';
+    showRetryButton();
+  }
+}
+
+// ---- מצב עריכה (?edit=TOKEN) ----
+
+async function initEditMode(token) {
+  try {
+    const registration = await api(`/seudot/registration/${encodeURIComponent(token)}`);
+    document.getElementById('initialLoading').style.display = 'none';
+    if (!registration.canEdit) {
+      document.getElementById('editClosedMessage').textContent = 'הרשימה נסגרה — לא ניתן יותר לערוך את ההרשמה.';
+      document.getElementById('editClosedCard').style.display = '';
+      return;
+    }
+    document.getElementById('editFullNameInput').value = registration.fullName;
+    document.getElementById('editAdultsInput').value = registration.adultsCount;
+    document.getElementById('editChildrenInput').value = registration.childrenCount;
+    document.getElementById('editCard').style.display = '';
+    document.getElementById('editSaveBtn').onclick = async () => {
+      const btn = document.getElementById('editSaveBtn');
+      const errorEl = document.getElementById('editError');
+      const successEl = document.getElementById('editSuccess');
+      errorEl.style.display = 'none';
+      successEl.style.display = 'none';
+      btn.disabled = true; btn.textContent = 'שומר…';
+      try {
+        await api(`/seudot/registration/${encodeURIComponent(token)}`, {
+          method: 'PUT',
+          body: {
+            fullName: document.getElementById('editFullNameInput').value.trim(),
+            adultsCount: Number(document.getElementById('editAdultsInput').value || 0),
+            childrenCount: Number(document.getElementById('editChildrenInput').value || 0),
+          },
+        });
+        successEl.style.display = '';
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = '';
+      } finally {
+        btn.disabled = false; btn.textContent = 'שמירת שינויים';
+      }
+    };
+  } catch (err) {
+    document.getElementById('initialLoading').textContent = err.message;
+  }
+}
+</script>
+</body>
+</html>

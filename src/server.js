@@ -60,9 +60,11 @@ app.use('/api', apiRouter);
 const staticOptions = { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') };
 app.use(express.static(path.join(__dirname, '..', 'public'), staticOptions));
 
-// שלוש חזיתות נפרדות: לקוח (index.html), קיוסק חלוקה (kiosk.html), מנהל (admin.html)
+// ארבע חזיתות נפרדות: לקוח (index.html), קיוסק חלוקה (kiosk.html), מנהל (admin.html),
+// טופס רישום סעודות שמחת תורה (seudot.html — עצמאי, לא קשור לכפרות)
 app.get('/kiosk*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'kiosk.html')));
 app.get('/admin*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'admin.html')));
+app.get('/seudot*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'seudot.html')));
 app.get('*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
 // eslint-disable-next-line no-unused-vars

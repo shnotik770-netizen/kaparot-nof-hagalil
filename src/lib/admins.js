@@ -1,6 +1,6 @@
-// מנהלים: כל אחד עם שם, טלפון וסיסמה קבועה משלו, וארבע הרשאות עצמאיות
-// (הגדרות / הזמנות ותשלומים / דשבורד / זמני חלוקה) שקובעות אילו טאבים
-// יראה בפאנל הניהול.
+// מנהלים: כל אחד עם שם, טלפון וסיסמה קבועה משלו, ושש הרשאות עצמאיות
+// (הגדרות / הזמנות ותשלומים / דשבורד / זמני חלוקה / הודעות נכנסות / שמחת
+// תורה) שקובעות אילו טאבים יראה בפאנל הניהול.
 
 import bcrypt from 'bcryptjs';
 import { query } from '../db/pool.js';
@@ -18,6 +18,8 @@ function rowToAdmin(row) {
       orders: row.can_orders,
       dashboard: row.can_dashboard,
       slots: row.can_slots,
+      incomingSms: row.can_incoming_sms,
+      seudot: row.can_seudot,
     },
     createdAt: row.created_at,
   };
@@ -59,12 +61,13 @@ export async function createAdmin({ name, phone, password, permissions = {} }) {
   }
   const hash = await bcrypt.hash(String(password), 12);
   const { rows } = await query(
-    `INSERT INTO admins(name, phone, normalized_phone, password_hash, can_settings, can_orders, can_dashboard, can_slots)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    `INSERT INTO admins(name, phone, normalized_phone, password_hash, can_settings, can_orders, can_dashboard, can_slots, can_incoming_sms, can_seudot)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
     [
       clean, phone, normalized, hash,
       permissions.settings !== false, permissions.orders !== false,
       permissions.dashboard !== false, permissions.slots !== false,
+      permissions.incomingSms !== false, permissions.seudot !== false,
     ]
   );
   const admin = rowToAdmin(rows[0]);
@@ -81,18 +84,26 @@ export async function updateAdmin(id, { name, phone, password, permissions = {} 
     const hash = await bcrypt.hash(String(password), 12);
     const { rows } = await query(
       `UPDATE admins SET name=$2, phone=$3, normalized_phone=$4, password_hash=$5,
-         can_settings=$6, can_orders=$7, can_dashboard=$8, can_slots=$9
+         can_settings=$6, can_orders=$7, can_dashboard=$8, can_slots=$9, can_incoming_sms=$10, can_seudot=$11
        WHERE id=$1 RETURNING *`,
-      [id, name, phone, normalized, hash, permissions.settings !== false, permissions.orders !== false, permissions.dashboard !== false, permissions.slots !== false]
+      [
+        id, name, phone, normalized, hash,
+        permissions.settings !== false, permissions.orders !== false, permissions.dashboard !== false, permissions.slots !== false,
+        permissions.incomingSms !== false, permissions.seudot !== false,
+      ]
     );
     if (!rows.length) throw Object.assign(new Error('מנהל לא נמצא.'), { status: 404 });
     admin = rowToAdmin(rows[0]);
   } else {
     const { rows } = await query(
       `UPDATE admins SET name=$2, phone=$3, normalized_phone=$4,
-         can_settings=$5, can_orders=$6, can_dashboard=$7, can_slots=$8
+         can_settings=$5, can_orders=$6, can_dashboard=$7, can_slots=$8, can_incoming_sms=$9, can_seudot=$10
        WHERE id=$1 RETURNING *`,
-      [id, name, phone, normalized, permissions.settings !== false, permissions.orders !== false, permissions.dashboard !== false, permissions.slots !== false]
+      [
+        id, name, phone, normalized,
+        permissions.settings !== false, permissions.orders !== false, permissions.dashboard !== false, permissions.slots !== false,
+        permissions.incomingSms !== false, permissions.seudot !== false,
+      ]
     );
     if (!rows.length) throw Object.assign(new Error('מנהל לא נמצא.'), { status: 404 });
     admin = rowToAdmin(rows[0]);

@@ -77,6 +77,19 @@ CREATE TABLE IF NOT EXISTS admins (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- שתי הרשאות עצמאיות נוספות (במקום לרכב על can_orders כמו קודם) — טאב
+-- "הודעות נכנסות" וטאב "שמחת תורה". מנהלים קיימים: מגובים חד-פעמית לפי
+-- can_orders (מה שכבר היה להם בפועל, כשזה עוד היה מגובה עליה), ולא נוגעים
+-- בהם שוב אחרי זה (ה-WHERE ...IS NULL מבטיח את זה גם אם המיגרציה רצה שוב).
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS can_incoming_sms BOOLEAN;
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS can_seudot BOOLEAN;
+UPDATE admins SET can_incoming_sms = can_orders WHERE can_incoming_sms IS NULL;
+UPDATE admins SET can_seudot = can_orders WHERE can_seudot IS NULL;
+ALTER TABLE admins ALTER COLUMN can_incoming_sms SET NOT NULL;
+ALTER TABLE admins ALTER COLUMN can_incoming_sms SET DEFAULT TRUE;
+ALTER TABLE admins ALTER COLUMN can_seudot SET NOT NULL;
+ALTER TABLE admins ALTER COLUMN can_seudot SET DEFAULT TRUE;
+
 -- ================= קודי אימות סמס (OTP) — לאזור אישי חוזר ולכניסת מנהל =================
 CREATE TABLE IF NOT EXISTS otp_codes (
   id               SERIAL PRIMARY KEY,
@@ -287,5 +300,27 @@ CREATE TABLE IF NOT EXISTS customer_case_closures (
   admin_name       TEXT NOT NULL,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ================= רישום סעודות שמחת תורה (טופס עצמאי, לא קשור לכפרות) =================
+-- בכוונה לא בנוי על מודל ההזמנות (orders/payments/order_balances) — תהליך
+-- שונה לגמרי: טופס פשוט + תשלום קבוע חד-פעמי חובה לסיום ההרשמה, בלי
+-- איסוף/פדיון. token נשלח כ-Param2 לנדרים פלוס ומזהה את הרשומה מול
+-- ה-Webhook הייעודי (ראו routes/webhooks.js, lib/seudot.js).
+CREATE TABLE IF NOT EXISTS seudot_registrations (
+  id                     SERIAL PRIMARY KEY,
+  token                  TEXT NOT NULL UNIQUE,
+  full_name              TEXT NOT NULL,
+  adults_count           INTEGER NOT NULL CHECK (adults_count >= 0),
+  children_count         INTEGER NOT NULL CHECK (children_count >= 0),
+  amount                 NUMERIC(10,2) NOT NULL,
+  status                 TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid')),
+  nedarim_transaction_id TEXT,
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  paid_at                TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_seudot_registrations_status ON seudot_registrations(status);
+-- רישום שהושלם בקוד קופון (ראו seudot_coupon_code ב-settings) — פטור מתשלום
+-- לגמרי, amount=0, status='paid' מיד. מאפשר למנהל לראות מי נכנס בלי לשלם.
+ALTER TABLE seudot_registrations ADD COLUMN IF NOT EXISTS via_coupon BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- טבלת session ל-express-session תיווצר אוטומטית ע"י connect-pg-simple (createTableIfMissing: true)

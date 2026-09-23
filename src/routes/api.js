@@ -28,6 +28,10 @@ import {
   markIncomingSmsHandled, unmarkIncomingSmsHandled, getHandledIncomingSmsKeys,
 } from '../lib/adminOps.js';
 import { createTransaction } from '../lib/nedarim.js';
+import {
+  createSeudotRegistration, getSeudotRegistrationByToken, updateSeudotRegistration, confirmSeudotPaymentClient,
+  listSeudotRegistrations, SEUDOT_AMOUNT,
+} from '../lib/seudot.js';
 import { listActions, logAction } from '../lib/actionLog.js';
 import { sendSms, sendBulkSms, getSmsHistoryForPhone, getAllIncomingSms, getBroadcastResponses, BROADCAST_ANSWER_LABEL } from '../lib/sms.js';
 import { runYemotTestCalls } from '../lib/yemotIvr.js';
@@ -239,6 +243,108 @@ router.post('/session/end', (req, res) => {
   res.json({ success: true });
 });
 
+// ============== סעודות שמחת תורה (טופס רישום עצמאי — לא קשור לכפרות) ==============
+// תהליך נפרד לגמרי מההזמנות/כפרות: בלי OTP/זיהוי לקוח, בלי איסוף/פדיון —
+// רק טופס + תשלום קבוע (200 ₪ למשפחה) שחובה להשלים כדי שההרשמה תיחשב
+// גמורה. אותה תשתית נדרים פלוס (createTransaction/Webhook) אבל עם state
+// עצמאי משלה (seudot_registrations, לא orders/payment_sessions) — ראו lib/seudot.js.
+
+async function startSeudotPayment(registration) {
+  const [firstName, ...restName] = registration.fullName.split(' ').filter(Boolean);
+  const lastName = restName.join(' ');
+  return createTransaction({
+    amount: SEUDOT_AMOUNT,
+    param2: registration.token,
+    callbackUrl: `${publicBaseUrl()}/webhooks/nedarim-plus-seudot`,
+    firstName,
+    lastName,
+    groupe: 'סעודות שמחת תורה',
+  });
+}
+
+// אימות משותף לשם/כמות נפשות — משמש גם ברישום וגם בעריכה עצמית.
+function parseSeudotFields(body) {
+  const fullName = String(body?.fullName || '').trim();
+  const adultsCount = Number(body?.adultsCount);
+  const childrenCount = Number(body?.childrenCount);
+  if (!fullName) throw Object.assign(new Error('נא להזין שם ושם משפחה.'), { status: 400 });
+  if (!Number.isInteger(adultsCount) || adultsCount < 0 || !Number.isInteger(childrenCount) || childrenCount < 0) {
+    throw Object.assign(new Error('כמות הנפשות חייבת להיות מספר שלם, 0 ומעלה.'), { status: 400 });
+  }
+  if (adultsCount + childrenCount < 1) {
+    throw Object.assign(new Error('יש להזין לפחות נפש אחת.'), { status: 400 });
+  }
+  return { fullName, adultsCount, childrenCount };
+}
+
+// הגדרות ציבוריות של הטופס (עד מתי פתוח, הודעת סגירה) — נקרא ע"י seudot.html
+// לפני הצגת הטופס, כדי שלא יאפשר בכלל להתחיל למלא אחרי הסגירה.
+router.get('/seudot/settings', wrap(async (req, res) => {
+  const s = await getSettings();
+  const isOpen = !s.seudotCloseAt || new Date(s.seudotCloseAt) > new Date();
+  res.json({ closeAt: s.seudotCloseAt, closedMessage: s.seudotClosedMessage, amount: SEUDOT_AMOUNT, isOpen });
+}));
+
+router.post('/seudot/register', wrap(async (req, res) => {
+  const s = await getSettings();
+  if (s.seudotCloseAt && new Date(s.seudotCloseAt) <= new Date()) {
+    return res.status(400).json({ error: s.seudotClosedMessage });
+  }
+  const { fullName, adultsCount, childrenCount } = parseSeudotFields(req.body);
+
+  // קוד קופון תקין (מוגדר ע"י מנהל) — נרשם ישר כ'paid' בלי לפנות לנדרים
+  // פלוס בכלל, ראו createSeudotRegistration({ viaCoupon: true }).
+  const couponCode = String(req.body?.couponCode || '').trim();
+  if (couponCode) {
+    if (!s.seudotCouponCode || couponCode.toLowerCase() !== s.seudotCouponCode.toLowerCase()) {
+      return res.status(400).json({ error: 'קוד קופון שגוי.' });
+    }
+    const registration = await createSeudotRegistration({ fullName, adultsCount, childrenCount, viaCoupon: true });
+    return res.json({ viaCoupon: true, token: registration.token });
+  }
+
+  const registration = await createSeudotRegistration({ fullName, adultsCount, childrenCount });
+  const { transactionId, key } = await startSeudotPayment(registration);
+  res.json({ transactionId, key, amount: SEUDOT_AMOUNT, token: registration.token });
+}));
+
+// ניסיון תשלום חוזר על אותה הרשמה שכבר נוצרה (למשל אחרי כישלון/ביטול) —
+// לא יוצר רשומת הרשמה כפולה, רק עסקת נדרים פלוס חדשה מול אותו token.
+router.post('/seudot/retry-payment', wrap(async (req, res) => {
+  const registration = await getSeudotRegistrationByToken(String(req.body?.token || ''));
+  if (!registration) return res.status(404).json({ error: 'ההרשמה לא נמצאה — נא למלא את הטופס מחדש.' });
+  if (registration.status === 'paid') return res.json({ alreadyPaid: true });
+  const { transactionId, key } = await startSeudotPayment(registration);
+  res.json({ transactionId, key, amount: SEUDOT_AMOUNT, token: registration.token });
+}));
+
+// אישור אופטימי מהדפדפן (Status:'OK' מהאייפרם) — ראו confirmSeudotPaymentClient ב-lib/seudot.js.
+router.post('/seudot/confirm-client', wrap(async (req, res) => {
+  res.json(await confirmSeudotPaymentClient(req.body?.token, req.body?.transactionId));
+}));
+
+// עריכה עצמית של הלקוח (שם/כמות נפשות) עד שעת סגירת הרשימה — דרך קישור
+// אישי שמכיל את ה-token (כמו "עריכת תשובה" בגוגל פורמס). ידיעת ה-token
+// היא ההרשאה, בדיוק כמו payment_sessions בזרימת הכפרות.
+router.get('/seudot/registration/:token', wrap(async (req, res) => {
+  const registration = await getSeudotRegistrationByToken(req.params.token);
+  if (!registration) return res.status(404).json({ error: 'ההרשמה לא נמצאה.' });
+  const s = await getSettings();
+  const canEdit = !s.seudotCloseAt || new Date(s.seudotCloseAt) > new Date();
+  res.json({ ...registration, editableUntil: s.seudotCloseAt || null, canEdit });
+}));
+
+router.put('/seudot/registration/:token', wrap(async (req, res) => {
+  const existing = await getSeudotRegistrationByToken(req.params.token);
+  if (!existing) return res.status(404).json({ error: 'ההרשמה לא נמצאה.' });
+  const s = await getSettings();
+  if (s.seudotCloseAt && new Date(s.seudotCloseAt) <= new Date()) {
+    return res.status(400).json({ error: 'הרשימה נסגרה — לא ניתן יותר לערוך את ההרשמה.' });
+  }
+  const { fullName, adultsCount, childrenCount } = parseSeudotFields(req.body);
+  res.json(await updateSeudotRegistration(req.params.token, { fullName, adultsCount, childrenCount }));
+}));
+
 // ============== מנהל ==============
 
 router.post('/admin/login-password', wrap(async (req, res) => {
@@ -447,16 +553,16 @@ router.get('/admin/customers/:phone/sms-history', requireAdmin, requirePermissio
 
 // כל ה-SMS הנכנסים מכל הלקוחות — לטאב "הודעות נכנסות" הנפרד. ממזג סטטוס
 // "טופל" (ראו incoming_sms_handled) לכל הודעה לפי מפתחה היציב (key).
-router.get('/admin/sms/incoming', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+router.get('/admin/sms/incoming', requireAdmin, requirePermission('incomingSms'), wrap(async (req, res) => {
   const [messages, handledKeys] = await Promise.all([getAllIncomingSms(), getHandledIncomingSmsKeys()]);
   res.json(messages.map((m) => ({ ...m, handled: handledKeys.has(m.key) })));
 }));
 
 // סימון/ביטול סימון הודעה נכנסת כ"טופל".
-router.put('/admin/sms/incoming/:key/handled', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+router.put('/admin/sms/incoming/:key/handled', requireAdmin, requirePermission('incomingSms'), wrap(async (req, res) => {
   res.json(await markIncomingSmsHandled(req.params.key, req.body?.phone, req.session.adminName || 'admin'));
 }));
-router.delete('/admin/sms/incoming/:key/handled', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+router.delete('/admin/sms/incoming/:key/handled', requireAdmin, requirePermission('incomingSms'), wrap(async (req, res) => {
   res.json(await unmarkIncomingSmsHandled(req.params.key));
 }));
 
@@ -464,7 +570,7 @@ router.delete('/admin/sms/incoming/:key/handled', requireAdmin, requirePermissio
 // ממזג תגובות SMS אמיתיות עם סימונים ידניים (broadcast_manual_responses) —
 // לכל טלפון, מה שיותר עדכני מבין השניים הוא זה שמוצג (כך שסימון ידני אחרי
 // שיחת טלפון יכול "לעקוף" תגובת SMS ישנה, ולהפך).
-router.get('/admin/sms/responses', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+router.get('/admin/sms/responses', requireAdmin, requirePermission('incomingSms'), wrap(async (req, res) => {
   const [smsResponses, manualResponses] = await Promise.all([getBroadcastResponses(), getManualBroadcastResponses()]);
   const byPhone = new Map();
   for (const r of smsResponses) byPhone.set(r.normalizedPhone, { ...r, source: 'sms' });
@@ -481,7 +587,7 @@ router.get('/admin/sms/responses', requireAdmin, requirePermission('orders'), wr
 }));
 
 // סימון ידני של תגובת לקוח (מגיע/לא מגיע) שלא הגיב ב-SMS בעצמו.
-router.put('/admin/customers/:phone/broadcast-response', requireAdmin, requirePermission('orders'), wrap(async (req, res) => {
+router.put('/admin/customers/:phone/broadcast-response', requireAdmin, requirePermission('incomingSms'), wrap(async (req, res) => {
   res.json(await setManualBroadcastResponse(req.params.phone, req.body?.answer, req.session.adminName || 'admin'));
 }));
 
@@ -565,6 +671,25 @@ router.get('/admin/orphaned-payments', requireAdmin, requirePermission('dashboar
 }));
 router.put('/admin/orphaned-payments/:orderId/acknowledge', requireAdmin, requirePermission('dashboard'), wrap(async (req, res) => {
   res.json(await acknowledgeOrphanedPayments(Number(req.params.orderId), req.session.adminName || 'admin'));
+}));
+
+// ---- סעודות שמחת תורה ----
+// הרשאה עצמאית משלה ('seudot'), לא מגובה על 'orders' — ראו admins.js.
+router.get('/admin/seudot', requireAdmin, requirePermission('seudot'), wrap(async (req, res) => {
+  res.json(await listSeudotRegistrations());
+}));
+router.get('/admin/seudot/settings', requireAdmin, requirePermission('seudot'), wrap(async (req, res) => {
+  const s = await getSettings();
+  res.json({ closeAt: s.seudotCloseAt, closedMessage: s.seudotClosedMessage, couponCode: s.seudotCouponCode });
+}));
+router.put('/admin/seudot/settings', requireAdmin, requirePermission('seudot'), wrap(async (req, res) => {
+  await setSettings({
+    seudot_close_at: req.body?.closeAt || '',
+    seudot_closed_message: req.body?.closedMessage || '',
+    seudot_coupon_code: req.body?.couponCode || '',
+  });
+  const s = await getSettings();
+  res.json({ closeAt: s.seudotCloseAt, closedMessage: s.seudotClosedMessage, couponCode: s.seudotCouponCode });
 }));
 
 // ---- איפוס קשיח ----

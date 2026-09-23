@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { pool } from '../db/pool.js';
 import { verifyWebhookSignature } from '../lib/nedarim.js';
 import { allocateNedarimPayment } from '../lib/payments.js';
+import { allocateSeudotPayment } from '../lib/seudot.js';
 
 const router = Router();
 
@@ -17,6 +18,18 @@ router.post('/nedarim-plus', async (req, res) => {
     await handleNedarimWebhook(req, res);
   } catch (err) {
     console.error('[nedarim webhook] unexpected error', err);
+    if (!res.headersSent) res.status(500).json({ error: 'unexpected_error' });
+  }
+});
+
+// נתיב נפרד מזה של הכפרות — נבחר ע"י ה-CallBack שנשלח לנדרים פלוס בזמן
+// יצירת העסקה (ראו startSeudotPayment ב-routes/api.js), כך שאין שום נגיעה
+// בזרימת הכפרות הקיימת (allocateNedarimPayment/payment_sessions/orders).
+router.post('/nedarim-plus-seudot', async (req, res) => {
+  try {
+    await handleSeudotWebhook(req, res);
+  } catch (err) {
+    console.error('[seudot webhook] unexpected error', err);
     if (!res.headersSent) res.status(500).json({ error: 'unexpected_error' });
   }
 });
@@ -89,6 +102,69 @@ async function handleNedarimWebhook(req, res) {
       JSON.stringify({ payload, allocations: result.allocations, reason: result.reason }),
       !!result.allocated,
     ]
+  );
+
+  res.status(200).json({ ok: true });
+}
+
+async function handleSeudotWebhook(req, res) {
+  const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
+  let payload = null;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    // ראו הערה מקבילה ב-handleNedarimWebhook — ייתכן עדכון בפורמט אחר, נרשם גולמי.
+  }
+
+  const secret = process.env.NEDARIM_WEBHOOK_SECRET;
+  const verification = verifyWebhookSignature({
+    timestampHeader: req.headers['x-nedarim-timestamp'],
+    signatureHeader: req.headers['x-nedarim-signature'],
+    rawBody,
+    secret,
+  });
+
+  const softMode = !secret;
+  if (!softMode && !verification.valid) {
+    await pool.query(
+      `INSERT INTO webhook_events(provider, transaction_id, raw_payload, processed_ok)
+       VALUES ('nedarim_plus_seudot', $1, $2, false)`,
+      [payload?.TransactionId || null, JSON.stringify({ payload, rejectedReason: verification.reason })]
+    );
+    return res.status(401).json({ error: 'signature_invalid' });
+  }
+  if (softMode) {
+    console.warn('[seudot webhook] מעבד ללא אימות חתימה — NEDARIM_WEBHOOK_SECRET לא מוגדר עדיין.');
+  }
+
+  const token = payload?.Param2;
+  const transactionId = payload?.TransactionId ? String(payload.TransactionId) : null;
+
+  if (!payload || !token) {
+    await pool.query(
+      `INSERT INTO webhook_events(provider, transaction_id, raw_payload, processed_ok)
+       VALUES ('nedarim_plus_seudot', $1, $2, false)`,
+      [transactionId, JSON.stringify({ payload })]
+    );
+    return res.status(200).json({ ok: true, processed: false });
+  }
+
+  let result;
+  try {
+    result = await allocateSeudotPayment({ token, transactionId });
+  } catch (err) {
+    await pool.query(
+      `INSERT INTO webhook_events(provider, transaction_id, raw_payload, processed_ok)
+       VALUES ('nedarim_plus_seudot', $1, $2, false)`,
+      [transactionId, JSON.stringify({ payload, error: err.message })]
+    );
+    return res.status(500).json({ error: 'processing_failed' });
+  }
+
+  await pool.query(
+    `INSERT INTO webhook_events(provider, transaction_id, raw_payload, processed_ok)
+     VALUES ('nedarim_plus_seudot', $1, $2, $3)`,
+    [transactionId, JSON.stringify({ payload, reason: result.reason }), !!result.allocated]
   );
 
   res.status(200).json({ ok: true });
