@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>רישום סעודות שמחת תורה תשפ"ז</title>
+<!-- תגי Open Graph מפורשים — כדי שתצוגה מקדימה של הקישור (למשל בהדבקה
+     בוואטסאפ) תציג רק מיתוג "סעודות שמחת תורה", ולא תיפול חזרה לשם
+     הדומיין הגולמי או לכל מיתוג אחר. -->
+<meta property="og:site_name" content="סעודות שמחת תורה">
+<meta property="og:title" content="רישום סעודות שמחת תורה תשפ&quot;ז">
+<meta property="og:description" content="בית הכנסת חב״ד מרכז העיר נוף הגליל">
+<meta property="og:type" content="website">
 <link rel="stylesheet" href="/shared.css">
 </head>
 <body>
@@ -29,21 +36,27 @@
     <input type="number" id="childrenInput" min="0" step="1" inputmode="numeric" placeholder="0">
     <label for="couponInput">קוד קופון (אם קיבלתם אחד מהמזכירות — אופציונלי)</label>
     <input type="text" id="couponInput" placeholder="קוד קופון">
+    <label for="zeoutInput">תעודת זהות (לא חובה — למי שמעוניין בקבלה)</label>
+    <input type="text" id="zeoutInput" inputmode="numeric" maxlength="9" placeholder="מספר תעודת זהות">
+    <label for="mailInput">אימייל (לא חובה)</label>
+    <input type="email" id="mailInput" placeholder="לקבלת אישור/קבלה במייל">
     <div class="total-row"><span>עלות הרשמה למשפחה</span><span id="amountDisplay"></span></div>
+    <p class="hint" style="margin:10px 0 0">ההרשמה תיחשב סופית רק אחרי השלמת התשלום.</p>
     <div class="spacer"></div>
-    <button class="primary" id="submitBtn">המשך לתשלום</button>
+    <button class="primary" id="submitBtn">תשלום</button>
     <div id="formError" class="error" style="display:none"></div>
   </div>
 
   <!--
     האייפרם קבוע ב-DOM (לא נבנה מחדש) מרגע שנטען פעם ראשונה — בדיוק כמו
     ב-index.html: רישום המאזין וטעינת ה-src חייבים לקרות פעם אחת בלבד
-    בחיי הדף, אחרת תוצאת עסקה עלולה להיות מטופלת פעמיים.
+    בחיי הדף, אחרת תוצאת עסקה עלולה להיות מטופלת פעמיים. payBtn מתחיל
+    מוסתר — בפתיחה רגילה עוברים ישר לחלון התשלום (openPaymentFrame),
+    הכפתור נחשף רק ל"נסה שוב" אחרי כישלון (showRetryButton).
   -->
   <div class="card" id="paymentCard" style="display:none">
     <h2>תשלום</h2>
-    <p class="hint">ההרשמה תיחשב סופית רק אחרי השלמת התשלום.</p>
-    <button class="primary" id="payBtn">פתח חלון תשלום</button>
+    <button class="primary" id="payBtn" style="display:none">נסה שוב</button>
     <div id="paymentFrameWrap" style="display:none;margin-top:16px">
       <iframe id="NedarimFrame" allow="payment" scrolling="no"
               style="width:100%;border:none;height:0"></iframe>
@@ -143,9 +156,21 @@ document.getElementById('submitBtn').onclick = async () => {
   const adultsCount = Number(document.getElementById('adultsInput').value || 0);
   const childrenCount = Number(document.getElementById('childrenInput').value || 0);
   const couponCode = document.getElementById('couponInput').value.trim();
+  const zeout = document.getElementById('zeoutInput').value.trim();
+  const mail = document.getElementById('mailInput').value.trim();
+  if (zeout && !/^\d{4,9}$/.test(zeout)) {
+    errorEl.textContent = 'מספר תעודת הזהות שהוזן אינו תקין (4-9 ספרות) — אפשר גם להשאיר ריק.';
+    errorEl.style.display = '';
+    return;
+  }
+  if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
+    errorEl.textContent = 'כתובת המייל אינה תקינה.';
+    errorEl.style.display = '';
+    return;
+  }
   btn.disabled = true; btn.textContent = 'שולח…';
   try {
-    const result = await api('/seudot/register', { method: 'POST', body: { fullName, adultsCount, childrenCount, couponCode } });
+    const result = await api('/seudot/register', { method: 'POST', body: { fullName, adultsCount, childrenCount, couponCode, zeout, mail } });
     currentToken = result.token;
     if (result.viaCoupon) {
       showSuccess();
@@ -154,11 +179,11 @@ document.getElementById('submitBtn').onclick = async () => {
     currentTransactionId = result.transactionId;
     document.getElementById('formCard').style.display = 'none';
     document.getElementById('paymentCard').style.display = '';
-    showPayButton(result.transactionId, result.key, 'פתח חלון תשלום');
+    openPaymentFrame(result.transactionId, result.key);
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.style.display = '';
-    btn.disabled = false; btn.textContent = 'המשך לתשלום';
+    btn.disabled = false; btn.textContent = 'תשלום';
   }
 };
 
@@ -168,15 +193,6 @@ function openPaymentFrame(transactionId, key) {
   document.getElementById('paymentError').style.display = 'none';
   // ButtonText מחליף את כפתור "תרומה" בתוך האייפרם בטקסט "תשלום X ₪".
   PostNedarim({ Name: 'StartPayment', Value: { TransactionId: transactionId, Key: key, ButtonText: 'תשלום' } });
-}
-
-/** מציג/מרענן את כפתור הפתיחה — משמש גם לניסיון הראשון וגם ל"נסה שוב" אחרי כישלון. */
-function showPayButton(transactionId, key, label) {
-  const btn = document.getElementById('payBtn');
-  btn.textContent = label;
-  btn.disabled = false;
-  btn.style.display = '';
-  btn.onclick = () => openPaymentFrame(transactionId, key);
 }
 
 /** "נסה שוב": מקים עסקת נדרים פלוס חדשה מול אותו token (לא רושם הרשמה כפולה), ואז פותח אותה. */
@@ -189,7 +205,9 @@ function showRetryButton() {
     btn.disabled = true;
     const errorEl = document.getElementById('paymentError');
     try {
-      const result = await api('/seudot/retry-payment', { method: 'POST', body: { token: currentToken } });
+      const zeout = document.getElementById('zeoutInput').value.trim();
+      const mail = document.getElementById('mailInput').value.trim();
+      const result = await api('/seudot/retry-payment', { method: 'POST', body: { token: currentToken, zeout, mail } });
       if (result.alreadyPaid) {
         showSuccess();
         return;

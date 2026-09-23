@@ -249,7 +249,7 @@ router.post('/session/end', (req, res) => {
 // גמורה. אותה תשתית נדרים פלוס (createTransaction/Webhook) אבל עם state
 // עצמאי משלה (seudot_registrations, לא orders/payment_sessions) — ראו lib/seudot.js.
 
-async function startSeudotPayment(registration) {
+async function startSeudotPayment(registration, { zeout, mail } = {}) {
   const [firstName, ...restName] = registration.fullName.split(' ').filter(Boolean);
   const lastName = restName.join(' ');
   return createTransaction({
@@ -258,6 +258,8 @@ async function startSeudotPayment(registration) {
     callbackUrl: `${publicBaseUrl()}/webhooks/nedarim-plus-seudot`,
     firstName,
     lastName,
+    zeout: zeout || undefined,
+    mail: mail || undefined,
     groupe: 'סעודות שמחת תורה',
   });
 }
@@ -275,6 +277,20 @@ function parseSeudotFields(body) {
     throw Object.assign(new Error('יש להזין לפחות נפש אחת.'), { status: 400 });
   }
   return { fullName, adultsCount, childrenCount };
+}
+
+// תעודת זהות/אימייל — אופציונליים, רק לצורך קבלה מול נדרים פלוס (לא נשמרים
+// בשורת ההרשמה עצמה, בדיוק כמו ב-payment/create-session של הכפרות).
+function parseOptionalReceiptFields(body) {
+  const zeout = String(body?.zeout || '').trim();
+  if (zeout && !/^\d{4,9}$/.test(zeout)) {
+    throw Object.assign(new Error('מספר תעודת הזהות שהוזן אינו תקין (4-9 ספרות) — אפשר גם להשאיר ריק.'), { status: 400 });
+  }
+  const mail = String(body?.mail || '').trim();
+  if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
+    throw Object.assign(new Error('כתובת המייל אינה תקינה.'), { status: 400 });
+  }
+  return { zeout, mail };
 }
 
 // הגדרות ציבוריות של הטופס (עד מתי פתוח, הודעת סגירה) — נקרא ע"י seudot.html
@@ -303,8 +319,9 @@ router.post('/seudot/register', wrap(async (req, res) => {
     return res.json({ viaCoupon: true, token: registration.token });
   }
 
+  const { zeout, mail } = parseOptionalReceiptFields(req.body);
   const registration = await createSeudotRegistration({ fullName, adultsCount, childrenCount });
-  const { transactionId, key } = await startSeudotPayment(registration);
+  const { transactionId, key } = await startSeudotPayment(registration, { zeout, mail });
   res.json({ transactionId, key, amount: SEUDOT_AMOUNT, token: registration.token });
 }));
 
@@ -314,7 +331,8 @@ router.post('/seudot/retry-payment', wrap(async (req, res) => {
   const registration = await getSeudotRegistrationByToken(String(req.body?.token || ''));
   if (!registration) return res.status(404).json({ error: 'ההרשמה לא נמצאה — נא למלא את הטופס מחדש.' });
   if (registration.status === 'paid') return res.json({ alreadyPaid: true });
-  const { transactionId, key } = await startSeudotPayment(registration);
+  const { zeout, mail } = parseOptionalReceiptFields(req.body);
+  const { transactionId, key } = await startSeudotPayment(registration, { zeout, mail });
   res.json({ transactionId, key, amount: SEUDOT_AMOUNT, token: registration.token });
 }));
 
