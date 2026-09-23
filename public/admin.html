@@ -822,7 +822,7 @@ async function renderSettingsCore() {
           <label>סיסמה (לפחות 6 תווים)</label>
           <input type="password" id="newAdminPassword">
           <label style="margin-top:12px"><input type="checkbox" id="newPermFullAccess" checked> הרשאות מלאות (גישה לכל הטאבים)</label>
-          <div class="perm-checks" id="newPermChecksWrap" hidden>
+          <div class="perm-checks" id="newPermChecksWrap" style="display:none">
             <label><input type="checkbox" id="newPermSettings" checked> הגדרות</label>
             <label><input type="checkbox" id="newPermOrders" checked> הזמנות ותשלומים</label>
             <label><input type="checkbox" id="newPermDashboard" checked> דשבורד</label>
@@ -911,7 +911,10 @@ async function renderSettingsCore() {
     card.hidden = !card.hidden;
   };
   document.getElementById('newPermFullAccess').onchange = (e) => {
-    document.getElementById('newPermChecksWrap').hidden = e.target.checked;
+    // style.display ולא hidden — .perm-checks{display:flex} (CSS של הדף, מקור
+    // "author") גובר על ברירת המחדל [hidden]{display:none} של הדפדפן (מקור
+    // "user agent"), אז hidden לבד לא באמת מסתיר אלמנט עם display מוגדר בקלאס.
+    document.getElementById('newPermChecksWrap').style.display = e.target.checked ? 'none' : 'flex';
     // מסמן חזותית את כל ההרשאות הפרטניות כמסומנות — כדי שהמצב שיישמר (כל
     // ההרשאות) יהיה עקבי גם אם המנהל יבטל את "הרשאות מלאות" אח"כ ויחזור לבחור ידנית.
     if (e.target.checked) {
@@ -983,7 +986,7 @@ async function renderAdminsList() {
         <label>סיסמה חדשה (השאירו ריק כדי לא לשנות)</label>
         <input type="password" data-field="password" data-id="${a.id}" placeholder="••••••">
         <label style="margin-top:12px"><input type="checkbox" data-full-access="${a.id}" ${Object.keys(PERM_LABELS).every((k) => a.permissions[k]) ? 'checked' : ''}> הרשאות מלאות (גישה לכל הטאבים)</label>
-        <div class="perm-checks" data-perm-wrap="${a.id}" ${Object.keys(PERM_LABELS).every((k) => a.permissions[k]) ? 'hidden' : ''}>
+        <div class="perm-checks" data-perm-wrap="${a.id}" style="display:${Object.keys(PERM_LABELS).every((k) => a.permissions[k]) ? 'none' : 'flex'}">
           <label><input type="checkbox" data-perm="settings" data-id="${a.id}" ${a.permissions.settings ? 'checked' : ''}> הגדרות</label>
           <label><input type="checkbox" data-perm="orders" data-id="${a.id}" ${a.permissions.orders ? 'checked' : ''}> הזמנות ותשלומים</label>
           <label><input type="checkbox" data-perm="dashboard" data-id="${a.id}" ${a.permissions.dashboard ? 'checked' : ''}> דשבורד</label>
@@ -1008,8 +1011,10 @@ async function renderAdminsList() {
   box.querySelectorAll('[data-full-access]').forEach((cb) => {
     cb.onchange = () => {
       const wrap = box.querySelector(`[data-perm-wrap="${cb.dataset.fullAccess}"]`);
-      wrap.hidden = cb.checked;
-      // ראו הערה מקבילה בטופס הוספת מנהל — עקביות חזותית עם מה שבפועל יישמר.
+      // style.display ולא hidden — ראו הערה מקבילה בטופס הוספת מנהל (.perm-checks
+      // עם display:flex בקלאס גובר על [hidden] של הדפדפן).
+      wrap.style.display = cb.checked ? 'none' : 'flex';
+      // עקביות חזותית עם מה שבפועל יישמר.
       if (cb.checked) {
         wrap.querySelectorAll('input[type=checkbox]').forEach((permCb) => { permCb.checked = true; });
       }
