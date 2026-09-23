@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import 'dotenv/config';
 import { pool } from './pool.js';
-import { reconcileRedemptionLog, reconcileOrphanedPayments } from '../lib/adminOps.js';
+import { reconcileRedemptionLog, reconcileOrphanedPayments, reconcileHistoricalOrphanRebalance } from '../lib/adminOps.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,6 +23,11 @@ async function main() {
   }
   if (unresolvedCount > 0) {
     console.log(`⚠️ ${unresolvedCount} הזמנות מחוקות עם תשלומים שלא ניתן היה להעביר (ללקוח אין אף הזמנה פעילה אחרת) — דורש בדיקה ידנית.`);
+  }
+
+  const { fixedCount: rebalancedCount } = await reconcileHistoricalOrphanRebalance();
+  if (rebalancedCount > 0) {
+    console.log(`✅ תשלומים יתומים היסטוריים אוזנו מחדש בין הזמנות פעילות (${rebalancedCount} מקרים), לפי אותו מפל הוגן.`);
   }
 
   await pool.end();

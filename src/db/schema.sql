@@ -199,6 +199,14 @@ ALTER TABLE payments ADD CONSTRAINT payments_amount_check CHECK (amount <> 0);
 -- בכל דיפלוי ואת השורה במסך "תשלומים תקועים" בדשבורד, בלי למחוק כלום.
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS orphan_acknowledged_at TIMESTAMPTZ;
 
+-- תשלום אחד (של לקוח, ידני-מנהל, או תשלום יתום שמפוצל מחדש) שמתפצל בין כמה
+-- הזמנות ב"מפל" מקבל כאן מזהה משותף, כדי שבפאנל הניהול יוצג כתשלום אחד עם
+-- פירוט הזמנות ולא כמה שורות נפרדות (ראו commitPaymentAllocations ב-adminOps.js
+-- ו-recordManualPaymentForCustomer ב-payments.js). תשלום נדרים פלוס שמתפצל כבר
+-- משותף דרך nedarim_transaction_id, ולא זקוק לעמודה הזו.
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_group_id UUID;
+CREATE INDEX IF NOT EXISTS idx_payments_group ON payments(payment_group_id) WHERE payment_group_id IS NOT NULL;
+
 -- כפתור "תשלום" באזור האישי יוצר כאן שורה אחת (עם token אקראי כ-Param2 מול
 -- נדרים פלוס), לפני קריאת CreateTransaction — כך שכשה-Webhook חוזר אנחנו
 -- יודעים בדיוק לאיזה טלפון ולאיזה סכום מבוקש הוא שייך, ומקצים אותו ל"מפל"

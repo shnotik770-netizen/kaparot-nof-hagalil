@@ -58,6 +58,7 @@ export async function listAllPayments() {
     id: p.id, orderId: p.order_id, orderNumber: p.order_number, orderSequence: p.order_sequence,
     customerName: p.customer_name, phone: p.phone,
     amount: Number(p.amount), method: p.method, recordedBy: p.recorded_by, note: p.note, createdAt: p.created_at,
+    nedarimTransactionId: p.nedarim_transaction_id, paymentGroupId: p.payment_group_id,
   }));
 }
 
@@ -99,12 +100,17 @@ export async function recordManualPaymentForCustomer(normalizedPhone, amount, me
       if (remaining <= 0) break;
       const take = Math.min(remaining, Number(order.balance_due));
       if (take <= 0) continue;
-      await client.query(
-        `INSERT INTO payments(order_id, amount, method, recorded_by, note) VALUES ($1,$2,$3,$4,$5)`,
-        [order.id, take, method, recordedBy, note || null]
-      );
       allocations.push({ orderId: order.id, amount: take });
       remaining -= take;
+    }
+    // תשלום אחד שמתפצל בין כמה הזמנות משותף למזהה קבוצה אחד — כדי שבפאנל
+    // הניהול יוצג כתשלום אחד, לא כמה, ראו payment_group_id בסכימה.
+    const groupId = allocations.length > 1 ? crypto.randomUUID() : null;
+    for (const a of allocations) {
+      await client.query(
+        `INSERT INTO payments(order_id, amount, method, recorded_by, note, payment_group_id) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [a.orderId, a.amount, method, recordedBy, note || null, groupId]
+      );
     }
     if (!allocations.length) {
       const err = new Error('אין יתרת חוב פתוחה ללקוח זה.');
@@ -262,6 +268,7 @@ export async function listPaymentsForOrder(orderId) {
   return rows.map((p) => ({
     id: p.id, amount: Number(p.amount), method: p.method, recordedBy: p.recorded_by,
     note: p.note, createdAt: p.created_at,
+    nedarimTransactionId: p.nedarim_transaction_id, paymentGroupId: p.payment_group_id,
   }));
 }
 

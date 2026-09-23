@@ -180,6 +180,33 @@ function esc(s) { return String(s ?? '').replace(/"/g, '&quot;'); }
 function escHtml(s) {
   return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+// תשלום אחד שהתפצל בין כמה הזמנות (נדרים פלוס עם יתרה על כמה הזמנות, תשלום
+// ידני-מנהל ברמת לקוח, או תשלום יתום שפוצל מחדש) מגיע מהשרת כמה שורות payments
+// נפרדות — מקובצות כאן חזרה לפי nedarimTransactionId/paymentGroupId, כדי
+// שיוצג למנהל כתשלום אחד עם פירוט הזמנות, ולא כמה תשלומים נפרדים. שורה
+// בודדת (בלי אף אחד מהשניים) היא קבוצה של פריט אחד.
+function groupPayments(payments) {
+  const groups = new Map();
+  const order = [];
+  for (const p of payments) {
+    const key = p.paymentGroupId || p.nedarimTransactionId || `single-${p.id}`;
+    if (!groups.has(key)) { groups.set(key, []); order.push(key); }
+    groups.get(key).push(p);
+  }
+  return order.map((key) => {
+    const items = groups.get(key).sort((a, b) => (a.orderSequence || 0) - (b.orderSequence || 0));
+    return {
+      key,
+      items,
+      isGroup: items.length > 1,
+      totalAmount: items.reduce((s, p) => s + p.amount, 0),
+      method: items[0].method,
+      note: items[0].note,
+      recordedBy: items[0].recordedBy,
+      createdAt: items.reduce((min, p) => (p.createdAt < min ? p.createdAt : min), items[0].createdAt),
+    };
+  }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
 // חיפוש "חכם" לפי שם — לא תלוי בסדר המילים (חיפוש "סגל יוסף" ימצא גם
 // לקוח בשם "יוסף סגל"). כל מילה בשאילתה חייבת להיות תת-מחרוזת של איזושהי
 // מילה בשם הלקוח, בלי קשר לסדר; ריק תמיד "מתאים".
@@ -1650,13 +1677,15 @@ function wireCustomerViewPanel(panel) {
 async function loadCustomerViewPayments(c) {
   const box = document.getElementById(`${panelSafeId(c.phone)}-viewpayments`);
   if (!box) return;
-  const allPayments = (await Promise.all(c.orders.map((o) => api(`/admin/orders/${o.id}/payments`)))).flat();
-  allPayments.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  box.innerHTML = allPayments.length
-    ? allPayments.map((p) => `
+  const allPayments = (await Promise.all(c.orders.map((o) =>
+    api(`/admin/orders/${o.id}/payments`).then((rows) => rows.map((p) => ({ ...p, orderSequence: o.orderSequence })))
+  ))).flat();
+  const groups = groupPayments(allPayments);
+  box.innerHTML = groups.length
+    ? groups.map((g) => `
         <div class="item-row">
-          <span>${money(p.amount)} · ${METHOD_LABEL[p.method] || p.method}${p.note ? ` · ${esc(p.note)}` : ''}</span>
-          <span class="meta">${new Date(p.createdAt).toLocaleString('he-IL')} · ע"י ${esc(p.recordedBy)}</span>
+          <span>${money(g.totalAmount)} · ${METHOD_LABEL[g.method] || g.method}${g.note ? ` · ${esc(g.note)}` : ''}${g.isGroup ? ` · מכסה ${g.items.length} הזמנות (${g.items.map((p) => `הזמנה ${p.orderSequence}: ${money(p.amount)}`).join(', ')})` : ''}</span>
+          <span class="meta">${new Date(g.createdAt).toLocaleString('he-IL')} · ע"י ${esc(g.recordedBy)}</span>
         </div>
       `).join('')
     : `<p class="hint">אין עדיין תשלומים.</p>`;
@@ -1816,28 +1845,55 @@ async function wireCustomerPaymentsPanel(c) {
   }
 
   const paymentsBox = document.getElementById(`${pid}-paylist`);
-  const allPayments = (await Promise.all(c.orders.map((o) => api(`/admin/orders/${o.id}/payments`)))).flat();
-  allPayments.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const allPayments = (await Promise.all(c.orders.map((o) =>
+    api(`/admin/orders/${o.id}/payments`).then((rows) => rows.map((p) => ({ ...p, orderSequence: o.orderSequence })))
+  ))).flat();
   // עריכה/מחיקה זמינות רק לתשלומים שהוזנו ידנית (manual_*) — תשלומי נדרים
-  // פלוס האמיתיים מוצגים לצפייה בלבד (ומעל זה חסומים גם בשרת).
-  paymentsBox.innerHTML = allPayments.length
-    ? allPayments.map((p) => {
-        const isManual = p.method.startsWith('manual_');
+  // פלוס האמיתיים מוצגים לצפייה בלבד (ומעל זה חסומים גם בשרת). תשלום שהתפצל
+  // בין כמה הזמנות (ראו groupPayments) מוצג כשורה אחת עם סכום כולל, ורק
+  // בלחיצה על "פירוט" נפתחת הרשימה הפנימית לעריכה/מחיקה של כל שורה בנפרד.
+  const groups = groupPayments(allPayments);
+  paymentsBox.innerHTML = groups.length
+    ? groups.map((g) => {
+        const amountHtml = (p) => p.amount < 0 ? `<span style="color:var(--sage);font-weight:700">זיכוי ${money(-p.amount)}</span>` : money(p.amount);
+        const itemRow = (p, nested) => {
+          const isManual = p.method.startsWith('manual_');
+          return `
+            <div class="item-row" ${nested ? 'style="padding-right:16px"' : ''}>
+              <span>${nested ? `הזמנה ${p.orderSequence}: ` : ''}${amountHtml(p)}${nested && p.note ? ` · ${esc(p.note)}` : ''}</span>
+              <span class="meta" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                ${nested ? `<span>${new Date(p.createdAt).toLocaleString('he-IL')} · ע"י ${esc(p.recordedBy)}</span>` : ''}
+                ${isManual ? `
+                  <button type="button" class="ghost" data-pay-edit="${p.id}">עריכה</button>
+                  <button type="button" class="ghost" data-pay-del="${p.id}" style="color:var(--wine)">מחיקה</button>
+                ` : ''}
+              </span>
+            </div>
+            ${isManual ? `<div id="${pid}-payedit-${p.id}" hidden style="padding:8px 0 4px;border-top:1px dashed var(--line)"></div>` : ''}
+          `;
+        };
+        if (!g.isGroup) return itemRow(g.items[0], false);
         return `
           <div class="item-row">
-            <span>${p.amount < 0 ? `<span style="color:var(--sage);font-weight:700">זיכוי ${money(-p.amount)}</span>` : money(p.amount)} · ${METHOD_LABEL[p.method] || p.method}${p.note ? ` · ${esc(p.note)}` : ''}</span>
+            <span>${money(g.totalAmount)} · ${METHOD_LABEL[g.method] || g.method}${g.note ? ` · ${esc(g.note)}` : ''} · מכסה ${g.items.length} הזמנות</span>
             <span class="meta" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <span>${new Date(p.createdAt).toLocaleString('he-IL')} · ע"י ${esc(p.recordedBy)}</span>
-              ${isManual ? `
-                <button type="button" class="ghost" data-pay-edit="${p.id}">עריכה</button>
-                <button type="button" class="ghost" data-pay-del="${p.id}" style="color:var(--wine)">מחיקה</button>
-              ` : ''}
+              <span>${new Date(g.createdAt).toLocaleString('he-IL')} · ע"י ${esc(g.recordedBy)}</span>
+              <button type="button" class="ghost" data-paygroup-toggle="${esc(g.key)}">פירוט</button>
             </span>
           </div>
-          ${isManual ? `<div id="${pid}-payedit-${p.id}" hidden style="padding:8px 0 4px;border-top:1px dashed var(--line)"></div>` : ''}
+          <div id="${pid}-paygroup-${esc(g.key)}" hidden style="padding:0 0 4px;border-top:1px dashed var(--line)">
+            ${g.items.map((p) => itemRow(p, true)).join('')}
+          </div>
         `;
       }).join('')
     : `<p class="hint">אין עדיין תשלומים.</p>`;
+
+  paymentsBox.querySelectorAll('[data-paygroup-toggle]').forEach((b) => {
+    b.onclick = () => {
+      const detailBox = document.getElementById(`${pid}-paygroup-${b.dataset.paygroupToggle}`);
+      detailBox.hidden = !detailBox.hidden;
+    };
+  });
 
   paymentsBox.querySelectorAll('[data-pay-edit]').forEach((b) => {
     const p = allPayments.find((x) => x.id === Number(b.dataset.payEdit));

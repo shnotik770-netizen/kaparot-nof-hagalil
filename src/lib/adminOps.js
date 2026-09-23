@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { pool, withTransaction } from '../db/pool.js';
 import { logAction } from './actionLog.js';
 import { normalizePhone } from './normalize.js';
@@ -249,9 +250,86 @@ export async function updateOrderItemQuantity(orderId, itemId, newQuantity, admi
  * על הזמנה אחת שרירותית ומשאיר הזמנה אחות בלי שום זיכוי על תשלום
  * שבפועל כן כיסה גם אותה.
  */
+// עוזר משותף (גם ל-reassignOrphanedPayments וגם ל-reconcileHistoricalOrphanRebalance
+// למטה): מקבל שורות תשלום ורשימת הזמנות-מועמדות עם balance_due, ומחזיר הקצאות
+// { payment, orderId, amount } לפי אותו "מפל" — הישנה עם חוב פתוח קודם, כמו
+// allocateAcrossOpenOrders ב-payments.js. שורות עם סכום שלילי (זיכוי/תיקון ידני)
+// אין להן "קיבולת חוב" למלא באותו מובן, ומועברות שלמות ובלי פיצול ל-preferredTargetId.
+function cascadeAllocatePayments(payments, candidates, preferredTargetId) {
+  const openQueue = candidates
+    .filter((c) => Number(c.balance_due) > 0)
+    .sort((a, b) => a.order_sequence - b.order_sequence);
+
+  const allocations = [];
+  let queueIdx = 0;
+  let remainingCapacity = openQueue.length ? Number(openQueue[0].balance_due) : 0;
+  for (const payment of payments) {
+    let remainingAmount = Number(payment.amount);
+    if (remainingAmount <= 0) {
+      allocations.push({ payment, orderId: preferredTargetId, amount: remainingAmount });
+      continue;
+    }
+    while (remainingAmount > 0 && queueIdx < openQueue.length) {
+      if (remainingCapacity <= 0) {
+        queueIdx += 1;
+        remainingCapacity = queueIdx < openQueue.length ? Number(openQueue[queueIdx].balance_due) : 0;
+        continue;
+      }
+      const take = Math.min(remainingAmount, remainingCapacity);
+      allocations.push({ payment, orderId: openQueue[queueIdx].id, amount: take });
+      remainingAmount -= take;
+      remainingCapacity -= take;
+    }
+    if (remainingAmount > 0) {
+      allocations.push({ payment, orderId: preferredTargetId, amount: remainingAmount });
+    }
+  }
+  return allocations;
+}
+
+// עוזר משותף: מבצע בפועל הקצאות שחושבו ע"י cascadeAllocatePayments. אם שורת
+// תשלום מקור התחלקה בין כמה הזמנות, ההקצאה הראשונה שלה "יורשת" את השורה
+// הקיימת (מעדכנים order_id+amount), וכל הקצאה נוספת מאותה שורה נוצרת כשורת
+// תשלום חדשה (מעתיקה method/recorded_by/note/created_at מהמקור) — כדי לשמר
+// את הסכום הכולל בדיוק ואת שיוך כל שקל להזמנה הנכונה. תשלום שהתפצל בין כמה
+// הזמנות מקבל payment_group_id משותף לכל השורות שנוצרו ממנו (כדי שיוצג
+// כתשלום אחד בפאנל הניהול, ראו payment_group_id בסכימה) — חוץ מתשלום נדרים
+// פלוס, שכבר משותף דרך nedarim_transaction_id ולא זקוק לזה. אם השורה המקורית
+// כבר הייתה חלק מקבוצה (payment_group_id לא ריק), משמרים את אותו מזהה כדי
+// להישאר מאוחדים עם אחיות שלא הושפעו מהריצה הזו.
+async function commitPaymentAllocations(client, allocations) {
+  const allocsByPaymentId = new Map();
+  for (const a of allocations) {
+    if (!allocsByPaymentId.has(a.payment.id)) allocsByPaymentId.set(a.payment.id, []);
+    allocsByPaymentId.get(a.payment.id).push(a);
+  }
+  const groupIdByPaymentId = new Map();
+  for (const [paymentId, allocs] of allocsByPaymentId) {
+    const existingGroupId = allocs[0].payment.payment_group_id || null;
+    const needsGroup = allocs.length > 1 && !allocs[0].payment.nedarim_transaction_id;
+    groupIdByPaymentId.set(paymentId, existingGroupId || (needsGroup ? crypto.randomUUID() : null));
+  }
+
+  const seenPaymentIds = new Set();
+  for (const alloc of allocations) {
+    const groupId = groupIdByPaymentId.get(alloc.payment.id);
+    if (!seenPaymentIds.has(alloc.payment.id)) {
+      seenPaymentIds.add(alloc.payment.id);
+      await client.query(`UPDATE payments SET order_id = $1, amount = $2, payment_group_id = $3 WHERE id = $4`, [alloc.orderId, alloc.amount, groupId, alloc.payment.id]);
+    } else {
+      await client.query(
+        `INSERT INTO payments(order_id, amount, method, recorded_by, note, nedarim_transaction_id, created_at, payment_group_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [alloc.orderId, alloc.amount, alloc.payment.method, alloc.payment.recorded_by, alloc.payment.note, alloc.payment.nedarim_transaction_id, alloc.payment.created_at, groupId]
+      );
+    }
+  }
+  return [...new Set(allocations.map((a) => a.orderId))];
+}
+
 async function reassignOrphanedPayments(client, orderId, normalizedPhone, adminName) {
   const { rows: payments } = await client.query(
-    `SELECT id, amount, method, recorded_by, note, nedarim_transaction_id, created_at
+    `SELECT id, amount, method, recorded_by, note, nedarim_transaction_id, created_at, payment_group_id
        FROM payments WHERE order_id = $1 ORDER BY id ASC`,
     [orderId]
   );
@@ -280,60 +358,9 @@ async function reassignOrphanedPayments(client, orderId, normalizedPhone, adminN
   }
 
   const preferredTargetId = candidates[0].id; // עודף תשלום גרידא (בלי עוד חוב לכסות) הולך לכאן, כמו קודם
-  const openQueue = candidates
-    .filter((c) => Number(c.balance_due) > 0)
-    .sort((a, b) => a.order_sequence - b.order_sequence); // הישנה קודם, כמו allocateAcrossOpenOrders
+  const allocations = cascadeAllocatePayments(payments, candidates, preferredTargetId);
+  const targetOrderIds = await commitPaymentAllocations(client, allocations);
 
-  // בונים רשימת הקצאות { paymentId, orderId, amount } — כל שורת תשלום יתומה
-  // עשויה להתפצל בין כמה הזמנות יעד אם לא נכנסת שלמה באחת. המפל חל רק על
-  // שורות עם סכום חיובי (תשלומים רגילים) — שורות עם סכום שלילי (זיכוי/תיקון
-  // ידני) אין להן "קיבולת חוב" למלא באותו מובן, ומועברות שלמות ובלי פיצול
-  // להזמנה המועדפת, בדיוק כמו בהתנהגות הקודמת.
-  const allocations = [];
-  let queueIdx = 0;
-  let remainingCapacity = openQueue.length ? Number(openQueue[0].balance_due) : 0;
-  for (const payment of payments) {
-    let remainingAmount = Number(payment.amount);
-    if (remainingAmount <= 0) {
-      allocations.push({ payment, orderId: preferredTargetId, amount: remainingAmount });
-      continue;
-    }
-    while (remainingAmount > 0 && queueIdx < openQueue.length) {
-      if (remainingCapacity <= 0) {
-        queueIdx += 1;
-        remainingCapacity = queueIdx < openQueue.length ? Number(openQueue[queueIdx].balance_due) : 0;
-        continue;
-      }
-      const take = Math.min(remainingAmount, remainingCapacity);
-      allocations.push({ payment, orderId: openQueue[queueIdx].id, amount: take });
-      remainingAmount -= take;
-      remainingCapacity -= take;
-    }
-    if (remainingAmount > 0) {
-      allocations.push({ payment, orderId: preferredTargetId, amount: remainingAmount });
-    }
-  }
-
-  // כל הקצאה מבצעת: אם שורת התשלום המקורית התחלקה בין כמה הזמנות, ההקצאה
-  // הראשונה שלה "יורשת" את השורה הקיימת (מעדכנים order_id+amount), וכל
-  // הקצאה נוספת מאותה שורה נוצרת כשורת תשלום חדשה (מעתיקה method/recorded_by/
-  // note/nedarim_transaction_id/created_at מהמקור) — כדי לשמר את הסכום הכולל
-  // בדיוק ואת שיוך כל שקל להזמנה הנכונה.
-  const seenPaymentIds = new Set();
-  for (const alloc of allocations) {
-    if (!seenPaymentIds.has(alloc.payment.id)) {
-      seenPaymentIds.add(alloc.payment.id);
-      await client.query(`UPDATE payments SET order_id = $1, amount = $2 WHERE id = $3`, [alloc.orderId, alloc.amount, alloc.payment.id]);
-    } else {
-      await client.query(
-        `INSERT INTO payments(order_id, amount, method, recorded_by, note, nedarim_transaction_id, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [alloc.orderId, alloc.amount, alloc.payment.method, alloc.payment.recorded_by, alloc.payment.note, alloc.payment.nedarim_transaction_id, alloc.payment.created_at]
-      );
-    }
-  }
-
-  const targetOrderIds = [...new Set(allocations.map((a) => a.orderId))];
   await logAction('payments_reassigned_from_deleted_order', {
     fromOrderId: orderId, toOrderIds: targetOrderIds, paymentIds: payments.map((p) => p.id), totalAmount, adminName,
     allocations: allocations.map((a) => ({ orderId: a.orderId, amount: a.amount })),
@@ -421,6 +448,90 @@ export async function reconcileOrphanedPayments() {
     else if (result.reason === 'no_active_orders') unresolvedCount++;
   }
   return { fixedCount, unresolvedCount };
+}
+
+/**
+ * ניקוי חד-פעמי (בטוח להרצה חוזרת, רץ אוטומטית בכל דיפלוי) למקרים היסטוריים
+ * מלפני שהמפל ההוגן נכתב ב-reassignOrphanedPayments: כשהתיקון הישן היה
+ * "הכל להזמנה אחת שרירותית" (details.toOrderId יחיד ביומן הפעולות, לא
+ * toOrderIds — מערך, הפורמט החדש), מאתר את השורות המקוריות ומריץ עליהן
+ * מחדש את אותו מפל הוגן לפי מצב היתרות *הנוכחי*. אם היעד המקורי כבר לא
+ * פעיל, או שהשורות כבר זזו/נמחקו/טופלו בינתיים (למשל ע"י מחיקת הזמנה
+ * מאוחרת יותר שכבר עברה דרך הקוד המתוקן) — מדלג, לא נוגע בכלום.
+ */
+export async function reconcileHistoricalOrphanRebalance() {
+  const { rows: oldEvents } = await pool.query(
+    `SELECT id, details FROM admin_actions
+      WHERE action_type = 'payments_reassigned_from_deleted_order' AND details ? 'toOrderId'
+      ORDER BY created_at ASC`
+  );
+  let fixedCount = 0;
+  let skippedCount = 0;
+  for (const event of oldEvents) {
+    const { rows: already } = await pool.query(
+      `SELECT 1 FROM admin_actions
+        WHERE action_type = 'orphan_reassignment_rebalanced' AND (details->>'sourceLogId')::int = $1`,
+      [event.id]
+    );
+    if (already.length) continue;
+
+    const toOrderId = Number(event.details.toOrderId);
+    const paymentIds = Array.isArray(event.details.paymentIds) ? event.details.paymentIds.map(Number) : [];
+    if (!toOrderId || !paymentIds.length) { skippedCount++; continue; }
+
+    const result = await withTransaction((client) => rebalanceHistoricalPayments(client, toOrderId, paymentIds, event.id, 'system_reconcile'));
+    if (result.rebalanced) fixedCount++;
+    else skippedCount++;
+  }
+  return { fixedCount, skippedCount };
+}
+
+/** עוזר של reconcileHistoricalOrphanRebalance — ראו שם. */
+async function rebalanceHistoricalPayments(client, currentOrderId, paymentIds, sourceLogId, adminName) {
+  const { rows: orderRow } = await client.query(
+    `SELECT normalized_phone FROM orders WHERE id = $1 AND NOT is_deleted FOR UPDATE`,
+    [currentOrderId]
+  );
+  if (!orderRow.length) return { rebalanced: false, reason: 'target_order_missing_or_deleted' };
+  const normalizedPhone = orderRow[0].normalized_phone;
+
+  // רק שורות שעדיין באמת יושבות על ההזמנה הזו — אם כבר זזו/נמחקו/נערכו
+  // ידנית בינתיים, מדלגים על מה שאין (אידמפוטנטי מול תיקונים מאוחרים יותר).
+  const { rows: payments } = await client.query(
+    `SELECT id, amount, method, recorded_by, note, nedarim_transaction_id, created_at, payment_group_id
+       FROM payments WHERE id = ANY($1::int[]) AND order_id = $2 FOR UPDATE`,
+    [paymentIds, currentOrderId]
+  );
+  if (!payments.length) return { rebalanced: false, reason: 'payments_moved_or_missing' };
+
+  const { rows: candidates } = await client.query(
+    `SELECT o.id, o.order_sequence, b.balance_due
+       FROM orders o JOIN order_balances b ON b.order_id = o.id
+      WHERE o.normalized_phone = $1 AND NOT o.is_deleted
+      ORDER BY (b.balance_due > 0) DESC, o.order_sequence DESC
+      FOR UPDATE OF o`,
+    [normalizedPhone]
+  );
+  // preferredTargetId = ההזמנה שכבר קיבלה הכל בעבר (currentOrderId) — עודף
+  // תשלום גרידא (אחרי שכל אחיה עם חוב פתוח קיבלה את חלקה) ממשיך לנחות שם,
+  // בדיוק כמו בהתנהגות הרגילה של reassignOrphanedPayments.
+  const preferredTargetId = currentOrderId;
+  const allocations = cascadeAllocatePayments(payments, candidates, preferredTargetId);
+  const changed = allocations.some((a) => a.orderId !== currentOrderId || a.amount !== Number(a.payment.amount));
+
+  if (!changed) {
+    await logAction('orphan_reassignment_rebalanced', {
+      sourceLogId, orderId: currentOrderId, paymentIds, changed: false, adminName,
+    }, client);
+    return { rebalanced: true, changed: false };
+  }
+
+  const targetOrderIds = await commitPaymentAllocations(client, allocations);
+  await logAction('orphan_reassignment_rebalanced', {
+    sourceLogId, fromOrderId: currentOrderId, toOrderIds: targetOrderIds, paymentIds,
+    allocations: allocations.map((a) => ({ orderId: a.orderId, amount: a.amount })), changed: true, adminName,
+  }, client);
+  return { rebalanced: true, changed: true };
 }
 
 /**
