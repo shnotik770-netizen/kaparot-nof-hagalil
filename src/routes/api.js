@@ -5,7 +5,7 @@ import { requestOtp, verifyOtp } from '../lib/otp.js';
 import {
   loginWithPassword, requestAdminOtp, verifyAdminOtp, requireAdmin, requirePermission, requireAnyPermission,
 } from '../lib/auth.js';
-import { listAdmins, createAdmin, updateAdmin, deleteAdmin } from '../lib/admins.js';
+import { listAdmins, createAdmin, updateAdmin, deleteAdmin, getAdminById } from '../lib/admins.js';
 import {
   getOpenSlotsForRegistration, getAllSlots, createSlot, updateSlot, deleteSlot, suggestDayLabel,
 } from '../lib/slots.js';
@@ -388,10 +388,22 @@ router.post('/admin/logout', (req, res) => {
   res.json({ success: true });
 });
 
-router.get('/admin/session', (req, res) => {
+// מרענן הרשאות מה-DB בכל טעינה (לא סומך על מה שנשמר ב-session בזמן הכניסה) —
+// אחרת מנהל שכבר מחובר לא יראה טאב חדש שנוסף לו (למשל 'שמחת תורה') עד
+// שיתנתק ויתחבר מחדש. adminId ריק = מנהל-בוטסטרפ הזמני (ראו auth.js), שאין
+// לו שורה ב-admins בכלל — ממשיכים להשתמש בהרשאות שנשמרו לו ב-session.
+router.get('/admin/session', wrap(async (req, res) => {
   if (!req.session?.isAdmin) return res.json({ isAdmin: false });
-  res.json({ isAdmin: true, name: req.session.adminName, permissions: req.session.adminPermissions });
-});
+  let permissions = req.session.adminPermissions;
+  if (req.session.adminId) {
+    const admin = await getAdminById(req.session.adminId);
+    if (admin) {
+      permissions = admin.permissions;
+      req.session.adminPermissions = permissions;
+    }
+  }
+  res.json({ isAdmin: true, name: req.session.adminName, permissions });
+}));
 
 router.get('/admin/settings', requireAdmin, requirePermission('settings'), wrap(async (req, res) => {
   res.json(await getSettings());

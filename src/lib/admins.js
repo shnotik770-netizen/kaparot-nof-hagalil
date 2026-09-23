@@ -35,6 +35,11 @@ export async function listAdmins() {
   return rows.map(rowToAdmin);
 }
 
+export async function getAdminById(id) {
+  const { rows } = await query(`SELECT * FROM admins WHERE id = $1`, [id]);
+  return rows.length ? rowToAdmin(rows[0]) : null;
+}
+
 export async function getAdminByPhone(phone) {
   const normalized = normalizePhone(phone);
   const { rows } = await query(`SELECT * FROM admins WHERE normalized_phone = $1`, [normalized]);

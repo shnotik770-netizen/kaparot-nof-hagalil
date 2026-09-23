@@ -912,6 +912,11 @@ async function renderSettingsCore() {
   };
   document.getElementById('newPermFullAccess').onchange = (e) => {
     document.getElementById('newPermChecksWrap').hidden = e.target.checked;
+    // מסמן חזותית את כל ההרשאות הפרטניות כמסומנות — כדי שהמצב שיישמר (כל
+    // ההרשאות) יהיה עקבי גם אם המנהל יבטל את "הרשאות מלאות" אח"כ ויחזור לבחור ידנית.
+    if (e.target.checked) {
+      document.querySelectorAll('#newPermChecksWrap input[type=checkbox]').forEach((cb) => { cb.checked = true; });
+    }
   };
   document.getElementById('addAdmin').onclick = async () => {
     try {
@@ -1002,7 +1007,12 @@ async function renderAdminsList() {
   });
   box.querySelectorAll('[data-full-access]').forEach((cb) => {
     cb.onchange = () => {
-      box.querySelector(`[data-perm-wrap="${cb.dataset.fullAccess}"]`).hidden = cb.checked;
+      const wrap = box.querySelector(`[data-perm-wrap="${cb.dataset.fullAccess}"]`);
+      wrap.hidden = cb.checked;
+      // ראו הערה מקבילה בטופס הוספת מנהל — עקביות חזותית עם מה שבפועל יישמר.
+      if (cb.checked) {
+        wrap.querySelectorAll('input[type=checkbox]').forEach((permCb) => { permCb.checked = true; });
+      }
     };
   });
   box.querySelectorAll('[data-save-admin]').forEach((b) => {
