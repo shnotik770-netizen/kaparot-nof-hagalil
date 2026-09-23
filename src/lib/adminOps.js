@@ -236,18 +236,30 @@ export async function updateOrderItemQuantity(orderId, itemId, newQuantity, admi
  * נרשם נגדה נשאר טכנית קיים (payments.order_id הוא NOT NULL FK, אי אפשר
  * "לרחף") אבל order_balances/listAllOrders מסננים out o.is_deleted — כלומר
  * הכסף שכבר שולם בפועל נעלם מהיתרה/סטטוס של הלקוח, והוא מוצג כ"לא שולם"
- * למרות ששילם. הפונקציה הזו מעבירה תשלומים כאלה להזמנה פעילה אחרת של
- * אותו לקוח (מעדיפה אחת עם יתרת חוב, אחרת החדשה ביותר) כדי שהכסף ימשיך
- * להיספר. נקראת גם מנקודות המחיקה החיות וגם מ-reconcileOrphanedPayments
+ * למרות ששילם. הפונקציה הזו מעבירה תשלומים כאלה להזמנות פעילות אחרות של
+ * אותו לקוח, נקראת גם מנקודות המחיקה החיות וגם מ-reconcileOrphanedPayments
  * (ניקוי חד-פעמי למקרים היסטוריים מלפני התיקון הזה).
+ *
+ * מפל בין הזמנות (לא "הכל להזמנה אחת"!): אם ללקוח כמה הזמנות פעילות עם
+ * חוב פתוח (למשל הזמנה שנמחקה פוצלה ידנית לכמה הזמנות חדשות), הסכום
+ * היתום מתחלק ביניהן לפי מי שעדיין חייב — הישנה קודם, בדיוק כמו תשלום
+ * רגיל (ראו allocateAcrossOpenOrders ב-payments.js). רק שארית שכבר אין
+ * לה חוב לכסות (עודף תשלום גרידא) הולכת כולה להזמנה המועדפת (עם חוב
+ * פתוח אם יש, אחרת החדשה ביותר) — בדיוק כמו קודם. בלי זה, הכל היה נוחת
+ * על הזמנה אחת שרירותית ומשאיר הזמנה אחות בלי שום זיכוי על תשלום
+ * שבפועל כן כיסה גם אותה.
  */
 async function reassignOrphanedPayments(client, orderId, normalizedPhone, adminName) {
-  const { rows: payments } = await client.query(`SELECT id, amount FROM payments WHERE order_id = $1`, [orderId]);
+  const { rows: payments } = await client.query(
+    `SELECT id, amount, method, recorded_by, note, nedarim_transaction_id, created_at
+       FROM payments WHERE order_id = $1 ORDER BY id ASC`,
+    [orderId]
+  );
   if (!payments.length) return { moved: false };
   const totalAmount = payments.reduce((s, p) => s + Number(p.amount), 0);
 
   const { rows: candidates } = await client.query(
-    `SELECT o.id
+    `SELECT o.id, o.order_sequence, b.balance_due
        FROM orders o
        JOIN order_balances b ON b.order_id = o.id
       WHERE o.normalized_phone = $1 AND o.id <> $2 AND NOT o.is_deleted
@@ -266,12 +278,67 @@ async function reassignOrphanedPayments(client, orderId, normalizedPhone, adminN
     }, client);
     return { moved: false, reason: 'no_active_orders', orphanedAmount: totalAmount };
   }
-  const targetOrderId = candidates[0].id;
-  await client.query(`UPDATE payments SET order_id = $1 WHERE order_id = $2`, [targetOrderId, orderId]);
+
+  const preferredTargetId = candidates[0].id; // עודף תשלום גרידא (בלי עוד חוב לכסות) הולך לכאן, כמו קודם
+  const openQueue = candidates
+    .filter((c) => Number(c.balance_due) > 0)
+    .sort((a, b) => a.order_sequence - b.order_sequence); // הישנה קודם, כמו allocateAcrossOpenOrders
+
+  // בונים רשימת הקצאות { paymentId, orderId, amount } — כל שורת תשלום יתומה
+  // עשויה להתפצל בין כמה הזמנות יעד אם לא נכנסת שלמה באחת. המפל חל רק על
+  // שורות עם סכום חיובי (תשלומים רגילים) — שורות עם סכום שלילי (זיכוי/תיקון
+  // ידני) אין להן "קיבולת חוב" למלא באותו מובן, ומועברות שלמות ובלי פיצול
+  // להזמנה המועדפת, בדיוק כמו בהתנהגות הקודמת.
+  const allocations = [];
+  let queueIdx = 0;
+  let remainingCapacity = openQueue.length ? Number(openQueue[0].balance_due) : 0;
+  for (const payment of payments) {
+    let remainingAmount = Number(payment.amount);
+    if (remainingAmount <= 0) {
+      allocations.push({ payment, orderId: preferredTargetId, amount: remainingAmount });
+      continue;
+    }
+    while (remainingAmount > 0 && queueIdx < openQueue.length) {
+      if (remainingCapacity <= 0) {
+        queueIdx += 1;
+        remainingCapacity = queueIdx < openQueue.length ? Number(openQueue[queueIdx].balance_due) : 0;
+        continue;
+      }
+      const take = Math.min(remainingAmount, remainingCapacity);
+      allocations.push({ payment, orderId: openQueue[queueIdx].id, amount: take });
+      remainingAmount -= take;
+      remainingCapacity -= take;
+    }
+    if (remainingAmount > 0) {
+      allocations.push({ payment, orderId: preferredTargetId, amount: remainingAmount });
+    }
+  }
+
+  // כל הקצאה מבצעת: אם שורת התשלום המקורית התחלקה בין כמה הזמנות, ההקצאה
+  // הראשונה שלה "יורשת" את השורה הקיימת (מעדכנים order_id+amount), וכל
+  // הקצאה נוספת מאותה שורה נוצרת כשורת תשלום חדשה (מעתיקה method/recorded_by/
+  // note/nedarim_transaction_id/created_at מהמקור) — כדי לשמר את הסכום הכולל
+  // בדיוק ואת שיוך כל שקל להזמנה הנכונה.
+  const seenPaymentIds = new Set();
+  for (const alloc of allocations) {
+    if (!seenPaymentIds.has(alloc.payment.id)) {
+      seenPaymentIds.add(alloc.payment.id);
+      await client.query(`UPDATE payments SET order_id = $1, amount = $2 WHERE id = $3`, [alloc.orderId, alloc.amount, alloc.payment.id]);
+    } else {
+      await client.query(
+        `INSERT INTO payments(order_id, amount, method, recorded_by, note, nedarim_transaction_id, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [alloc.orderId, alloc.amount, alloc.payment.method, alloc.payment.recorded_by, alloc.payment.note, alloc.payment.nedarim_transaction_id, alloc.payment.created_at]
+      );
+    }
+  }
+
+  const targetOrderIds = [...new Set(allocations.map((a) => a.orderId))];
   await logAction('payments_reassigned_from_deleted_order', {
-    fromOrderId: orderId, toOrderId: targetOrderId, paymentIds: payments.map((p) => p.id), totalAmount, adminName,
+    fromOrderId: orderId, toOrderIds: targetOrderIds, paymentIds: payments.map((p) => p.id), totalAmount, adminName,
+    allocations: allocations.map((a) => ({ orderId: a.orderId, amount: a.amount })),
   }, client);
-  return { moved: true, targetOrderId, totalAmount };
+  return { moved: true, targetOrderIds, totalAmount };
 }
 
 /** מחיקת שורת הזמנה — רק אם עוד לא נמשך ממנה כלום (אחרת יש למחוק את ההזמנה כולה, ראו deleteOrder). */
