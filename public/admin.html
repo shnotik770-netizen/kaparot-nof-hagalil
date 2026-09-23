@@ -3077,7 +3077,17 @@ async function renderSeudotTab() {
   function renderList() {
     const q = seudotSearchText.trim();
     const filtered = q ? registrations.filter((r) => r.fullName.includes(q)) : registrations;
-    document.getElementById('seudotListWrap').innerHTML = filtered.length ? `
+    // שורת סיכום לפי הסינון הנוכחי (לא לפי סך הכל הגלובלי בכרטיס למעלה) —
+    // מתעדכנת בכל חיפוש, כדי לראות בקלות כמה משפחות/נפשות בתוצאה שמוצגת כרגע.
+    const fAdults = filtered.reduce((s, r) => s + r.adultsCount, 0);
+    const fChildren = filtered.reduce((s, r) => s + r.childrenCount, 0);
+    const summaryHtml = `
+      <div class="item-row" style="font-weight:700">
+        <span>${filtered.length} משפחות</span>
+        <span>${fAdults} מבוגרים · ${fChildren} ילדים</span>
+      </div>
+    `;
+    document.getElementById('seudotListWrap').innerHTML = summaryHtml + (filtered.length ? `
       <table>
         <thead><tr><th>שם</th><th>מבוגרים</th><th>ילדים</th><th>אופן</th><th>תאריך</th></tr></thead>
         <tbody>
@@ -3092,7 +3102,7 @@ async function renderSeudotTab() {
           `).join('')}
         </tbody>
       </table>
-    ` : `<p class="hint">אין רשומות תואמות.</p>`;
+    ` : `<p class="hint">אין רשומות תואמות.</p>`);
   }
   renderList();
   document.getElementById('seudotSearch').oninput = (e) => { seudotSearchText = e.target.value; renderList(); };
