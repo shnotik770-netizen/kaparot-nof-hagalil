@@ -110,7 +110,7 @@ router.all('/credit-request', wrap(async (req, res) => {
     normalizedPhone, phone: params.ApiPhone, ceilingAmount: ceiling,
     requestedAmount: Number(params.RequestedAmount), apiCallId: params.ApiCallId || null,
   });
-  return res.send(idListMessage([textSegment('בקשתכם לזיכוי נקלטה בהצלחה ותטופל בהקדם')]));
+  return res.send(idListMessage([textSegment('בקשתכם לזיכוי נקלטה בהצלחה, הבקשה תטופל בימים הקרובים')]));
 }));
 
 const GENDER_KEY_LABEL = { 1: 'זכרים', 2: 'נקבות' };
