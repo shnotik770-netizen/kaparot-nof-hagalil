@@ -71,6 +71,20 @@ router.all('/diag-number', wrap(async (req, res) => {
 }));
 
 /**
+ * אבחון זמני נוסף (למחוק יחד עם diag-number): n- (מספר) עבד תקין — מבודד
+ * שהתקלה ספציפית להקראת טקסט חופשי (t-) בלייב, לא לכל הצינור. הבדיקה הזו
+ * בודקת מסלול ביניים: s- מקריא TTS מקובץ טקסט שמור מראש בחשבון (בשונה
+ * מ-t- שמקריא טקסט חופשי שמגיע חי בתגובת ה-API) — אולי המסלול הזה לא נפגע
+ * מהתקלה. תלוי בקובץ diagtts.tts שהועלה ידנית לתיקיית השלוחה (UploadTextFile).
+ */
+router.all('/diag-tts-file', wrap(async (req, res) => {
+  const params = { ...req.query, ...req.body };
+  res.type('text/plain');
+  if (params.hangup === 'yes') return res.send('ok');
+  return res.send('id_list_message=s-diagtts');
+}));
+
+/**
  * שלוחת "בקשת זיכוי" (9/3) — למי שהזמין ולא קיבל. ללא הגנת ivr_secret,
  * מאותה סיבה כמו 9/2: לא יוצרת שום חיוב/זיכוי אמיתי בעצמה, רק שורת בקשה
  * שממתינה לאישור ידני של מנהל (ראו markPhoneCreditRequestHandled) — הכי
