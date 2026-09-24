@@ -1915,7 +1915,7 @@ async function wireCustomerPaymentsPanel(c) {
           const isManual = p.method.startsWith('manual_');
           return `
             <div class="item-row" ${nested ? 'style="padding-right:16px"' : ''}>
-              <span>${nested ? `הזמנה ${p.orderSequence}: ` : ''}${amountHtml(p)}${nested && p.note ? ` · ${esc(p.note)}` : ''}</span>
+              <span>${nested ? `הזמנה ${p.orderSequence}: ` : ''}${amountHtml(p)} · ${METHOD_LABEL[p.method] || p.method}${p.note ? ` · ${esc(p.note)}` : ''}</span>
               <span class="meta" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 ${nested ? `<span>${new Date(p.createdAt).toLocaleString('he-IL')} · ע"י ${esc(p.recordedBy)}</span>` : ''}
                 ${isManual ? `
