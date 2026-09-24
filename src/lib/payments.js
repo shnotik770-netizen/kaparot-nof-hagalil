@@ -166,6 +166,24 @@ export async function getCustomerCreditCeiling(normalizedPhone, client = pool) {
 }
 
 /**
+ * סכום הזיכוי שכבר נרשם בפועל ללקוח (סכום שורות תשלום שליליות בהזמנות
+ * הפעילות שלו — ראו recordCustomerCredit למטה, שם נרשמות) — לא קשור לשום
+ * "סימון טופל" ידני. בשימוש משלוחה טלפונית "בקשת זיכוי" (9/3, ראו
+ * routes/ivr.js) כדי לדעת אם וכמה כבר זוכה בפועל: הקריטריון הוא שורת
+ * זיכוי אמיתית בכרטיס הלקוח, לא סטטוס נפרד שהמנהל מסמן.
+ */
+export async function getCustomerCreditedAmount(normalizedPhone, client = pool) {
+  const { rows } = await client.query(
+    `SELECT COALESCE(SUM(-p.amount), 0) AS credited
+       FROM payments p
+       JOIN orders o ON o.id = p.order_id
+      WHERE o.normalized_phone = $1 AND NOT o.is_deleted AND p.amount < 0`,
+    [normalizedPhone]
+  );
+  return Number(rows[0].credited);
+}
+
+/**
  * זיכוי/תיקון (סכום שלילי) ברמת הלקוח — מזהה אוטומטית הזמנה להצמיד אליה
  * את התשלום השלילי (רק כדי לענות על מבנה הנתונים — payments.order_id הוא
  * NOT NULL; אין משמעות עסקית לכך שדווקא ההזמנה הזו "מזוכה" מבין הזמנות

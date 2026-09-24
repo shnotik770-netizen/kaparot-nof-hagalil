@@ -9,7 +9,7 @@ import { Router } from 'express';
 import { normalizePhone } from '../lib/normalize.js';
 import { listOrdersForPhone, createOrder } from '../lib/orders.js';
 import { getIvrRegistrationSlots, priceForGender } from '../lib/slots.js';
-import { recordIvrNedarimPayment, getCustomerCreditSummary } from '../lib/payments.js';
+import { recordIvrNedarimPayment, getCustomerCreditSummary, getCustomerCreditedAmount } from '../lib/payments.js';
 import { getPhoneCreditRequest, createPhoneCreditRequest } from '../lib/adminOps.js';
 import { logAction } from '../lib/actionLog.js';
 import { textSegment, idListMessage, readAction } from '../lib/ivrFormat.js';
@@ -88,14 +88,17 @@ router.all('/diag-tts-file', wrap(async (req, res) => {
 /**
  * שלוחת "בקשת זיכוי" (9/3) — למי שהזמין ולא קיבל. ללא הגנת ivr_secret,
  * מאותה סיבה כמו 9/2: לא יוצרת שום חיוב/זיכוי אמיתי בעצמה, רק שורת בקשה
- * שממתינה לאישור ידני של מנהל (ראו markPhoneCreditRequestHandled) — הכי
- * גרוע שיכול לקרות עם שיחה מזויפת הוא בקשת סרק שהמנהל יזהה וימחק.
+ * שהמנהל רואה בפאנל (ראו listPhoneCreditRequests) — הכי גרוע שיכול לקרות
+ * עם שיחה מזויפת הוא בקשת סרק שהמנהל יזהה וימחק.
  *
- * שלושה מסלולים לפי מה שכבר קיים ללקוח הזה (getPhoneCreditRequest, שורה
- * אחת פר טלפון): בקשה ממתינה -> משמיע שהיא ממתינה. בקשה שטופלה -> משמיע
- * את הסכום שזוכה (או "לא אושר זיכוי" אם 0). אין בקשה בכלל -> מקריא את
- * התקרה (getCustomerCreditCeiling, אותה נוסחה בדיוק כמו זיכוי ידני מהפאנל)
- * ואוסף read= אחד עם הסכום שהלקוח מבקש בפועל, ואז יוצר בקשה.
+ * הבדיקה הראשונה תמיד היא נתון אמיתי בכרטיס הלקוח (getCustomerCreditedAmount:
+ * יש שורת זיכוי בפועל בתשלומים שלו או לא) — לא "סימון טופל" ידני בטאב
+ * הבקשות, כי המנהל מזכה דרך "רישום תשלום"/זיכוי הרגיל בכרטיס הלקוח, בדיוק
+ * כמו כל זיכוי אחר, וזה מה שקובע (גם אם מעולם לא סימן משהו בטאב הבקשות).
+ * רק אם עדיין אין זיכוי בפועל בודקים אם כבר יש בקשה ממתינה (שורה אחת פר
+ * טלפון, getPhoneCreditRequest) -> משמיע שהיא בטיפול. אין בקשה בכלל ואין
+ * זיכוי -> מקריא את התקרה (getCustomerCreditSummary, אותה נוסחה בדיוק כמו
+ * זיכוי ידני מהפאנל) ואוסף read= אחד עם הסכום שהלקוח מבקש בפועל, ואז יוצר בקשה.
  */
 router.all('/credit-request', wrap(async (req, res) => {
   const params = { ...req.query, ...req.body };
@@ -104,20 +107,17 @@ router.all('/credit-request', wrap(async (req, res) => {
   if (params.hangup === 'yes') return res.send('ok');
 
   const normalizedPhone = normalizePhone(params.ApiPhone);
-  const existing = await getPhoneCreditRequest(normalizedPhone);
 
+  const creditedAmount = await getCustomerCreditedAmount(normalizedPhone);
+  if (creditedAmount > 0) {
+    return res.send(idListMessage([textSegment(`זוכיתם בסך ${Math.round(creditedAmount)} שקלים`)]));
+  }
+
+  const existing = await getPhoneCreditRequest(normalizedPhone);
   if (existing) {
-    if (existing.status === 'pending') {
-      return res.send(idListMessage([
-        textSegment(`הבקשה שלכם לזיכוי בסך ${Math.round(existing.requestedAmount)} שקלים כבר התקבלה וממתינה לטיפול`),
-      ]));
-    }
-    if (existing.creditedAmount > 0) {
-      return res.send(idListMessage([
-        textSegment(`הבקשה שלכם טופלה, זוכיתם בסך ${Math.round(existing.creditedAmount)} שקלים`),
-      ]));
-    }
-    return res.send(idListMessage([textSegment('הבקשה שלכם טופלה, לא אושר זיכוי')]));
+    return res.send(idListMessage([
+      textSegment(`הבקשה שלכם לזיכוי בסך ${Math.round(existing.requestedAmount)} שקלים בטיפול`),
+    ]));
   }
 
   if (!params.RequestedAmount) {
