@@ -58,6 +58,19 @@ router.all('/order-status', wrap(async (req, res) => {
 }));
 
 /**
+ * אבחון זמני בלבד (למחוק כשהתקלה עם ימות המשיח תיפתר): מחזיר תגובה
+ * מינימלית — מספר קבוע בלבד, בלי שום טקסט חופשי (n- ולא t-) — כדי לבודד
+ * אם התקלה ("שגיאה" מיידית לפני תוכן) קשורה ספציפית להקראת טקסט עברי
+ * חופשי (t-), או שהיא רחבה יותר וקורית גם למקטע n- הכי בסיסי שיש.
+ */
+router.all('/diag-number', wrap(async (req, res) => {
+  const params = { ...req.query, ...req.body };
+  res.type('text/plain');
+  if (params.hangup === 'yes') return res.send('ok');
+  return res.send('id_list_message=n-5');
+}));
+
+/**
  * שלוחת "בקשת זיכוי" (9/3) — למי שהזמין ולא קיבל. ללא הגנת ivr_secret,
  * מאותה סיבה כמו 9/2: לא יוצרת שום חיוב/זיכוי אמיתי בעצמה, רק שורת בקשה
  * שממתינה לאישור ידני של מנהל (ראו markPhoneCreditRequestHandled) — הכי
