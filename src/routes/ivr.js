@@ -150,7 +150,7 @@ router.all('/credit-request', wrap(async (req, res) => {
     normalizedPhone, phone: params.ApiPhone, ceilingAmount: summary.ceiling,
     requestedAmount: Number(params.RequestedAmount), apiCallId: params.ApiCallId || null,
   });
-  return res.send(idListMessage([textSegment('בקשתכם לזיכוי נקלטה בהצלחה, הבקשה תטופל בימים הקרובים')]));
+  return res.send(idListMessage([textSegment(`הבקשה לזיכוי בסך ${Math.round(Number(params.RequestedAmount))} שקלים בטיפול`)]));
 }));
 
 const GENDER_KEY_LABEL = { 1: 'זכרים', 2: 'נקבות' };
