@@ -115,17 +115,42 @@ function triggerCsvDownload(filenameBase, phonesFilter, header, rows) {
   URL.revokeObjectURL(url);
 }
 
-// דוח CSV של כל התשלומים, שורה נפרדת לכל תשלום — phonesFilter=null להורדת
-// הכל, או מערך טלפונים (מהסינון הנוכחי בטאב הזמנות) להורדת רק תשלומי
-// הלקוחות שעברו את הסינון.
+// דוח CSV של כל התשלומים, שורה אחת לכל לקוח — עמודה נפרדת לכל תשלום שלו
+// (מקובץ לפי groupPayments, אותו היגיון כמו רשימת התשלומים בכרטיס לקוח:
+// תשלום שהתפצל בין כמה הזמנות מוצג כעמודה אחת, לא כמה). מספר העמודות נקבע
+// לפי הלקוח עם הכי הרבה תשלומים. phonesFilter=null להורדת הכל, או מערך
+// טלפונים (מהסינון הנוכחי בטאב הזמנות) להורדת רק תשלומי הלקוחות שעברו את הסינון.
 async function downloadPaymentsCsv(phonesFilter) {
   const payments = await api('/admin/payments');
   const filtered = phonesFilter ? payments.filter((p) => phonesFilter.includes(p.phone)) : payments;
-  const header = ['תאריך', 'הזמנה מס\'', 'שם לקוח', 'טלפון', 'סכום', 'אמצעי', 'פרטי התשלום', 'נרשם ע"י'];
-  const rows = filtered.map((p) => [
-    new Date(p.createdAt).toLocaleString('he-IL'), p.orderNumber, p.customerName, p.phone,
-    p.amount, METHOD_LABEL[p.method] || p.method, p.note || '', p.recordedBy,
-  ]);
+
+  const byPhone = new Map();
+  filtered.forEach((p) => {
+    if (!byPhone.has(p.phone)) byPhone.set(p.phone, { phone: p.phone, customerName: p.customerName, payments: [] });
+    byPhone.get(p.phone).payments.push(p);
+  });
+  const customerRows = [...byPhone.values()].map((c) => ({
+    phone: c.phone,
+    customerName: c.customerName,
+    groups: groupPayments(c.payments).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)),
+  }));
+
+  const maxPayments = customerRows.reduce((max, c) => Math.max(max, c.groups.length), 0);
+  const header = ['שם לקוח', 'טלפון', 'סה"כ שולם'];
+  for (let i = 1; i <= maxPayments; i++) header.push(`תשלום ${i}`);
+
+  const paymentCell = (g) => {
+    const methodText = METHOD_LABEL[g.method] || g.method;
+    const amountText = g.totalAmount < 0 ? `זיכוי ${money(-g.totalAmount)}` : money(g.totalAmount);
+    return `${amountText} · ${methodText}${g.note ? ` · ${g.note}` : ''}`;
+  };
+
+  const rows = customerRows.map((c) => {
+    const total = c.groups.reduce((s, g) => s + g.totalAmount, 0);
+    const row = [c.customerName, c.phone, total];
+    c.groups.forEach((g) => row.push(paymentCell(g)));
+    return row;
+  });
   triggerCsvDownload('דוח-תשלומים', phonesFilter, header, rows);
 }
 
