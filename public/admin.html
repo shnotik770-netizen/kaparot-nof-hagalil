@@ -121,10 +121,10 @@ function triggerCsvDownload(filenameBase, phonesFilter, header, rows) {
 async function downloadPaymentsCsv(phonesFilter) {
   const payments = await api('/admin/payments');
   const filtered = phonesFilter ? payments.filter((p) => phonesFilter.includes(p.phone)) : payments;
-  const header = ['תאריך', 'הזמנה מס\'', 'שם לקוח', 'טלפון', 'סכום', 'אמצעי', 'נרשם ע"י'];
+  const header = ['תאריך', 'הזמנה מס\'', 'שם לקוח', 'טלפון', 'סכום', 'אמצעי', 'פרטי התשלום', 'נרשם ע"י'];
   const rows = filtered.map((p) => [
     new Date(p.createdAt).toLocaleString('he-IL'), p.orderNumber, p.customerName, p.phone,
-    p.amount, METHOD_LABEL[p.method] || p.method, p.recordedBy,
+    p.amount, METHOD_LABEL[p.method] || p.method, p.note || '', p.recordedBy,
   ]);
   triggerCsvDownload('דוח-תשלומים', phonesFilter, header, rows);
 }
