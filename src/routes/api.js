@@ -35,7 +35,7 @@ import {
 } from '../lib/seudot.js';
 import {
   createYeshivaRegistration, listYeshivaRegistrations, updateYeshivaRegistration, deleteYeshivaRegistration,
-  ATTENDANCE_VALUES,
+  checkYeshivaPhoneExists, ATTENDANCE_VALUES,
 } from '../lib/yeshiva.js';
 import {
   listEnabledDonationCategories, listAllDonationCategories, createDonationCategory, updateDonationCategory,
@@ -400,14 +400,26 @@ router.get('/yeshiva/settings', wrap(async (req, res) => {
   res.json({ closeAt: s.yeshivaCloseAt, closedMessage: s.yeshivaClosedMessage, isOpen });
 }));
 
+// נבדק במסך הטלפון שלפני שאר הטופס (ראו yeshiva.html) — כדי לשאול מראש
+// "כבר מילאת תשובה בעבר, לשנות?" בלי לחשוף שום פרט מעבר ל-exists עצמו.
+router.get('/yeshiva/check-phone/:phone', wrap(async (req, res) => {
+  const phone = String(req.params.phone || '').trim();
+  if (!isValidIsraeliPhone(normalizePhone(phone))) {
+    return res.status(400).json({ error: 'מספר טלפון לא תקין.' });
+  }
+  res.json({ exists: await checkYeshivaPhoneExists(phone) });
+}));
+
 router.post('/yeshiva/register', wrap(async (req, res) => {
   const s = await getSettings();
   if (s.yeshivaCloseAt && new Date(s.yeshivaCloseAt) <= new Date()) {
     return res.status(400).json({ error: s.yeshivaClosedMessage });
   }
   const fields = parseYeshivaFields(req.body);
-  const registration = await createYeshivaRegistration(fields);
-  res.json({ success: true, id: registration.id });
+  const confirmOverwrite = typeof req.body?.confirmOverwrite === 'boolean' ? req.body.confirmOverwrite : undefined;
+  const result = await createYeshivaRegistration({ ...fields, confirmOverwrite });
+  if (result.needsConfirmation) return res.json(result);
+  res.json({ success: true, id: result.registration.id });
 }));
 
 // ============== תרומות למוסדות חסדי מנחם (דף השורש /, עצמאי לגמרי) ==============

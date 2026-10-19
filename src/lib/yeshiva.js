@@ -19,34 +19,67 @@ function mapRow(r) {
   };
 }
 
+/** האם כבר קיימת רשומה למספר הטלפון הזה — נבדק במסך הטלפון לפני הצגת
+ * שאר הטופס (ראו yeshiva.html), כדי לשאול "כבר מילאת, לשנות?" מראש. */
+export async function checkYeshivaPhoneExists(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  const { rows } = await pool.query(`SELECT id FROM yeshiva_registrations WHERE normalized_phone = $1`, [normalizedPhone]);
+  return rows.length > 0;
+}
+
+/** שדה אופציונלי (ריק = לא נשלח הפעם): ריק -> שומר את הערך הקודם; זהה
+ * לקודם -> אין שינוי בכלל; שונה מהקודם -> מוחלף רק אם confirmOverwrite=true
+ * (אחרת נשאר הישן — ראו conflictFields ב-createYeshivaRegistration). */
+function mergeOptionalField(newVal, oldVal, confirmOverwrite) {
+  const clean = String(newVal || '').trim();
+  if (!clean) return oldVal || null;
+  if (clean === (oldVal || '')) return clean;
+  return confirmOverwrite ? clean : (oldVal || null);
+}
+
 /**
  * Upsert לפי מספר טלפון — מי שממלא את הטופס שוב עם אותו מספר (לשנות את
  * הבחירה/הכתובת/הפרטים) מעדכן את הרשומה הקיימת שלו, לא יוצר רשומה כפולה.
- * בכוונה בלי לחשוף בחזרה לדפדפן מה היה רשום קודם (בניגוד לאזור האישי של
- * הכפרות, שם יש אימות OTP לפני חשיפת פרטים) — הטופס תמיד מתחיל ריק, רק
- * ה-DB "זוכר" ומחליף לפי טלפון.
+ * שם+הגעה מוחלפים תמיד. אימייל/כתובת: ריק שומר את הישן; אם נשלח ערך חדש
+ * ושונה מהישן, ללא confirmOverwrite מוחזר needsConfirmation (בלי לשמור
+ * כלום עדיין) כדי שהלקוח יאושר במפורש לפני שדורסים ערך קודם.
  */
-export async function createYeshivaRegistration({ fullName, phone, attendance, email, address }) {
+export async function createYeshivaRegistration({ fullName, phone, attendance, email, address, confirmOverwrite }) {
   const normalizedPhone = normalizePhone(phone);
-  const { rows: existing } = await pool.query(
-    `SELECT id FROM yeshiva_registrations WHERE normalized_phone = $1`, [normalizedPhone]
+  const { rows: existingRows } = await pool.query(
+    `SELECT * FROM yeshiva_registrations WHERE normalized_phone = $1`, [normalizedPhone]
   );
-  if (existing.length) {
+
+  if (!existingRows.length) {
     const { rows } = await pool.query(
-      `UPDATE yeshiva_registrations SET full_name=$2, phone=$3, attendance=$4, email=$5, address=$6
-        WHERE id=$1 RETURNING *`,
-      [existing[0].id, fullName, phone, attendance, email || null, address || null]
+      `INSERT INTO yeshiva_registrations(full_name, phone, normalized_phone, attendance, email, address)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [fullName, phone, normalizedPhone, attendance, email || null, address || null]
     );
-    await logAction('yeshiva_registration_updated_by_customer', { id: existing[0].id, fullName, phone, attendance, email: email || null, address: address || null });
-    return mapRow(rows[0]);
+    await logAction('yeshiva_registration_created', { fullName, phone, attendance, email: email || null, address: address || null });
+    return { registration: mapRow(rows[0]) };
   }
+
+  const existing = existingRows[0];
+  const cleanEmail = String(email || '').trim();
+  const cleanAddress = String(address || '').trim();
+  const conflictFields = [
+    ...(cleanEmail && cleanEmail !== (existing.email || '') ? ['email'] : []),
+    ...(cleanAddress && cleanAddress !== (existing.address || '') ? ['address'] : []),
+  ];
+  if (conflictFields.length && confirmOverwrite === undefined) {
+    return { needsConfirmation: true, conflictFields };
+  }
+
+  const finalEmail = mergeOptionalField(email, existing.email, confirmOverwrite);
+  const finalAddress = mergeOptionalField(address, existing.address, confirmOverwrite);
   const { rows } = await pool.query(
-    `INSERT INTO yeshiva_registrations(full_name, phone, normalized_phone, attendance, email, address)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [fullName, phone, normalizedPhone, attendance, email || null, address || null]
+    `UPDATE yeshiva_registrations SET full_name=$2, phone=$3, attendance=$4, email=$5, address=$6
+      WHERE id=$1 RETURNING *`,
+    [existing.id, fullName, phone, attendance, finalEmail, finalAddress]
   );
-  await logAction('yeshiva_registration_created', { fullName, phone, attendance, email: email || null, address: address || null });
-  return mapRow(rows[0]);
+  await logAction('yeshiva_registration_updated_by_customer', { id: existing.id, fullName, phone, attendance, email: finalEmail, address: finalAddress });
+  return { registration: mapRow(rows[0]) };
 }
 
 export async function listYeshivaRegistrations() {
