@@ -57,7 +57,10 @@ app.use('/api', apiRouter);
 // לא ממשיך "לזכור" גרסה ישנה של admin.html/index.html/kiosk.html בלי לבדוק
 // מול השרת בכלל — שהיה גורם לשינויים בקוד להיראות כאילו לא נכנסו עד שעושים
 // רענון קשיח (Ctrl+Shift+R) ידנית.
-const staticOptions = { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') };
+// index:false — אחרת express.static תופס GET / בעצמו (ברירת המחדל שלו:
+// להגיש index.html אוטומטית לבקשת תיקייה/שורש) עוד *לפני* ש-app.get('/')
+// למטה מקבל סיכוי לרוץ בכלל, ומגיש את טופס הכפרות הישן במקום donate.html.
+const staticOptions = { index: false, setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') };
 app.use(express.static(path.join(__dirname, '..', 'public'), staticOptions));
 
 // חזיתות נפרדות: לקוח-כפרות (index.html, עבר מהשורש ל-/kaparot — ראו הפניה
