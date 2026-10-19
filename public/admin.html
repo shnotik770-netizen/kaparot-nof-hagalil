@@ -177,7 +177,7 @@ function downloadCustomersCsv(customers, slots, phonesFilter) {
 }
 // סדר המפתחות כאן קובע את סדר הטאבים בתפריט. 'settings' ו'slots' אוחדו
 // לכפתור אחד (ראו renderSettingsTab) — עדיין שתי הרשאות נפרדות, אבל ניווט משותף.
-const TAB_TITLES = { orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', incomingSms: '📥 הודעות נכנסות', seudot: '🍽️ שמחת תורה', yeshiva: '🎓 כנס תומכי תמימים', donations: '💝 תרומות', settings: 'הגדרות וזמני חלוקה', actionLog: 'יומן פעולות' };
+const TAB_TITLES = { orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', incomingSms: '📥 הודעות נכנסות', seudot: '🍽️ שמחת תורה', yeshiva: '🎓 נכנסים לתומכי תמימים', donations: '💝 תרומות', settings: 'הגדרות וזמני חלוקה', actionLog: 'יומן פעולות' };
 // 'יומן פעולות' משתמש בהרשאת 'הגדרות' (אין לו הרשאה נפרדת משלו — כל מי שרואה הגדרות רואה גם את היומן).
 // כל שאר הטאבים משתמשים בהרשאה בעלת אותו שם בדיוק (orders/dashboard/incomingSms/seudot) — לא צריך ערך כאן.
 const TAB_PERMISSION = { actionLog: 'settings' };
@@ -944,7 +944,7 @@ async function renderSettingsCore() {
             <label><input type="checkbox" id="newPermSlots" checked> זמני חלוקה</label>
             <label><input type="checkbox" id="newPermIncomingSms" checked> הודעות נכנסות</label>
             <label><input type="checkbox" id="newPermSeudot" checked> שמחת תורה</label>
-            <label><input type="checkbox" id="newPermYeshiva" checked> כנס תומכי תמימים</label>
+            <label><input type="checkbox" id="newPermYeshiva" checked> נכנסים לתומכי תמימים</label>
             <label><input type="checkbox" id="newPermDonations" checked> תרומות</label>
           </div>
           <button class="primary big-action" id="addAdmin" style="width:100%">הוספת מנהל</button>
@@ -1070,7 +1070,7 @@ async function renderSettingsCore() {
   renderAdminsList();
 }
 
-const PERM_LABELS = { settings: 'הגדרות', orders: 'הזמנות', dashboard: 'דשבורד', slots: 'זמני חלוקה', incomingSms: 'הודעות נכנסות', seudot: 'שמחת תורה', yeshiva: 'כנס תומכי תמימים', donations: 'תרומות' };
+const PERM_LABELS = { settings: 'הגדרות', orders: 'הזמנות', dashboard: 'דשבורד', slots: 'זמני חלוקה', incomingSms: 'הודעות נכנסות', seudot: 'שמחת תורה', yeshiva: 'נכנסים לתומכי תמימים', donations: 'תרומות' };
 const FULL_ACCESS_PERMISSIONS = Object.fromEntries(Object.keys(PERM_LABELS).map((k) => [k, true]));
 
 async function renderAdminsList() {
@@ -1112,7 +1112,7 @@ async function renderAdminsList() {
           <label><input type="checkbox" data-perm="slots" data-id="${a.id}" ${a.permissions.slots ? 'checked' : ''}> זמני חלוקה</label>
           <label><input type="checkbox" data-perm="incomingSms" data-id="${a.id}" ${a.permissions.incomingSms ? 'checked' : ''}> הודעות נכנסות</label>
           <label><input type="checkbox" data-perm="seudot" data-id="${a.id}" ${a.permissions.seudot ? 'checked' : ''}> שמחת תורה</label>
-          <label><input type="checkbox" data-perm="yeshiva" data-id="${a.id}" ${a.permissions.yeshiva ? 'checked' : ''}> כנס תומכי תמימים</label>
+          <label><input type="checkbox" data-perm="yeshiva" data-id="${a.id}" ${a.permissions.yeshiva ? 'checked' : ''}> נכנסים לתומכי תמימים</label>
           <label><input type="checkbox" data-perm="donations" data-id="${a.id}" ${a.permissions.donations ? 'checked' : ''}> תרומות</label>
         </div>
         <div class="row">
@@ -3296,7 +3296,7 @@ async function renderSeudotTab() {
   };
 }
 
-// ============== כנס תומכי תמימים ==============
+// ============== נכנסים לתומכי תמימים ==============
 // ראו public/yeshiva.html + src/lib/yeshiva.js — טופס אישור הגעה פשוט, בלי
 // שום תשלום. תצוגה: סיכום + רשימה עם חיפוש + ייצוא CSV + עריכה/מחיקה
 // ע"י מנהל (אין ללקוח קישור עריכה עצמית, בשונה מסעודות שמחת תורה).
@@ -3316,7 +3316,7 @@ async function renderYeshivaTab() {
 
   content.innerHTML = `
     <div class="card">
-      <h2 style="margin:0 0 4px">🎓 כנס נכבד לתומכי תמימים — בוגרי הישיבה</h2>
+      <h2 style="margin:0 0 4px">🎓 נכנסים לתומכי תמימים — בוגרי הישיבה</h2>
       <p class="hint" style="margin:0 0 10px">אולם הישיבה הגדולה, חב"ד 13, נוף הגליל · טופס נפרד ב-<a href="/20Cheshvan" target="_blank">/20Cheshvan</a></p>
       <div class="item-row"><span>סה"כ נרשמו</span><span><b>${registrations.length}</b></span></div>
       <div class="item-row"><span>מגיעים</span><span><b>${coming.length}</b></span></div>

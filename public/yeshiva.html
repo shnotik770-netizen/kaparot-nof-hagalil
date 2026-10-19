@@ -3,30 +3,44 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>כנס נכבד לתומכי תמימים</title>
+<title>נכנסים לתומכי תמימים</title>
 <!-- תגי Open Graph מפורשים — כדי שתצוגה מקדימה של הקישור (למשל בהדבקה
      בוואטסאפ) תציג את מודעת האירוע עצמה, לא את שם הדומיין הגולמי. -->
-<meta property="og:site_name" content="כנס תומכי תמימים">
-<meta property="og:title" content="כנס נכבד לתומכי תמימים — בוגרי הישיבה">
+<meta property="og:site_name" content="נכנסים לתומכי תמימים">
+<meta property="og:title" content="נכנסים לתומכי תמימים — בוגרי הישיבה">
 <meta property="og:description" content="אולם הישיבה הגדולה, חב&quot;ד 13, נוף הגליל">
 <meta property="og:image" content="/yeshiva-poster.jpg">
 <meta property="og:type" content="website">
 <link rel="stylesheet" href="/shared.css">
 <style>
+  /* צבעי המודעה של האירוע (נייבי כהה + ירוק-ליים) — דריסה מקומית לדף הזה
+     בלבד של משתני הצבע הגלובליים (shared.css), לא נוגעת בשום דף אחר. */
+  :root{
+    --bg:#10192f; --surface:#182445; --surface-2:#212f57; --ink:#f4f6fb; --ink-dim:#aab4d6;
+    --line:#2d3a68; --accent:#c3f000; --accent-ink:#c3f000; --accent-soft:#26331a;
+    --wine:#ff8a93; --wine-soft:#3a1b24; --sage:#c3f000; --sage-soft:#243018;
+    --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 26px -12px rgba(0,0,0,.6);
+  }
+  /* כפתור ראשי עם מסגרת ליים (לא מילוי) — כמו התיבה הירוקה במודעה עצמה. */
+  button.primary{background:transparent;border:2px solid var(--accent);color:var(--accent)}
   .poster{width:100%;border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:16px;display:block}
   .radio-row{display:flex;align-items:center;gap:8px;padding:10px 0;font-weight:normal;cursor:pointer}
   .radio-row input{width:auto;margin:0}
+  /* שדות השי/מתנה נשארים תמיד באותו דף ולא נפתחים/נסגרים — רק הסגנון שלהם
+     משתנה לפי התשובה על ההגעה (עמום ולא-חובה כש"לא מגיע", רגיל אחרת). */
+  #giftFields{transition:opacity .15s}
+  #giftFields.dim{opacity:.45}
 </style>
 </head>
 <body>
 <div class="topbar">
   <div>
-    <h1>כנס נכבד לתומכי תמימים</h1>
+    <h1>נכנסים לתומכי תמימים</h1>
     <div class="topbar-subtitle">בוגרי הישיבה · אולם הישיבה הגדולה, חב"ד 13, נוף הגליל</div>
   </div>
 </div>
 <div class="wrap" id="app">
-  <img class="poster" src="/yeshiva-poster.jpg" alt="מודעת הכנס">
+  <img class="poster" src="/yeshiva-poster.jpg" alt="מודעת האירוע">
   <div class="loading" id="initialLoading">טוען…</div>
 
   <div class="card" id="closedCard" style="display:none">
@@ -45,7 +59,7 @@
     <label class="radio-row"><input type="radio" name="attendance" value="checking"> עדיין בודק אם יתאפשר לי</label>
     <label class="radio-row"><input type="radio" name="attendance" value="not_coming"> לצערי, לא אוכל להגיע</label>
 
-    <div id="giftFields" style="display:none">
+    <div id="giftFields">
       <p class="hint" style="margin:14px 0 0">נשמח לשלוח לך משהו מרענן מהישיבה,</p>
       <label for="emailInput">כתובת דוא"ל</label>
       <input type="email" id="emailInput" placeholder="example@mail.com">
@@ -91,10 +105,12 @@ async function init() {
 }
 init();
 
+// שדות השי נשארים תמיד גלויים באותו דף — רק עמימות (.dim) משתנה לפי
+// התשובה, בלי לפתוח/לסגור חלון נפרד.
 document.querySelectorAll('input[name="attendance"]').forEach((input) => {
   input.addEventListener('change', () => {
     const val = document.querySelector('input[name="attendance"]:checked')?.value;
-    document.getElementById('giftFields').style.display = (val === 'coming' || val === 'checking') ? '' : 'none';
+    document.getElementById('giftFields').classList.toggle('dim', val === 'not_coming');
   });
 });
 
