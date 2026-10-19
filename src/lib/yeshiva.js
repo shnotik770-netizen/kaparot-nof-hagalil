@@ -19,8 +19,27 @@ function mapRow(r) {
   };
 }
 
+/**
+ * Upsert לפי מספר טלפון — מי שממלא את הטופס שוב עם אותו מספר (לשנות את
+ * הבחירה/הכתובת/הפרטים) מעדכן את הרשומה הקיימת שלו, לא יוצר רשומה כפולה.
+ * בכוונה בלי לחשוף בחזרה לדפדפן מה היה רשום קודם (בניגוד לאזור האישי של
+ * הכפרות, שם יש אימות OTP לפני חשיפת פרטים) — הטופס תמיד מתחיל ריק, רק
+ * ה-DB "זוכר" ומחליף לפי טלפון.
+ */
 export async function createYeshivaRegistration({ fullName, phone, attendance, email, address }) {
   const normalizedPhone = normalizePhone(phone);
+  const { rows: existing } = await pool.query(
+    `SELECT id FROM yeshiva_registrations WHERE normalized_phone = $1`, [normalizedPhone]
+  );
+  if (existing.length) {
+    const { rows } = await pool.query(
+      `UPDATE yeshiva_registrations SET full_name=$2, phone=$3, attendance=$4, email=$5, address=$6
+        WHERE id=$1 RETURNING *`,
+      [existing[0].id, fullName, phone, attendance, email || null, address || null]
+    );
+    await logAction('yeshiva_registration_updated_by_customer', { id: existing[0].id, fullName, phone, attendance, email: email || null, address: address || null });
+    return mapRow(rows[0]);
+  }
   const { rows } = await pool.query(
     `INSERT INTO yeshiva_registrations(full_name, phone, normalized_phone, attendance, email, address)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,

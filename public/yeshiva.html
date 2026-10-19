@@ -24,12 +24,15 @@
   /* כפתור ראשי עם מסגרת ליים (לא מילוי) — כמו התיבה הירוקה במודעה עצמה. */
   button.primary{background:transparent;border:2px solid var(--accent);color:var(--accent)}
   .poster{width:100%;border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:16px;display:block}
-  .radio-row{display:flex;align-items:center;gap:8px;padding:10px 0;font-weight:normal;cursor:pointer}
-  .radio-row input{width:auto;margin:0}
-  /* שדות השי/מתנה נשארים תמיד באותו דף ולא נפתחים/נסגרים — רק הסגנון שלהם
-     משתנה לפי התשובה על ההגעה (עמום ולא-חובה כש"לא מגיע", רגיל אחרת). */
-  #giftFields{transition:opacity .15s}
-  #giftFields.dim{opacity:.45}
+  /* בחירת ההגעה כ"כרטיסיות" גדולות וקלילות למגע, במקום עיגולי ראדיו
+     קטנים — כל השורה לחיצה, הבחירה מודגשת ע"י :has() בלי צורך ב-JS נוסף. */
+  .attendance-opt{
+    display:flex;align-items:center;gap:10px;padding:14px 16px;margin-top:8px;
+    border:1.5px solid var(--line);border-radius:12px;background:var(--surface-2);
+    cursor:pointer;font-weight:700;font-size:14.5px;transition:background .15s,border-color .15s;
+  }
+  .attendance-opt input{width:auto;margin:0}
+  .attendance-opt:has(input:checked){background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
 </style>
 </head>
 <body>
@@ -55,15 +58,16 @@
     <input type="tel" id="phoneInput" inputmode="tel" placeholder="05X-XXXXXXX">
 
     <label style="margin-top:16px">האם תגיעו?</label>
-    <label class="radio-row"><input type="radio" name="attendance" value="coming"> כן, גם אני מגיע בע"ה</label>
-    <label class="radio-row"><input type="radio" name="attendance" value="checking"> עדיין בודק אם יתאפשר לי</label>
-    <label class="radio-row"><input type="radio" name="attendance" value="not_coming"> לצערי, לא אוכל להגיע</label>
+    <label class="attendance-opt"><input type="radio" name="attendance" value="coming"> כן, גם אני מגיע בע"ה</label>
+    <label class="attendance-opt"><input type="radio" name="attendance" value="checking"> עדיין בודק אם יתאפשר לי</label>
+    <label class="attendance-opt"><input type="radio" name="attendance" value="not_coming"> לצערי, לא אוכל להגיע</label>
 
     <div id="giftFields">
-      <p class="hint" style="margin:14px 0 0">נשמח לשלוח לך משהו מרענן מהישיבה,</p>
-      <label for="emailInput">כתובת דוא"ל</label>
+      <p class="hint" style="margin:16px 0 2px">נשמח לשלוח לך שי מרענן מהישיבה</p>
+      <p class="hint" style="margin:0 0 4px">ע"מ שנוכל להעניק לך את השי בצורה הטובה ביותר, אנא מלא:</p>
+      <label for="emailInput">דואר אלקטרוני</label>
       <input type="email" id="emailInput" placeholder="example@mail.com">
-      <label for="addressInput">כתובת מגורים</label>
+      <label for="addressInput">כתובת למשלוח דואר</label>
       <input type="text" id="addressInput" placeholder="רחוב, מספר, עיר">
     </div>
 
@@ -74,6 +78,7 @@
 
   <div class="card" id="successCard" style="display:none">
     <div class="success">תודה! התשובה שלכם נקלטה בהצלחה.</div>
+    <p class="hint" style="margin:10px 0 0">ניתן למלא את הטופס שוב באותו מספר טלפון בכל עת כדי לשנות את הבחירה או הפרטים.</p>
   </div>
 </div>
 
@@ -105,15 +110,6 @@ async function init() {
 }
 init();
 
-// שדות השי נשארים תמיד גלויים באותו דף — רק עמימות (.dim) משתנה לפי
-// התשובה, בלי לפתוח/לסגור חלון נפרד.
-document.querySelectorAll('input[name="attendance"]').forEach((input) => {
-  input.addEventListener('change', () => {
-    const val = document.querySelector('input[name="attendance"]:checked')?.value;
-    document.getElementById('giftFields').classList.toggle('dim', val === 'not_coming');
-  });
-});
-
 document.getElementById('submitBtn').onclick = async () => {
   const btn = document.getElementById('submitBtn');
   const errorEl = document.getElementById('formError');
@@ -130,6 +126,8 @@ document.getElementById('submitBtn').onclick = async () => {
 
   btn.disabled = true; btn.textContent = 'שולח…';
   try {
+    // ה-upsert לפי טלפון קורה בשרת (ראו createYeshivaRegistration) — מילוי
+    // חוזר עם אותו מספר מעדכן את הרשומה הקיימת במקום ליצור כפולה.
     await api('/yeshiva/register', { method: 'POST', body: { fullName, phone, attendance, email, address } });
     document.getElementById('formCard').style.display = 'none';
     document.getElementById('successCard').style.display = '';
