@@ -22,7 +22,7 @@ body{
 h2{font-size:19px;margin:0 0 6px}
 p.hint{color:var(--ink-dim);font-size:13.5px;line-height:1.6;margin:0 0 14px}
 label{display:block;font-size:13px;font-weight:700;color:var(--ink-dim);margin:12px 0 6px}
-input[type=text],input[type=tel],input[type=number],input[type=password],select,textarea{
+input[type=text],input[type=tel],input[type=number],input[type=password],input[type=email],input[type=date],input[type=datetime-local],select,textarea{
   width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:15px;
   font-family:inherit;background:var(--surface);color:var(--ink);
 }
