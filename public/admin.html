@@ -182,7 +182,18 @@ const TAB_TITLES = { orders: 'הזמנות ותשלומים', dashboard: 'דשב
 // כל שאר הטאבים משתמשים בהרשאה בעלת אותו שם בדיוק (orders/dashboard/incomingSms/seudot) — לא צריך ערך כאן.
 const TAB_PERMISSION = { actionLog: 'settings' };
 
+// מסך ראשי עם שתי כניסות נפרדות — "ניהול כפרות" ו"ניהול טפסים" (כל אחד עם
+// הטאבים הקשורים לתחום שלו), ראו renderHome/enterSection. 'settings' ו
+// 'actionLog' נשארים גלובליים — נגישים משני התחומים, לא שייכים לאף אחד מהם.
+const SECTIONS = {
+  kaparot: { icon: '🐔', title: 'ניהול כפרות', tabs: ['orders', 'dashboard', 'incomingSms'] },
+  forms: { icon: '📋', title: 'ניהול טפסים', tabs: ['seudot', 'yeshiva', 'donations'] },
+};
+const GLOBAL_TABS = ['settings', 'actionLog'];
+
 let currentTab = null;
+let currentSection = null;
+let allAvailableTabs = [];
 let myPermissions = {};
 
 async function api(path, options = {}) {
@@ -416,13 +427,87 @@ function loadShell(session) {
   document.getElementById('whoBadge').innerHTML = `
     ${esc(session.name || '')} · <button class="ghost" id="logoutBtn" style="color:#fff">יציאה</button>
   `;
-  const availableTabs = Object.keys(TAB_TITLES).filter((t) => (
+  allAvailableTabs = Object.keys(TAB_TITLES).filter((t) => (
     t === 'settings' ? (myPermissions.settings || myPermissions.slots) : myPermissions[TAB_PERMISSION[t] || t]
   ));
-  if (!availableTabs.length) {
+  document.getElementById('logoutBtn').onclick = async () => { await api('/admin/logout', { method: 'POST' }); screenLogin(); };
+  if (!allAvailableTabs.length) {
     render(`<div class="card"><div class="error">לחשבון זה אין הרשאה לאף מסך ניהול. פנה למנהל אחר להוספת הרשאות.</div></div>`);
     return;
   }
+  renderHome();
+}
+
+/** מסך ראשי: בחירה בין "ניהול כפרות" ל"ניהול טפסים" (רק סקציות עם לפחות
+ * טאב אחד שמורשה), ומתחתיו הטאבים הגלובליים (הגדרות/יומן) שלא שייכים לאף
+ * סקציה. אם יש בסה"כ רק ברירה אחת (סקציה אחת, בלי שום טאב גלובלי) — מדלגים
+ * ישר אליה, אין טעם בתפריט של אופציה יחידה. */
+function renderHome() {
+  currentSection = null;
+  currentTab = null;
+  const sectionCards = Object.entries(SECTIONS)
+    .map(([key, s]) => ({ key, ...s, tabs: s.tabs.filter((t) => allAvailableTabs.includes(t)) }))
+    .filter((s) => s.tabs.length);
+  const globalTabs = GLOBAL_TABS.filter((t) => allAvailableTabs.includes(t));
+
+  if (sectionCards.length === 1 && !globalTabs.length) {
+    return enterSection(sectionCards[0].key);
+  }
+  if (!sectionCards.length) {
+    // אין בכלל טאבים ששייכים לסקציה (למשל מנהל עם הרשאת הגדרות בלבד) —
+    // נשאר המסך השטוח הרגיל, בלי תפריט בחירה מיותר.
+    return renderFlatTabs(globalTabs);
+  }
+
+  render(`
+    <p class="hint" style="margin:0 0 10px">בחרו תחום ניהול</p>
+    <div class="grid4" style="grid-template-columns:${sectionCards.length > 1 ? '1fr 1fr' : '1fr'}">
+      ${sectionCards.map((s) => `
+        <button type="button" class="big-btn highlight" data-section="${s.key}">
+          <span class="ico">${s.icon}</span>${esc(s.title)}
+        </button>
+      `).join('')}
+    </div>
+    ${globalTabs.length ? `
+      <div class="tabs" style="margin-top:18px">
+        ${globalTabs.map((t) => `<button data-tab="${t}">${TAB_TITLES[t]}</button>`).join('')}
+      </div>
+      <div id="tabContent"></div>
+    ` : ''}
+  `);
+  document.querySelectorAll('[data-section]').forEach((b) => { b.onclick = () => enterSection(b.dataset.section); });
+  document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
+  renderSlotStatusBar();
+}
+
+/** נכנסים לתוך סקציה (כפרות/טפסים) — הטאבים שלה + הטאבים הגלובליים יחד
+ * באותו פס טאבים, עם כפתור חזרה למסך הראשי מעליו (רק אם יש בכלל לאן
+ * לחזור — יותר מברירה אחת בסה"כ). */
+function enterSection(key) {
+  currentSection = key;
+  const section = SECTIONS[key];
+  const sectionTabsAvail = section.tabs.filter((t) => allAvailableTabs.includes(t));
+  const globalTabs = GLOBAL_TABS.filter((t) => allAvailableTabs.includes(t));
+  const otherSectionHasTabs = Object.entries(SECTIONS).some(([k, s]) => k !== key && s.tabs.some((t) => allAvailableTabs.includes(t)));
+  const showBackButton = otherSectionHasTabs || globalTabs.length > 0;
+
+  render(`
+    ${showBackButton ? `<button type="button" class="mini-btn" id="backToHomeBtn" style="margin-bottom:10px">🏠 תפריט ראשי</button>` : ''}
+    <div class="tabs">
+      ${sectionTabsAvail.map((t) => `<button data-tab="${t}">${TAB_TITLES[t]}</button>`).join('')}
+      ${globalTabs.map((t) => `<button data-tab="${t}">${TAB_TITLES[t]}</button>`).join('')}
+    </div>
+    <div id="tabContent"><div class="loading">טוען…</div></div>
+  `);
+  if (showBackButton) document.getElementById('backToHomeBtn').onclick = () => renderHome();
+  document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
+  renderSlotStatusBar();
+  const tabsHere = [...sectionTabsAvail, ...globalTabs];
+  showTab(currentTab && tabsHere.includes(currentTab) ? currentTab : sectionTabsAvail[0]);
+}
+
+/** המסך השטוח הישן (בלי תפריט סקציות) — למקרה שאין בכלל טאבים ששייכים לסקציה. */
+function renderFlatTabs(availableTabs) {
   render(`
     <div class="tabs">
       ${availableTabs.map((t) => `<button data-tab="${t}">${TAB_TITLES[t]}</button>`).join('')}
@@ -430,7 +515,6 @@ function loadShell(session) {
     <div id="tabContent"><div class="loading">טוען…</div></div>
   `);
   document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
-  document.getElementById('logoutBtn').onclick = async () => { await api('/admin/logout', { method: 'POST' }); screenLogin(); };
   renderSlotStatusBar();
   showTab(currentTab && availableTabs.includes(currentTab) ? currentTab : availableTabs[0]);
 }
