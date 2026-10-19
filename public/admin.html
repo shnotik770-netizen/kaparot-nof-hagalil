@@ -177,7 +177,7 @@ function downloadCustomersCsv(customers, slots, phonesFilter) {
 }
 // סדר המפתחות כאן קובע את סדר הטאבים בתפריט. 'settings' ו'slots' אוחדו
 // לכפתור אחד (ראו renderSettingsTab) — עדיין שתי הרשאות נפרדות, אבל ניווט משותף.
-const TAB_TITLES = { orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', incomingSms: '📥 הודעות נכנסות', seudot: '🍽️ שמחת תורה', yeshiva: '🎓 כנס תומכי תמימים', settings: 'הגדרות וזמני חלוקה', actionLog: 'יומן פעולות' };
+const TAB_TITLES = { orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', incomingSms: '📥 הודעות נכנסות', seudot: '🍽️ שמחת תורה', yeshiva: '🎓 כנס תומכי תמימים', donations: '💝 תרומות', settings: 'הגדרות וזמני חלוקה', actionLog: 'יומן פעולות' };
 // 'יומן פעולות' משתמש בהרשאת 'הגדרות' (אין לו הרשאה נפרדת משלו — כל מי שרואה הגדרות רואה גם את היומן).
 // כל שאר הטאבים משתמשים בהרשאה בעלת אותו שם בדיוק (orders/dashboard/incomingSms/seudot) — לא צריך ערך כאן.
 const TAB_PERMISSION = { actionLog: 'settings' };
@@ -527,6 +527,7 @@ async function showTab(tab) {
   if (tab === 'incomingSms') return renderIncomingSmsTab();
   if (tab === 'seudot') return renderSeudotTab();
   if (tab === 'yeshiva') return renderYeshivaTab();
+  if (tab === 'donations') return renderDonationsTab();
 }
 
 // פתיחת טאב היומן עם חיפוש ממולא מראש לפי טלפון — משמש מכפתור "היסטוריית
@@ -944,6 +945,7 @@ async function renderSettingsCore() {
             <label><input type="checkbox" id="newPermIncomingSms" checked> הודעות נכנסות</label>
             <label><input type="checkbox" id="newPermSeudot" checked> שמחת תורה</label>
             <label><input type="checkbox" id="newPermYeshiva" checked> כנס תומכי תמימים</label>
+            <label><input type="checkbox" id="newPermDonations" checked> תרומות</label>
           </div>
           <button class="primary big-action" id="addAdmin" style="width:100%">הוספת מנהל</button>
         </fieldset>
@@ -1048,6 +1050,7 @@ async function renderSettingsCore() {
             incomingSms: document.getElementById('newPermIncomingSms').checked,
             seudot: document.getElementById('newPermSeudot').checked,
             yeshiva: document.getElementById('newPermYeshiva').checked,
+            donations: document.getElementById('newPermDonations').checked,
           };
       await api('/admin/admins', { method: 'POST', body: {
         name: document.getElementById('newAdminName').value,
@@ -1067,7 +1070,7 @@ async function renderSettingsCore() {
   renderAdminsList();
 }
 
-const PERM_LABELS = { settings: 'הגדרות', orders: 'הזמנות', dashboard: 'דשבורד', slots: 'זמני חלוקה', incomingSms: 'הודעות נכנסות', seudot: 'שמחת תורה', yeshiva: 'כנס תומכי תמימים' };
+const PERM_LABELS = { settings: 'הגדרות', orders: 'הזמנות', dashboard: 'דשבורד', slots: 'זמני חלוקה', incomingSms: 'הודעות נכנסות', seudot: 'שמחת תורה', yeshiva: 'כנס תומכי תמימים', donations: 'תרומות' };
 const FULL_ACCESS_PERMISSIONS = Object.fromEntries(Object.keys(PERM_LABELS).map((k) => [k, true]));
 
 async function renderAdminsList() {
@@ -1110,6 +1113,7 @@ async function renderAdminsList() {
           <label><input type="checkbox" data-perm="incomingSms" data-id="${a.id}" ${a.permissions.incomingSms ? 'checked' : ''}> הודעות נכנסות</label>
           <label><input type="checkbox" data-perm="seudot" data-id="${a.id}" ${a.permissions.seudot ? 'checked' : ''}> שמחת תורה</label>
           <label><input type="checkbox" data-perm="yeshiva" data-id="${a.id}" ${a.permissions.yeshiva ? 'checked' : ''}> כנס תומכי תמימים</label>
+          <label><input type="checkbox" data-perm="donations" data-id="${a.id}" ${a.permissions.donations ? 'checked' : ''}> תרומות</label>
         </div>
         <div class="row">
           <button class="primary big-action" data-save-admin="${a.id}">שמירה</button>
@@ -1153,6 +1157,7 @@ async function renderAdminsList() {
             incomingSms: box.querySelector(`[data-perm="incomingSms"][data-id="${id}"]`).checked,
             seudot: box.querySelector(`[data-perm="seudot"][data-id="${id}"]`).checked,
             yeshiva: box.querySelector(`[data-perm="yeshiva"][data-id="${id}"]`).checked,
+            donations: box.querySelector(`[data-perm="donations"][data-id="${id}"]`).checked,
           };
       try {
         await api(`/admin/admins/${id}`, { method: 'PUT', body: { name, phone, password, permissions } });
@@ -3312,7 +3317,7 @@ async function renderYeshivaTab() {
   content.innerHTML = `
     <div class="card">
       <h2 style="margin:0 0 4px">🎓 כנס נכבד לתומכי תמימים — בוגרי הישיבה</h2>
-      <p class="hint" style="margin:0 0 10px">אולם הישיבה הגדולה, חב"ד 13, נוף הגליל · טופס נפרד ב-<a href="/yeshiva" target="_blank">/yeshiva</a></p>
+      <p class="hint" style="margin:0 0 10px">אולם הישיבה הגדולה, חב"ד 13, נוף הגליל · טופס נפרד ב-<a href="/20Cheshvan" target="_blank">/20Cheshvan</a></p>
       <div class="item-row"><span>סה"כ נרשמו</span><span><b>${registrations.length}</b></span></div>
       <div class="item-row"><span>מגיעים</span><span><b>${coming.length}</b></span></div>
       <div class="item-row"><span>עדיין בודקים</span><span><b>${checking.length}</b></span></div>
@@ -3446,6 +3451,151 @@ async function renderYeshivaTab() {
   };
 }
 
+// ============== תרומות ==============
+// ראו public/donate.html + src/lib/donations.js — דף תרומה כללי בשורש (/),
+// לא קשור לכפרות. כאן: ניהול רשימת הקטגוריות המוצגות לתורם (הוספה/
+// הפעלה-כיבוי/שם/סדר) + רשימת התרומות ששולמו בפועל + ייצוא CSV.
+
+let donationsSearchText = '';
+
+async function renderDonationsTab() {
+  const content = document.getElementById('tabContent');
+  const [donations, categories] = await Promise.all([
+    api('/admin/donations'),
+    api('/admin/donation-categories'),
+  ]);
+  const totalAmount = donations.reduce((s, d) => s + d.amount, 0);
+
+  content.innerHTML = `
+    <div class="card">
+      <h2 style="margin:0 0 4px">💝 תרומות למוסדות חסדי מנחם</h2>
+      <p class="hint" style="margin:0 0 10px">דף תרומה כללי בשורש האתר · <a href="/" target="_blank">/</a></p>
+      <div class="item-row"><span>סה"כ תרומות</span><span><b>${donations.length}</b></span></div>
+      <div class="item-row"><span>סה"כ הכנסה</span><span>${money(totalAmount)}</span></div>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 8px;font-size:14px">קטגוריות תרומה (מה שמוצג לתורם)</h3>
+      <div id="donationCategoriesWrap"></div>
+      <div class="row" style="margin-top:12px">
+        <input type="text" id="newCategoryName" placeholder="שם קטגוריה חדשה">
+        <button class="secondary" id="addCategoryBtn" style="width:auto">+ הוספה</button>
+      </div>
+      <div id="categoriesMsg"></div>
+    </div>
+    <div class="card">
+      <div class="row">
+        <input type="text" id="donationsSearch" placeholder="חיפוש לפי שם, טלפון או קטגוריה" value="${esc(donationsSearchText)}">
+        <button class="mini-btn" id="donationsCsvBtn" title="ייצוא ל-CSV">📄 ייצוא</button>
+      </div>
+      <div id="donationsListWrap" style="margin-top:12px"></div>
+    </div>
+  `;
+
+  function renderCategories() {
+    document.getElementById('donationCategoriesWrap').innerHTML = categories.length ? `
+      <table>
+        <thead><tr><th>שם</th><th>פעיל?</th><th></th></tr></thead>
+        <tbody>
+          ${categories.map((c, i) => `
+            <tr>
+              <td><input type="text" data-cat-name="${c.id}" value="${esc(c.name)}" style="margin:0"></td>
+              <td><input type="checkbox" data-cat-enabled="${c.id}" ${c.enabled ? 'checked' : ''}></td>
+              <td style="white-space:nowrap">
+                <button type="button" class="ghost" data-cat-up="${c.id}" ${i === 0 ? 'disabled' : ''} title="הזזה למעלה">⬆️</button>
+                <button type="button" class="ghost" data-cat-down="${c.id}" ${i === categories.length - 1 ? 'disabled' : ''} title="הזזה למטה">⬇️</button>
+                <button type="button" class="ghost" data-cat-save="${c.id}">שמירה</button>
+                <button type="button" class="ghost" data-cat-del="${c.id}" style="color:var(--wine)">מחיקה</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    ` : `<p class="hint">אין קטגוריות — הוסיפו קטגוריה ראשונה מתחת.</p>`;
+
+    categories.forEach((c, i) => {
+      document.querySelector(`[data-cat-save="${c.id}"]`).onclick = async () => {
+        try {
+          await api(`/admin/donation-categories/${c.id}`, {
+            method: 'PUT',
+            body: {
+              name: document.querySelector(`[data-cat-name="${c.id}"]`).value.trim(),
+              enabled: document.querySelector(`[data-cat-enabled="${c.id}"]`).checked,
+            },
+          });
+          renderDonationsTab();
+        } catch (err) {
+          document.getElementById('categoriesMsg').innerHTML = `<div class="error">${err.message}</div>`;
+        }
+      };
+      document.querySelector(`[data-cat-del="${c.id}"]`).onclick = async () => {
+        if (!confirm(`למחוק את הקטגוריה "${c.name}"?`)) return;
+        try {
+          await api(`/admin/donation-categories/${c.id}`, { method: 'DELETE' });
+          renderDonationsTab();
+        } catch (err) { alert(err.message); }
+      };
+      if (i > 0) {
+        document.querySelector(`[data-cat-up="${c.id}"]`).onclick = async () => {
+          await api(`/admin/donation-categories/${c.id}/reorder`, { method: 'PUT', body: { otherId: categories[i - 1].id } });
+          renderDonationsTab();
+        };
+      }
+      if (i < categories.length - 1) {
+        document.querySelector(`[data-cat-down="${c.id}"]`).onclick = async () => {
+          await api(`/admin/donation-categories/${c.id}/reorder`, { method: 'PUT', body: { otherId: categories[i + 1].id } });
+          renderDonationsTab();
+        };
+      }
+    });
+  }
+  renderCategories();
+
+  document.getElementById('addCategoryBtn').onclick = async () => {
+    const name = document.getElementById('newCategoryName').value.trim();
+    if (!name) return;
+    try {
+      await api('/admin/donation-categories', { method: 'POST', body: { name } });
+      renderDonationsTab();
+    } catch (err) {
+      document.getElementById('categoriesMsg').innerHTML = `<div class="error">${err.message}</div>`;
+    }
+  };
+
+  function renderList() {
+    const q = donationsSearchText.trim();
+    const filtered = q ? donations.filter((d) => (
+      (d.fullName || '').includes(q) || (d.phone || '').includes(q) || d.categoryName.includes(q)
+    )) : donations;
+    document.getElementById('donationsListWrap').innerHTML = filtered.length ? `
+      <table>
+        <thead><tr><th>שם</th><th>טלפון</th><th>קטגוריה</th><th>סכום</th><th>תאריך</th></tr></thead>
+        <tbody>
+          ${filtered.map((d) => `
+            <tr>
+              <td>${esc(d.fullName || '')}</td>
+              <td>${esc(d.phone || '')}</td>
+              <td>${esc(d.categoryName)}</td>
+              <td>${money(d.amount)}</td>
+              <td class="meta">${new Date(d.createdAt).toLocaleString('he-IL')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    ` : `<p class="hint">אין תרומות תואמות.</p>`;
+  }
+  renderList();
+  document.getElementById('donationsSearch').oninput = (e) => { donationsSearchText = e.target.value; renderList(); };
+
+  document.getElementById('donationsCsvBtn').onclick = () => {
+    const header = ['שם', 'טלפון', 'ת"ז', 'אימייל', 'קטגוריה', 'סכום', 'הערה', 'תאריך'];
+    const rows = donations.map((d) => [
+      d.fullName || '', d.phone || '', d.idNumber || '', d.email || '', d.categoryName, d.amount, d.note || '',
+      new Date(d.createdAt).toLocaleString('he-IL'),
+    ]);
+    triggerCsvDownload('דוח-תרומות', null, header, rows);
+  };
+}
+
 // ============== יומן פעולות ==============
 
 const ACTION_LABELS = {
@@ -3483,6 +3633,12 @@ const ACTION_LABELS = {
   admin_deleted: 'מנהל נמחק',
   admin_login: 'כניסת מנהל',
   hard_reset: 'איפוס קשיח',
+  donation_category_created: 'קטגוריית תרומה נוספה',
+  donation_category_updated: 'קטגוריית תרומה עודכנה',
+  donation_category_deleted: 'קטגוריית תרומה נמחקה',
+  donation_created: 'תרומה נוצרה (טרם שולמה)',
+  donation_payment_client_confirmed: 'תרומה אושרה לפי הדפדפן (טרם אומת Webhook)',
+  donation_payment_received_webhook: 'תרומה התקבלה (נדרים פלוס, Webhook)',
 };
 
 function actionSummaryHtml(a) {
@@ -3560,6 +3716,16 @@ function actionSummaryHtml(a) {
       return `${esc(d.name || d.phone || '')} · ${d.method === 'otp' ? 'קוד סמס' : d.method === 'password_bootstrap' ? 'סיסמת בוטסטרפ' : 'סיסמה'}`;
     case 'hard_reset':
       return `בוצע ע"י ${esc(d.performedBy || '')}`;
+    case 'donation_category_created':
+    case 'donation_category_updated':
+      return `${esc(d.name || '')}${d.enabled === false ? ' (מכובה)' : ''}`;
+    case 'donation_category_deleted':
+      return `${esc(d.name || '')} (נמחקה לגמרי)`;
+    case 'donation_created':
+      return `${esc(d.categoryName || '')} · ${money(d.amount || 0)}${d.fullName ? ` · ${esc(d.fullName)}` : ''}`;
+    case 'donation_payment_client_confirmed':
+    case 'donation_payment_received_webhook':
+      return `${esc(d.categoryName || '')} · ${money(d.amount || 0)} · עסקה ${esc(d.transactionId || '')}`;
     default:
       return esc(JSON.stringify(d));
   }

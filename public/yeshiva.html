@@ -46,7 +46,7 @@
     <label class="radio-row"><input type="radio" name="attendance" value="not_coming"> לצערי, לא אוכל להגיע</label>
 
     <div id="giftFields" style="display:none">
-      <p class="hint" style="margin:14px 0 0">ע"מ שנוכל להעניק לך את השי בצורה הטובה ביותר, אנא מלא:</p>
+      <p class="hint" style="margin:14px 0 0">נשמח לשלוח לך משהו מרענן מהישיבה,</p>
       <label for="emailInput">כתובת דוא"ל</label>
       <input type="email" id="emailInput" placeholder="example@mail.com">
       <label for="addressInput">כתובת מגורים</label>
@@ -93,7 +93,8 @@ init();
 
 document.querySelectorAll('input[name="attendance"]').forEach((input) => {
   input.addEventListener('change', () => {
-    document.getElementById('giftFields').style.display = document.querySelector('input[name="attendance"]:checked')?.value === 'coming' ? '' : 'none';
+    const val = document.querySelector('input[name="attendance"]:checked')?.value;
+    document.getElementById('giftFields').style.display = (val === 'coming' || val === 'checking') ? '' : 'none';
   });
 });
 

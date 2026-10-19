@@ -8,6 +8,7 @@ import { pool } from '../db/pool.js';
 import { verifyWebhookSignature } from '../lib/nedarim.js';
 import { allocateNedarimPayment } from '../lib/payments.js';
 import { allocateSeudotPayment } from '../lib/seudot.js';
+import { allocateDonationPayment } from '../lib/donations.js';
 
 const router = Router();
 
@@ -30,6 +31,16 @@ router.post('/nedarim-plus-seudot', async (req, res) => {
     await handleSeudotWebhook(req, res);
   } catch (err) {
     console.error('[seudot webhook] unexpected error', err);
+    if (!res.headersSent) res.status(500).json({ error: 'unexpected_error' });
+  }
+});
+
+// נתיב נפרד נוסף — דף התרומות בשורש (/), ראו startDonationPayment ב-routes/api.js.
+router.post('/nedarim-plus-donations', async (req, res) => {
+  try {
+    await handleDonationsWebhook(req, res);
+  } catch (err) {
+    console.error('[donations webhook] unexpected error', err);
     if (!res.headersSent) res.status(500).json({ error: 'unexpected_error' });
   }
 });
@@ -164,6 +175,69 @@ async function handleSeudotWebhook(req, res) {
   await pool.query(
     `INSERT INTO webhook_events(provider, transaction_id, raw_payload, processed_ok)
      VALUES ('nedarim_plus_seudot', $1, $2, $3)`,
+    [transactionId, JSON.stringify({ payload, reason: result.reason }), !!result.allocated]
+  );
+
+  res.status(200).json({ ok: true });
+}
+
+async function handleDonationsWebhook(req, res) {
+  const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
+  let payload = null;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    // ראו הערה מקבילה ב-handleNedarimWebhook — ייתכן עדכון בפורמט אחר, נרשם גולמי.
+  }
+
+  const secret = process.env.NEDARIM_WEBHOOK_SECRET;
+  const verification = verifyWebhookSignature({
+    timestampHeader: req.headers['x-nedarim-timestamp'],
+    signatureHeader: req.headers['x-nedarim-signature'],
+    rawBody,
+    secret,
+  });
+
+  const softMode = !secret;
+  if (!softMode && !verification.valid) {
+    await pool.query(
+      `INSERT INTO webhook_events(provider, transaction_id, raw_payload, processed_ok)
+       VALUES ('nedarim_plus_donations', $1, $2, false)`,
+      [payload?.TransactionId || null, JSON.stringify({ payload, rejectedReason: verification.reason })]
+    );
+    return res.status(401).json({ error: 'signature_invalid' });
+  }
+  if (softMode) {
+    console.warn('[donations webhook] מעבד ללא אימות חתימה — NEDARIM_WEBHOOK_SECRET לא מוגדר עדיין.');
+  }
+
+  const token = payload?.Param2;
+  const transactionId = payload?.TransactionId ? String(payload.TransactionId) : null;
+
+  if (!payload || !token) {
+    await pool.query(
+      `INSERT INTO webhook_events(provider, transaction_id, raw_payload, processed_ok)
+       VALUES ('nedarim_plus_donations', $1, $2, false)`,
+      [transactionId, JSON.stringify({ payload })]
+    );
+    return res.status(200).json({ ok: true, processed: false });
+  }
+
+  let result;
+  try {
+    result = await allocateDonationPayment({ token, transactionId });
+  } catch (err) {
+    await pool.query(
+      `INSERT INTO webhook_events(provider, transaction_id, raw_payload, processed_ok)
+       VALUES ('nedarim_plus_donations', $1, $2, false)`,
+      [transactionId, JSON.stringify({ payload, error: err.message })]
+    );
+    return res.status(500).json({ error: 'processing_failed' });
+  }
+
+  await pool.query(
+    `INSERT INTO webhook_events(provider, transaction_id, raw_payload, processed_ok)
+     VALUES ('nedarim_plus_donations', $1, $2, $3)`,
     [transactionId, JSON.stringify({ payload, reason: result.reason }), !!result.allocated]
   );
 

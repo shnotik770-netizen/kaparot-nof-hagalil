@@ -96,6 +96,12 @@ UPDATE admins SET can_yeshiva = can_orders WHERE can_yeshiva IS NULL;
 ALTER TABLE admins ALTER COLUMN can_yeshiva SET NOT NULL;
 ALTER TABLE admins ALTER COLUMN can_yeshiva SET DEFAULT TRUE;
 
+-- הרשאה עצמאית נוספת — טאב "תרומות" (ראו seudot/yeshiva למעלה, אותו דפוס בדיוק).
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS can_donations BOOLEAN;
+UPDATE admins SET can_donations = can_orders WHERE can_donations IS NULL;
+ALTER TABLE admins ALTER COLUMN can_donations SET NOT NULL;
+ALTER TABLE admins ALTER COLUMN can_donations SET DEFAULT TRUE;
+
 -- ================= קודי אימות סמס (OTP) — לאזור אישי חוזר ולכניסת מנהל =================
 CREATE TABLE IF NOT EXISTS otp_codes (
   id               SERIAL PRIMARY KEY,
@@ -373,5 +379,57 @@ CREATE TABLE IF NOT EXISTS yeshiva_registrations (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_yeshiva_registrations_phone ON yeshiva_registrations(normalized_phone);
+
+-- ================= תרומות למוסדות חסדי מנחם (דף השורש, עצמאי לגמרי) =================
+-- רשימת הקטגוריות המוצגת ללתורם — מנוהלת בפאנל (הוספה/הפעלה-כיבוי/שם/סדר),
+-- נזרעת כאן חד-פעמית מתוך רשימת הקטגוריות הקיימת בחשבון נדרים פלוס (ON
+-- CONFLICT DO NOTHING כדי שלא יתווספו כפילויות אם המיגרציה רצה שוב, ושלא
+-- "יחזירו לחיים" קטגוריה שהמנהל כיבה/שינה בעצמו).
+CREATE TABLE IF NOT EXISTS donation_categories (
+  id         SERIAL PRIMARY KEY,
+  name       TEXT NOT NULL UNIQUE,
+  enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO donation_categories (name, sort_order) VALUES
+  ('תרומה לישיבה גדולה', 1),
+  ('בית התבשיל', 2),
+  ('מקווה תשלום', 3),
+  ('דמי קדימה - רישום הרך הנימול לישיבה', 4),
+  ('עליה לתורה', 5),
+  ('התוועדויות', 6),
+  ('אחזקת בית הכנסת', 7),
+  ('תרומה כללית למוסד', 8),
+  ('תשלום', 9),
+  ('שכר לימוד', 10),
+  ('חנות קהילתית', 11),
+  ('בניית כיתות לימוד', 12)
+ON CONFLICT (name) DO NOTHING;
+
+-- token נשלח כ-Param2 לנדרים פלוס ומזהה את התרומה מול ה-Webhook הייעודי
+-- (ראו routes/webhooks.js, lib/donations.js) — אותו דפוס בדיוק כמו
+-- seudot_registrations. category_name הוא "צילום" של שם הקטגוריה בזמן
+-- התרומה (לא רק category_id) — כדי שהרשומה ההיסטורית תישאר נכונה גם אם
+-- המנהל ישנה/ימחק את הקטגוריה בעתיד. שום שדה פרטי של התורם אינו חובה
+-- (full_name/phone/id_number/email/note) — רק קטגוריה וסכום.
+CREATE TABLE IF NOT EXISTS donations (
+  id                     SERIAL PRIMARY KEY,
+  token                  TEXT NOT NULL UNIQUE,
+  category_id            INTEGER REFERENCES donation_categories(id) ON DELETE SET NULL,
+  category_name          TEXT NOT NULL,
+  amount                 NUMERIC(10,2) NOT NULL CHECK (amount > 0),
+  full_name              TEXT,
+  phone                  TEXT,
+  normalized_phone       TEXT,
+  id_number              TEXT,
+  email                  TEXT,
+  note                   TEXT,
+  status                 TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid')),
+  nedarim_transaction_id TEXT,
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  paid_at                TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_donations_status ON donations(status);
 
 -- טבלת session ל-express-session תיווצר אוטומטית ע"י connect-pg-simple (createTableIfMissing: true)

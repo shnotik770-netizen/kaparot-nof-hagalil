@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>תרומה למוסדות חסדי מנחם</title>
+<meta property="og:site_name" content="מוסדות חסדי מנחם">
+<meta property="og:title" content="תרומה למוסדות חסדי מנחם">
+<meta property="og:description" content="נוף הגליל">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="/shared.css">
+<style>
+  .radio-row{display:flex;align-items:center;gap:8px;padding:9px 0;font-weight:normal;cursor:pointer;border-top:1px solid var(--line)}
+  .radio-row:first-child{border-top:none}
+  .radio-row input{width:auto;margin:0}
+  .amount-row{display:flex;gap:10px;margin-top:6px}
+  .amount-btn{flex:1;background:var(--surface-2);color:var(--ink);border:1.5px solid var(--line);border-radius:10px;padding:12px 6px;font-weight:800;font-size:15px;cursor:pointer}
+  .amount-btn.selected{background:var(--accent);color:#fff;border-color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <h1>תרומה למוסדות חסדי מנחם</h1>
+    <div class="topbar-subtitle">נוף הגליל</div>
+  </div>
+</div>
+<div class="wrap" id="app">
+  <div class="loading" id="initialLoading">טוען…</div>
+
+  <div class="card" id="formCard" style="display:none">
+    <label>לאיזו מטרה תרצו לתרום?</label>
+    <div id="categoriesWrap"></div>
+
+    <label style="margin-top:18px">סכום התרומה</label>
+    <div class="amount-row">
+      <button type="button" class="amount-btn" data-amount="36">₪36</button>
+      <button type="button" class="amount-btn" data-amount="100">₪100</button>
+      <button type="button" class="amount-btn" data-amount="180">₪180</button>
+    </div>
+    <input type="number" id="amountInput" min="1" inputmode="numeric" placeholder="סכום אחר" style="margin-top:8px">
+
+    <label for="fullNameInput" style="margin-top:18px">שם ושם משפחה (לא חובה)</label>
+    <input type="text" id="fullNameInput" placeholder="לדוגמה: ישראל ישראלי">
+    <label for="phoneInput">טל. נייד (לא חובה)</label>
+    <input type="tel" id="phoneInput" inputmode="tel" placeholder="05X-XXXXXXX">
+    <label for="idNumberInput">תעודת זהות (לא חובה — לקבלה)</label>
+    <input type="text" id="idNumberInput" inputmode="numeric" maxlength="9" placeholder="מספר תעודת זהות">
+    <label for="emailInput">כתובת דוא"ל (לא חובה — לקבלה)</label>
+    <input type="email" id="emailInput" placeholder="example@mail.com">
+    <label for="noteInput">לעילוי נשמת / הערה (לא חובה)</label>
+    <input type="text" id="noteInput" placeholder="לדוגמה: לעילוי נשמת...">
+
+    <div class="spacer"></div>
+    <button class="primary" id="submitBtn">תרומה</button>
+    <div id="formError" class="error" style="display:none"></div>
+  </div>
+
+  <div class="card" id="paymentCard" style="display:none">
+    <h2>תשלום</h2>
+    <button class="primary" id="payBtn" style="display:none">נסה שוב</button>
+    <div id="paymentFrameWrap" style="display:none;margin-top:16px">
+      <iframe id="NedarimFrame" allow="payment" scrolling="no"
+              style="width:100%;border:none;height:0"></iframe>
+    </div>
+    <div id="paymentError" class="error" style="display:none"></div>
+  </div>
+
+  <div class="card" id="successCard" style="display:none">
+    <div class="success">תודה רבה על תרומתך הנדיבה! 🙏</div>
+  </div>
+</div>
+
+<script>
+async function api(path, options = {}) {
+  const res = await fetch(`/api${path}`, {
+    method: options.method || 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'שגיאה לא צפויה.');
+  return data;
+}
+
+const nedarimFrame = document.getElementById('NedarimFrame');
+function PostNedarim(data) { nedarimFrame.contentWindow.postMessage(data, '*'); }
+window.addEventListener('message', (event) => {
+  const msg = event.data || {};
+  if (msg.Name === 'Height') {
+    nedarimFrame.style.height = (parseInt(msg.Value, 10) + 15) + 'px';
+  } else if (msg.Name === 'TransactionResponse') {
+    onNedarimTransactionResponse(msg.Value || {});
+  }
+});
+nedarimFrame.src = 'https://www.matara.pro/nedarimplus/iframe/v3/?language=he';
+
+let currentToken = null;
+let selectedCategoryId = null;
+
+async function init() {
+  try {
+    const categories = await api('/donations/categories');
+    document.getElementById('initialLoading').style.display = 'none';
+    document.getElementById('categoriesWrap').innerHTML = categories.map((c, i) => `
+      <label class="radio-row">
+        <input type="radio" name="category" value="${c.id}" ${i === 0 ? 'checked' : ''}>
+        ${c.name.replace(/&/g, '&amp;').replace(/</g, '&lt;')}
+      </label>
+    `).join('');
+    selectedCategoryId = categories[0]?.id || null;
+    document.querySelectorAll('input[name="category"]').forEach((input) => {
+      input.addEventListener('change', () => { selectedCategoryId = Number(input.value); });
+    });
+    document.getElementById('formCard').style.display = '';
+  } catch (err) {
+    document.getElementById('initialLoading').textContent = err.message;
+  }
+}
+init();
+
+document.querySelectorAll('.amount-btn').forEach((btn) => {
+  btn.onclick = () => {
+    document.getElementById('amountInput').value = btn.dataset.amount;
+    document.querySelectorAll('.amount-btn').forEach((b) => b.classList.remove('selected'));
+    btn.classList.add('selected');
+  };
+});
+document.getElementById('amountInput').oninput = () => {
+  const val = document.getElementById('amountInput').value;
+  document.querySelectorAll('.amount-btn').forEach((b) => b.classList.toggle('selected', b.dataset.amount === val));
+};
+
+function showSuccess() {
+  document.getElementById('formCard').style.display = 'none';
+  document.getElementById('paymentCard').style.display = 'none';
+  document.getElementById('successCard').style.display = '';
+}
+
+document.getElementById('submitBtn').onclick = async () => {
+  const btn = document.getElementById('submitBtn');
+  const errorEl = document.getElementById('formError');
+  errorEl.style.display = 'none';
+  const amount = Number(document.getElementById('amountInput').value);
+  const fullName = document.getElementById('fullNameInput').value.trim();
+  const phone = document.getElementById('phoneInput').value.trim();
+  const idNumber = document.getElementById('idNumberInput').value.trim();
+  const email = document.getElementById('emailInput').value.trim();
+  const note = document.getElementById('noteInput').value.trim();
+
+  if (!selectedCategoryId) { errorEl.textContent = 'נא לבחור מטרת תרומה.'; errorEl.style.display = ''; return; }
+  if (!amount || amount <= 0) { errorEl.textContent = 'נא להזין סכום תרומה.'; errorEl.style.display = ''; return; }
+
+  btn.disabled = true; btn.textContent = 'שולח…';
+  try {
+    const result = await api('/donations/create-transaction', {
+      method: 'POST',
+      body: { categoryId: selectedCategoryId, amount, fullName, phone, idNumber, email, note },
+    });
+    currentToken = result.token;
+    document.getElementById('formCard').style.display = 'none';
+    document.getElementById('paymentCard').style.display = '';
+    openPaymentFrame(result.transactionId, result.key);
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = '';
+    btn.disabled = false; btn.textContent = 'תרומה';
+  }
+};
+
+function openPaymentFrame(transactionId, key) {
+  document.getElementById('payBtn').style.display = 'none';
+  document.getElementById('paymentFrameWrap').style.display = '';
+  document.getElementById('paymentError').style.display = 'none';
+  PostNedarim({ Name: 'StartPayment', Value: { TransactionId: transactionId, Key: key, ButtonText: 'תרומה' } });
+}
+
+async function onNedarimTransactionResponse(value) {
+  document.getElementById('paymentFrameWrap').style.display = 'none';
+  if (value.Status === 'OK') {
+    const transactionId = value.TransactionId || null;
+    try {
+      await api('/donations/confirm-client', { method: 'POST', body: { token: currentToken, transactionId } });
+    } catch (err) {
+      console.error('אישור תשלום אופטימי נכשל (ה-Webhook עדיין ישלים את זה):', err);
+    }
+    showSuccess();
+  } else {
+    const errorEl = document.getElementById('paymentError');
+    errorEl.textContent = (value.Message || 'התשלום לא הושלם.') + ' לא ניתן לנסות שוב — נא למלא את הטופס מחדש.';
+    errorEl.style.display = '';
+  }
+}
+</script>
+</body>
+</html>

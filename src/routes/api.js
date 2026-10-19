@@ -37,6 +37,10 @@ import {
   createYeshivaRegistration, listYeshivaRegistrations, updateYeshivaRegistration, deleteYeshivaRegistration,
   ATTENDANCE_VALUES,
 } from '../lib/yeshiva.js';
+import {
+  listEnabledDonationCategories, listAllDonationCategories, createDonationCategory, updateDonationCategory,
+  swapDonationCategoryOrder, deleteDonationCategory, createDonation, confirmDonationPaymentClient, listDonations,
+} from '../lib/donations.js';
 import { listActions, logAction } from '../lib/actionLog.js';
 import { sendSms, sendBulkSms, getSmsHistoryForPhone, getAllIncomingSms, getBroadcastResponses, BROADCAST_ANSWER_LABEL } from '../lib/sms.js';
 import { runYemotTestCalls } from '../lib/yemotIvr.js';
@@ -378,13 +382,14 @@ function parseYeshivaFields(body) {
   if (!ATTENDANCE_VALUES.includes(attendance)) throw Object.assign(new Error('נא לבחור אחת מהאפשרויות.'), { status: 400 });
   let email = '';
   let address = '';
-  if (attendance === 'coming') {
+  // חלון "משהו מרענן מהישיבה" (email+address) נפתח גם למי שעדיין מתלבט
+  // (checking), לא רק למי שבטוח מגיע — אבל שני השדות עצמם אופציונליים.
+  if (attendance === 'coming' || attendance === 'checking') {
     email = String(body?.email || '').trim();
     address = String(body?.address || '').trim();
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw Object.assign(new Error('כתובת המייל אינה תקינה.'), { status: 400 });
     }
-    if (!address) throw Object.assign(new Error('נא להזין כתובת מגורים.'), { status: 400 });
   }
   return { fullName, phone, attendance, email, address };
 }
@@ -403,6 +408,67 @@ router.post('/yeshiva/register', wrap(async (req, res) => {
   const fields = parseYeshivaFields(req.body);
   const registration = await createYeshivaRegistration(fields);
   res.json({ success: true, id: registration.id });
+}));
+
+// ============== תרומות למוסדות חסדי מנחם (דף השורש /, עצמאי לגמרי) ==============
+// בלי OTP/זיהוי לקוח, בלי דדליין/סגירה — תמיד פתוח. שום שדה פרטי של התורם
+// אינו חובה (שם/טלפון/ת"ז/אימייל/הערה) — רק קטגוריה וסכום, ראו lib/donations.js.
+
+async function startDonationPayment(donation, { fullName, idNumber, email } = {}) {
+  const [firstName, ...restName] = String(fullName || '').split(' ').filter(Boolean);
+  const lastName = restName.join(' ');
+  return createTransaction({
+    amount: donation.amount,
+    param2: donation.token,
+    callbackUrl: `${publicBaseUrl()}/webhooks/nedarim-plus-donations`,
+    firstName: firstName || undefined,
+    lastName: lastName || undefined,
+    zeout: idNumber || undefined,
+    mail: email || undefined,
+    groupe: donation.categoryName,
+  });
+}
+
+function parseDonationFields(body) {
+  const categoryId = Number(body?.categoryId);
+  const amount = Number(body?.amount);
+  if (!Number.isInteger(categoryId) || categoryId <= 0) {
+    throw Object.assign(new Error('נא לבחור קטגוריית תרומה.'), { status: 400 });
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw Object.assign(new Error('נא להזין סכום תרומה תקין.'), { status: 400 });
+  }
+  const fullName = String(body?.fullName || '').trim();
+  const phone = String(body?.phone || '').trim();
+  if (phone && !isValidIsraeliPhone(normalizePhone(phone))) {
+    throw Object.assign(new Error('מספר טלפון לא תקין — אפשר גם להשאיר ריק.'), { status: 400 });
+  }
+  const idNumber = String(body?.idNumber || '').trim();
+  if (idNumber && !/^\d{4,9}$/.test(idNumber)) {
+    throw Object.assign(new Error('מספר תעודת הזהות שהוזן אינו תקין (4-9 ספרות) — אפשר גם להשאיר ריק.'), { status: 400 });
+  }
+  const email = String(body?.email || '').trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw Object.assign(new Error('כתובת המייל אינה תקינה.'), { status: 400 });
+  }
+  const note = String(body?.note || '').trim();
+  return { categoryId, amount, fullName, phone, idNumber, email, note };
+}
+
+router.get('/donations/categories', wrap(async (req, res) => {
+  res.json(await listEnabledDonationCategories());
+}));
+
+router.post('/donations/create-transaction', wrap(async (req, res) => {
+  const { categoryId, amount, fullName, phone, idNumber, email, note } = parseDonationFields(req.body);
+  const donation = await createDonation({ categoryId, amount, fullName, phone, idNumber, email, note });
+  const { transactionId, key } = await startDonationPayment(donation, { fullName, idNumber, email });
+  res.json({ transactionId, key, amount, token: donation.token });
+}));
+
+// אישור אופטימי מהדפדפן (Status:'OK' מהאייפרם) — ראו confirmDonationPaymentClient ב-lib/donations.js.
+router.post('/donations/confirm-client', wrap(async (req, res) => {
+  res.json(await confirmDonationPaymentClient(req.body?.token, req.body?.transactionId));
 }));
 
 // ============== מנהל ==============
@@ -810,6 +876,27 @@ router.put('/admin/yeshiva/settings', requireAdmin, requirePermission('yeshiva')
   });
   const s = await getSettings();
   res.json({ closeAt: s.yeshivaCloseAt, closedMessage: s.yeshivaClosedMessage });
+}));
+
+// ---- תרומות למוסדות חסדי מנחם ----
+// הרשאה עצמאית משלה ('donations'), לא מגובה על 'orders' — ראו admins.js.
+router.get('/admin/donations', requireAdmin, requirePermission('donations'), wrap(async (req, res) => {
+  res.json(await listDonations());
+}));
+router.get('/admin/donation-categories', requireAdmin, requirePermission('donations'), wrap(async (req, res) => {
+  res.json(await listAllDonationCategories());
+}));
+router.post('/admin/donation-categories', requireAdmin, requirePermission('donations'), wrap(async (req, res) => {
+  res.json(await createDonationCategory(req.body?.name));
+}));
+router.put('/admin/donation-categories/:id', requireAdmin, requirePermission('donations'), wrap(async (req, res) => {
+  res.json(await updateDonationCategory(Number(req.params.id), { name: req.body?.name, enabled: req.body?.enabled }));
+}));
+router.put('/admin/donation-categories/:id/reorder', requireAdmin, requirePermission('donations'), wrap(async (req, res) => {
+  res.json(await swapDonationCategoryOrder(Number(req.params.id), Number(req.body?.otherId)));
+}));
+router.delete('/admin/donation-categories/:id', requireAdmin, requirePermission('donations'), wrap(async (req, res) => {
+  res.json(await deleteDonationCategory(Number(req.params.id)));
 }));
 
 // ---- איפוס קשיח ----
