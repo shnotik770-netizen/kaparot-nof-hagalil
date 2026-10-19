@@ -3637,8 +3637,7 @@ const ACTION_LABELS = {
   donation_category_updated: 'קטגוריית תרומה עודכנה',
   donation_category_deleted: 'קטגוריית תרומה נמחקה',
   donation_created: 'תרומה נוצרה (טרם שולמה)',
-  donation_payment_client_confirmed: 'תרומה אושרה לפי הדפדפן (טרם אומת Webhook)',
-  donation_payment_received_webhook: 'תרומה התקבלה (נדרים פלוס, Webhook)',
+  donation_payment_client_confirmed: 'תרומה שולמה',
 };
 
 function actionSummaryHtml(a) {
@@ -3724,7 +3723,6 @@ function actionSummaryHtml(a) {
     case 'donation_created':
       return `${esc(d.categoryName || '')} · ${money(d.amount || 0)}${d.fullName ? ` · ${esc(d.fullName)}` : ''}`;
     case 'donation_payment_client_confirmed':
-    case 'donation_payment_received_webhook':
       return `${esc(d.categoryName || '')} · ${money(d.amount || 0)} · עסקה ${esc(d.transactionId || '')}`;
     default:
       return esc(JSON.stringify(d));

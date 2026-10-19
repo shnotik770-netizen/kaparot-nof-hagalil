@@ -1,7 +1,12 @@
 // דף תרומות עצמאי למוסדות חסדי מנחם (דף השורש /) — במכוון לא בנוי על מודל
 // ההזמנות/כפרות: תהליך שונה לגמרי, בלי OTP/זיהוי לקוח. כמו seudot.js, אותה
-// תשתית נדרים פלוס (createTransaction/Webhook) עם state עצמאי משלו
-// (donation_categories + donations), כדי לא לגעת בכלל בזרימות הקיימות.
+// תשתית נדרים פלוס (createTransaction) עם state עצמאי משלו (donation_categories
+// + donations), כדי לא לגעת בכלל בזרימות הקיימות.
+//
+// בשונה מהכפרות/סעודות: בכוונה בלי Webhook — לתרומה בודדת אין המשך תהליך
+// שתלוי באישור (לא פדיון, לא כמות נפשות), אז אין טעם במקור אמת כפול מהצד
+// השרת; תגובת האייפרם (Status:'OK') עצמה, שמדווחת ל-/donations/confirm-client,
+// היא הדרך היחידה שתרומה מסומנת כ-'paid'.
 
 import crypto from 'node:crypto';
 import { pool } from '../db/pool.js';
@@ -116,7 +121,11 @@ export async function getDonationByToken(token) {
   return rows[0] ? mapDonation(rows[0]) : null;
 }
 
-/** אישור אופטימי מהדפדפן (Status:'OK' מהאייפרם) — ראו confirmSeudotPaymentClient ב-seudot.js להסבר המלא. */
+/**
+ * אישור לפי תגובת האייפרם (Status:'OK') — ראו ההערה למעלה: בכוונה אין
+ * Webhook גיבוי לתרומות, אז זו הדרך היחידה (לא רק האופטימית) שתרומה
+ * מסומנת כ-'paid'. אידמפוטנטי (WHERE status='pending') למקרה של קריאה כפולה.
+ */
 export async function confirmDonationPaymentClient(token, transactionId) {
   const { rows } = await pool.query(
     `UPDATE donations SET status='paid', nedarim_transaction_id=$2, paid_at=now()
@@ -126,26 +135,8 @@ export async function confirmDonationPaymentClient(token, transactionId) {
   if (!rows.length) return { updated: false };
   await logAction('donation_payment_client_confirmed', {
     token, transactionId: transactionId || null, categoryName: rows[0].category_name, amount: Number(rows[0].amount),
-    note: 'אושר לפי תגובת הדפדפן בלבד — טרם התקבל אימות Webhook לעסקה זו.',
   });
   return { updated: true };
-}
-
-/** מופעל מה-Webhook (אחרי אימות חתימה) — מקור האמת האמיתי. אידמפוטנטי מול confirmDonationPaymentClient. */
-export async function allocateDonationPayment({ token, transactionId }) {
-  const { rows } = await pool.query(
-    `UPDATE donations SET status='paid', nedarim_transaction_id=$2, paid_at=now()
-      WHERE token=$1 AND status='pending' RETURNING *`,
-    [token, transactionId || null]
-  );
-  if (!rows.length) {
-    const { rows: existing } = await pool.query(`SELECT id FROM donations WHERE token = $1`, [token]);
-    return { allocated: false, reason: existing.length ? 'already_paid' : 'unknown_token' };
-  }
-  await logAction('donation_payment_received_webhook', {
-    token, transactionId: transactionId || null, categoryName: rows[0].category_name, amount: Number(rows[0].amount),
-  });
-  return { allocated: true };
 }
 
 // רק תרומות ששולמו בפועל — מי שהתחיל טופס ולא השלים תשלום לא "נרשם" ולא
