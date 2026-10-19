@@ -175,21 +175,27 @@ function downloadCustomersCsv(customers, slots, phonesFilter) {
   });
   triggerCsvDownload('דוח-לקוחות', phonesFilter, header, rows);
 }
-// סדר המפתחות כאן קובע את סדר הטאבים בתפריט. 'settings' ו'slots' אוחדו
-// לכפתור אחד (ראו renderSettingsTab) — עדיין שתי הרשאות נפרדות, אבל ניווט משותף.
-const TAB_TITLES = { orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', incomingSms: '📥 הודעות נכנסות', seudot: '🍽️ שמחת תורה', yeshiva: '🎓 נכנסים לתומכי תמימים', donations: '💝 תרומות', settings: 'הגדרות וזמני חלוקה', actionLog: 'יומן פעולות' };
-// 'יומן פעולות' משתמש בהרשאת 'הגדרות' (אין לו הרשאה נפרדת משלו — כל מי שרואה הגדרות רואה גם את היומן).
-// כל שאר הטאבים משתמשים בהרשאה בעלת אותו שם בדיוק (orders/dashboard/incomingSms/seudot) — לא צריך ערך כאן.
-const TAB_PERMISSION = { actionLog: 'settings' };
-
-// מסך ראשי עם שתי כניסות נפרדות — "ניהול כפרות" ו"ניהול טפסים" (כל אחד עם
-// הטאבים הקשורים לתחום שלו), ראו renderHome/enterSection. 'settings' ו
-// 'actionLog' נשארים גלובליים — נגישים משני התחומים, לא שייכים לאף אחד מהם.
-const SECTIONS = {
-  kaparot: { icon: '🐔', title: 'ניהול כפרות', tabs: ['orders', 'dashboard', 'incomingSms'] },
-  forms: { icon: '📋', title: 'ניהול טפסים', tabs: ['seudot', 'yeshiva', 'donations'] },
+// סדר המפתחות כאן לא קובע יותר את סדר הטאבים בתפריט (זה נקבע ע"י סדר
+// המערך tabs בכל סקציה ב-SECTIONS למטה) — רק מיפוי מפתח לכותרת תצוגה.
+const TAB_TITLES = {
+  orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', incomingSms: '📥 הודעות נכנסות', settings: 'הגדרות וזמני חלוקה',
+  seudot: '🍽️ שמחת תורה', yeshiva: '🎓 נכנסים לתומכי תמימים', donations: '💝 תרומות',
+  adminsManagement: '👤 ניהול מנהלים', actionLog: 'יומן פעולות',
 };
-const GLOBAL_TABS = ['settings', 'actionLog'];
+// 'יומן פעולות' ו'ניהול מנהלים' משתמשים בהרשאת 'הגדרות' (אין להם הרשאה
+// נפרדת משלהם — כל מי שרואה הגדרות רואה גם אותם). כל שאר הטאבים משתמשים
+// בהרשאה בעלת אותו שם בדיוק (orders/dashboard/incomingSms/seudot...) — לא צריך ערך כאן.
+const TAB_PERMISSION = { actionLog: 'settings', adminsManagement: 'settings' };
+
+// מסך ראשי עם שלוש כניסות נפרדות — "ניהול כפרות" (כולל הגדרות וזמני
+// חלוקה), "ניהול טפסים" (שמחת תורה/נכנסים לתומכי תמימים/תרומות) ו"ניהול
+// כללי" (ניהול מנהלים + יומן פעולות — לא שייכים לתחום ספציפי), ראו
+// renderHome/enterSection. כל טאב שייך לסקציה אחת בדיוק.
+const SECTIONS = {
+  kaparot: { icon: '🐔', title: 'ניהול כפרות', tabs: ['orders', 'dashboard', 'incomingSms', 'settings'] },
+  forms: { icon: '📋', title: 'ניהול טפסים', tabs: ['seudot', 'yeshiva', 'donations'] },
+  general: { icon: '🛠️', title: 'ניהול כללי', tabs: ['adminsManagement', 'actionLog'] },
+};
 
 let currentTab = null;
 let currentSection = null;
@@ -438,85 +444,53 @@ function loadShell(session) {
   renderHome();
 }
 
-/** מסך ראשי: בחירה בין "ניהול כפרות" ל"ניהול טפסים" (רק סקציות עם לפחות
- * טאב אחד שמורשה), ומתחתיו הטאבים הגלובליים (הגדרות/יומן) שלא שייכים לאף
- * סקציה. אם יש בסה"כ רק ברירה אחת (סקציה אחת, בלי שום טאב גלובלי) — מדלגים
- * ישר אליה, אין טעם בתפריט של אופציה יחידה. */
+/** מסך ראשי: בחירה בין שלוש הסקציות (רק סקציות עם לפחות טאב אחד שמורשה).
+ * כל טאב שייך לסקציה אחת בדיוק — אין יותר "טאבים גלובליים". אם יש בסה"כ
+ * רק ברירה אחת (סקציה יחידה) — מדלגים ישר אליה, אין טעם בתפריט של אופציה יחידה. */
 function renderHome() {
   currentSection = null;
   currentTab = null;
   const sectionCards = Object.entries(SECTIONS)
     .map(([key, s]) => ({ key, ...s, tabs: s.tabs.filter((t) => allAvailableTabs.includes(t)) }))
     .filter((s) => s.tabs.length);
-  const globalTabs = GLOBAL_TABS.filter((t) => allAvailableTabs.includes(t));
 
-  if (sectionCards.length === 1 && !globalTabs.length) {
+  if (sectionCards.length === 1) {
     return enterSection(sectionCards[0].key);
-  }
-  if (!sectionCards.length) {
-    // אין בכלל טאבים ששייכים לסקציה (למשל מנהל עם הרשאת הגדרות בלבד) —
-    // נשאר המסך השטוח הרגיל, בלי תפריט בחירה מיותר.
-    return renderFlatTabs(globalTabs);
   }
 
   render(`
     <p class="hint" style="margin:0 0 10px">בחרו תחום ניהול</p>
-    <div class="grid4" style="grid-template-columns:${sectionCards.length > 1 ? '1fr 1fr' : '1fr'}">
+    <div class="grid4" style="grid-template-columns:${sectionCards.length >= 2 ? '1fr 1fr' : '1fr'}">
       ${sectionCards.map((s) => `
         <button type="button" class="big-btn highlight" data-section="${s.key}">
           <span class="ico">${s.icon}</span>${esc(s.title)}
         </button>
       `).join('')}
     </div>
-    ${globalTabs.length ? `
-      <div class="tabs" style="margin-top:18px">
-        ${globalTabs.map((t) => `<button data-tab="${t}">${TAB_TITLES[t]}</button>`).join('')}
-      </div>
-      <div id="tabContent"></div>
-    ` : ''}
   `);
   document.querySelectorAll('[data-section]').forEach((b) => { b.onclick = () => enterSection(b.dataset.section); });
-  document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
   renderSlotStatusBar();
 }
 
-/** נכנסים לתוך סקציה (כפרות/טפסים) — הטאבים שלה + הטאבים הגלובליים יחד
- * באותו פס טאבים, עם כפתור חזרה למסך הראשי מעליו (רק אם יש בכלל לאן
- * לחזור — יותר מברירה אחת בסה"כ). */
+/** נכנסים לתוך סקציה — הטאבים שלה בלבד, עם כפתור חזרה למסך הראשי מעליו
+ * (רק אם יש בכלל לאן לחזור — יותר מסקציה זמינה אחת בסה"כ). */
 function enterSection(key) {
   currentSection = key;
   const section = SECTIONS[key];
   const sectionTabsAvail = section.tabs.filter((t) => allAvailableTabs.includes(t));
-  const globalTabs = GLOBAL_TABS.filter((t) => allAvailableTabs.includes(t));
   const otherSectionHasTabs = Object.entries(SECTIONS).some(([k, s]) => k !== key && s.tabs.some((t) => allAvailableTabs.includes(t)));
-  const showBackButton = otherSectionHasTabs || globalTabs.length > 0;
 
   render(`
-    ${showBackButton ? `<button type="button" class="mini-btn" id="backToHomeBtn" style="margin-bottom:10px">🏠 תפריט ראשי</button>` : ''}
+    ${otherSectionHasTabs ? `<button type="button" class="mini-btn" id="backToHomeBtn" style="margin-bottom:10px">🏠 תפריט ראשי</button>` : ''}
     <div class="tabs">
       ${sectionTabsAvail.map((t) => `<button data-tab="${t}">${TAB_TITLES[t]}</button>`).join('')}
-      ${globalTabs.map((t) => `<button data-tab="${t}">${TAB_TITLES[t]}</button>`).join('')}
     </div>
     <div id="tabContent"><div class="loading">טוען…</div></div>
   `);
-  if (showBackButton) document.getElementById('backToHomeBtn').onclick = () => renderHome();
+  if (otherSectionHasTabs) document.getElementById('backToHomeBtn').onclick = () => renderHome();
   document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
   renderSlotStatusBar();
-  const tabsHere = [...sectionTabsAvail, ...globalTabs];
-  showTab(currentTab && tabsHere.includes(currentTab) ? currentTab : sectionTabsAvail[0]);
-}
-
-/** המסך השטוח הישן (בלי תפריט סקציות) — למקרה שאין בכלל טאבים ששייכים לסקציה. */
-function renderFlatTabs(availableTabs) {
-  render(`
-    <div class="tabs">
-      ${availableTabs.map((t) => `<button data-tab="${t}">${TAB_TITLES[t]}</button>`).join('')}
-    </div>
-    <div id="tabContent"><div class="loading">טוען…</div></div>
-  `);
-  document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
-  renderSlotStatusBar();
-  showTab(currentTab && availableTabs.includes(currentTab) ? currentTab : availableTabs[0]);
+  showTab(currentTab && sectionTabsAvail.includes(currentTab) ? currentTab : sectionTabsAvail[0]);
 }
 
 // ============== שורת מצב קלילה לזמני חלוקה — מתחת לכותרת, בכל טאב ==============
@@ -608,6 +582,7 @@ async function showTab(tab) {
   if (tab === 'orders') return renderOrdersTab();
   if (tab === 'dashboard') return renderDashboardTab();
   if (tab === 'actionLog') return renderActionLogTab();
+  if (tab === 'adminsManagement') return renderAdminsManagementTab();
   if (tab === 'incomingSms') return renderIncomingSmsTab();
   if (tab === 'seudot') return renderSeudotTab();
   if (tab === 'yeshiva') return renderYeshivaTab();
@@ -1005,38 +980,6 @@ async function renderSettingsCore() {
       <button class="primary" id="saveSheetsSync">שמירה</button>
     </div>
 
-    <div class="card admin-card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-        <h2 style="margin:0">ניהול מנהלים</h2>
-        <button class="primary" id="toggleAddAdmin" style="width:auto">+ הוספת מנהל</button>
-      </div>
-      <p class="hint">כל מנהל נכנס עם הטלפון והסיסמה שלו, ורואה רק את הטאבים שסומנו לו כאן.</p>
-      <div id="addAdminCard" hidden>
-        <fieldset>
-          <legend>הוספת מנהל חדש</legend>
-          <label>שם</label>
-          <input type="text" id="newAdminName">
-          <label>טלפון</label>
-          <input type="tel" id="newAdminPhone" inputmode="numeric" placeholder="05XXXXXXXX">
-          <label>סיסמה (לפחות 6 תווים)</label>
-          <input type="password" id="newAdminPassword">
-          <label style="margin-top:12px"><input type="checkbox" id="newPermFullAccess" checked> הרשאות מלאות (גישה לכל הטאבים)</label>
-          <div class="perm-checks" id="newPermChecksWrap" style="display:none">
-            <label><input type="checkbox" id="newPermSettings" checked> הגדרות</label>
-            <label><input type="checkbox" id="newPermOrders" checked> הזמנות ותשלומים</label>
-            <label><input type="checkbox" id="newPermDashboard" checked> דשבורד</label>
-            <label><input type="checkbox" id="newPermSlots" checked> זמני חלוקה</label>
-            <label><input type="checkbox" id="newPermIncomingSms" checked> הודעות נכנסות</label>
-            <label><input type="checkbox" id="newPermSeudot" checked> שמחת תורה</label>
-            <label><input type="checkbox" id="newPermYeshiva" checked> נכנסים לתומכי תמימים</label>
-            <label><input type="checkbox" id="newPermDonations" checked> תרומות</label>
-          </div>
-          <button class="primary big-action" id="addAdmin" style="width:100%">הוספת מנהל</button>
-        </fieldset>
-      </div>
-      <div id="adminsList"><div class="loading">טוען…</div></div>
-    </div>
-
     <div class="card">
       <h2>בדיקת קריאות API חופשיות לימות המשיח</h2>
       <p class="hint">כל שורה = קריאה בפורמט WebServiceName?param1=val1&param2=val2 (בדיוק כמו בכתובת ה-API עצמה, בלי הכתובת הבסיסית ובלי token — הטוקן מתווסף אוטומטית מהשרת ולעולם לא נלקח ממה שכתוב כאן). אפשר כמה שורות בבת אחת.</p>
@@ -1107,6 +1050,45 @@ async function renderSettingsCore() {
       flash('המערכת אופסה.');
     } catch (err) { flash(err.message, true); }
   };
+}
+
+// ============== ניהול מנהלים (סקציה גלובלית נפרדת — ראו SECTIONS) ==============
+
+async function renderAdminsManagementTab() {
+  const content = document.getElementById('tabContent');
+  content.innerHTML = `
+    <div class="card admin-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <h2 style="margin:0">ניהול מנהלים</h2>
+        <button class="primary" id="toggleAddAdmin" style="width:auto">+ הוספת מנהל</button>
+      </div>
+      <p class="hint">כל מנהל נכנס עם הטלפון והסיסמה שלו, ורואה רק את הטאבים שסומנו לו כאן.</p>
+      <div id="addAdminCard" hidden>
+        <fieldset>
+          <legend>הוספת מנהל חדש</legend>
+          <label>שם</label>
+          <input type="text" id="newAdminName">
+          <label>טלפון</label>
+          <input type="tel" id="newAdminPhone" inputmode="numeric" placeholder="05XXXXXXXX">
+          <label>סיסמה (לפחות 6 תווים)</label>
+          <input type="password" id="newAdminPassword">
+          <label style="margin-top:12px"><input type="checkbox" id="newPermFullAccess" checked> הרשאות מלאות (גישה לכל הטאבים)</label>
+          <div class="perm-checks" id="newPermChecksWrap" style="display:none">
+            <label><input type="checkbox" id="newPermSettings" checked> הגדרות</label>
+            <label><input type="checkbox" id="newPermOrders" checked> הזמנות ותשלומים</label>
+            <label><input type="checkbox" id="newPermDashboard" checked> דשבורד</label>
+            <label><input type="checkbox" id="newPermSlots" checked> זמני חלוקה</label>
+            <label><input type="checkbox" id="newPermIncomingSms" checked> הודעות נכנסות</label>
+            <label><input type="checkbox" id="newPermSeudot" checked> שמחת תורה</label>
+            <label><input type="checkbox" id="newPermYeshiva" checked> נכנסים לתומכי תמימים</label>
+            <label><input type="checkbox" id="newPermDonations" checked> תרומות</label>
+          </div>
+          <button class="primary big-action" id="addAdmin" style="width:100%">הוספת מנהל</button>
+        </fieldset>
+      </div>
+      <div id="adminsList"><div class="loading">טוען…</div></div>
+    </div>
+  `;
   document.getElementById('toggleAddAdmin').onclick = () => {
     const card = document.getElementById('addAdminCard');
     card.hidden = !card.hidden;
