@@ -50,19 +50,12 @@
     <div class="notice critical" id="closedMessage"></div>
   </div>
 
-  <div class="card" id="phoneCard" style="display:none">
-    <p class="hint" style="margin:0 0 4px">ליל שישי, כ' מרחשון, בשעה 20:30</p>
-    <label for="phoneCheckInput">טל. נייד</label>
-    <input type="tel" id="phoneCheckInput" inputmode="tel" placeholder="05X-XXXXXXX">
-    <div class="spacer"></div>
-    <button class="primary" id="phoneContinueBtn">המשך</button>
-    <div id="phoneError" class="error" style="display:none"></div>
-  </div>
-
   <div class="card" id="formCard" style="display:none">
-    <p class="hint" style="margin:0 0 4px">טלפון: <b id="phoneDisplay"></b> · <button type="button" class="ghost" id="changePhoneBtn" style="width:auto;padding:0">שינוי</button></p>
-    <label for="fullNameInput" style="margin-top:14px">שם ושם משפחה</label>
+    <p class="hint" style="margin:0 0 4px">ליל שישי, כ' מרחשון, בשעה 20:30</p>
+    <label for="fullNameInput">שם ושם משפחה</label>
     <input type="text" id="fullNameInput" placeholder="לדוגמה: ישראל ישראלי">
+    <label for="phoneInput">טל. נייד</label>
+    <input type="tel" id="phoneInput" inputmode="tel" placeholder="05X-XXXXXXX">
 
     <label style="margin-top:16px">האם תגיעו?</label>
     <label class="attendance-opt"><input type="radio" name="attendance" value="coming"> כן, גם אני מגיע בע"ה</label>
@@ -101,8 +94,6 @@ async function api(path, options = {}) {
   return data;
 }
 
-let confirmedPhone = null;
-
 async function init() {
   try {
     const settings = await api('/yeshiva/settings');
@@ -112,72 +103,48 @@ async function init() {
       document.getElementById('closedCard').style.display = '';
       return;
     }
-    document.getElementById('phoneCard').style.display = '';
+    document.getElementById('formCard').style.display = '';
   } catch (err) {
     document.getElementById('initialLoading').textContent = err.message;
   }
 }
 init();
 
-// מסך הטלפון: נבדק קודם אם כבר קיימת תשובה למספר הזה — אם כן, שואלים
-// מראש אם לשנות אותה, לפני שבכלל מציגים את שאר הטופס.
-document.getElementById('phoneContinueBtn').onclick = async () => {
-  const btn = document.getElementById('phoneContinueBtn');
-  const errorEl = document.getElementById('phoneError');
-  errorEl.style.display = 'none';
-  const phone = document.getElementById('phoneCheckInput').value.trim();
-  if (!phone) { errorEl.textContent = 'נא להזין מספר טלפון.'; errorEl.style.display = ''; return; }
-
-  btn.disabled = true;
-  try {
-    const result = await api(`/yeshiva/check-phone/${encodeURIComponent(phone)}`);
-    if (!result.exists || confirm('כבר מילאת תשובה בעבר עם מספר טלפון זה. האם ברצונך לשנות אותה?')) {
-      proceedToForm(phone);
-    }
-    // "לא" — נשארים במסך הטלפון כדי להזין מספר אחר.
-  } catch (err) {
-    errorEl.textContent = err.message;
-    errorEl.style.display = '';
-  } finally {
-    btn.disabled = false;
-  }
-};
-
-function proceedToForm(phone) {
-  confirmedPhone = phone;
-  document.getElementById('phoneDisplay').textContent = phone;
-  document.getElementById('phoneCard').style.display = 'none';
-  document.getElementById('formCard').style.display = '';
-}
-document.getElementById('changePhoneBtn').onclick = () => {
-  document.getElementById('formCard').style.display = 'none';
-  document.getElementById('phoneCard').style.display = '';
-};
-
 document.getElementById('submitBtn').onclick = async () => {
   const btn = document.getElementById('submitBtn');
   const errorEl = document.getElementById('formError');
   errorEl.style.display = 'none';
   const fullName = document.getElementById('fullNameInput').value.trim();
+  const phone = document.getElementById('phoneInput').value.trim();
   const attendance = document.querySelector('input[name="attendance"]:checked')?.value;
   const email = document.getElementById('emailInput').value.trim();
   const address = document.getElementById('addressInput').value.trim();
 
   if (!fullName) { errorEl.textContent = 'נא להזין שם ושם משפחה.'; errorEl.style.display = ''; return; }
+  if (!phone) { errorEl.textContent = 'נא להזין מספר טלפון.'; errorEl.style.display = ''; return; }
   if (!attendance) { errorEl.textContent = 'נא לבחור אחת מהאפשרויות.'; errorEl.style.display = ''; return; }
 
   btn.disabled = true; btn.textContent = 'שולח…';
-  const payload = { fullName, phone: confirmedPhone, attendance, email, address };
+  const payload = { fullName, phone, attendance, email, address };
   try {
-    // ה-upsert לפי טלפון קורה בשרת (ראו createYeshivaRegistration) — מילוי
-    // חוזר עם אותו מספר מעדכן את הרשומה הקיימת במקום ליצור כפולה. אם
-    // האימייל/הכתובת שהוקלדו שונים ממה שכבר נשמר, השרת מחזיר needsConfirmation
-    // בלי לשמור כלום, ואנחנו שואלים במפורש לפני שדורסים ערך קודם.
+    // ה-upsert לפי טלפון קורה בשרת (ראו createYeshivaRegistration) — כל
+    // הבדיקות/השאלות קורות כאן, מיד עם השליחה: קודם "כבר יש תשובה קודמת,
+    // לשנות?" (confirmExisting), ואחר כך — רק אם אושר — "האימייל/הכתובת
+    // ששלחת שונה מהקודם, לעדכן?" (confirmOverwrite), בלי לשמור כלום בדרך
+    // עד שהכל מאושר במפורש.
     let result = await api('/yeshiva/register', { method: 'POST', body: payload });
+    if (result.needsExistingConfirmation) {
+      if (!confirm('כבר מילאת תשובה בעבר עם מספר טלפון זה. האם ברצונך לשנות אותה?')) {
+        btn.disabled = false; btn.textContent = 'שליחה';
+        document.getElementById('phoneInput').focus();
+        return;
+      }
+      result = await api('/yeshiva/register', { method: 'POST', body: { ...payload, confirmExisting: true } });
+    }
     if (result.needsConfirmation) {
       const fieldLabel = result.conflictFields.map((f) => (f === 'email' ? 'הדוא"ל' : 'הכתובת')).join(' וגם ');
       const confirmOverwrite = confirm(`${fieldLabel} ששלחת שונה ממה שמילאת בפעם הקודמת. לעדכן?`);
-      result = await api('/yeshiva/register', { method: 'POST', body: { ...payload, confirmOverwrite } });
+      result = await api('/yeshiva/register', { method: 'POST', body: { ...payload, confirmExisting: true, confirmOverwrite } });
     }
     document.getElementById('formCard').style.display = 'none';
     document.getElementById('successCard').style.display = '';

@@ -19,14 +19,6 @@ function mapRow(r) {
   };
 }
 
-/** האם כבר קיימת רשומה למספר הטלפון הזה — נבדק במסך הטלפון לפני הצגת
- * שאר הטופס (ראו yeshiva.html), כדי לשאול "כבר מילאת, לשנות?" מראש. */
-export async function checkYeshivaPhoneExists(phone) {
-  const normalizedPhone = normalizePhone(phone);
-  const { rows } = await pool.query(`SELECT id FROM yeshiva_registrations WHERE normalized_phone = $1`, [normalizedPhone]);
-  return rows.length > 0;
-}
-
 /** שדה אופציונלי (ריק = לא נשלח הפעם): ריק -> שומר את הערך הקודם; זהה
  * לקודם -> אין שינוי בכלל; שונה מהקודם -> מוחלף רק אם confirmOverwrite=true
  * (אחרת נשאר הישן — ראו conflictFields ב-createYeshivaRegistration). */
@@ -38,13 +30,16 @@ function mergeOptionalField(newVal, oldVal, confirmOverwrite) {
 }
 
 /**
- * Upsert לפי מספר טלפון — מי שממלא את הטופס שוב עם אותו מספר (לשנות את
- * הבחירה/הכתובת/הפרטים) מעדכן את הרשומה הקיימת שלו, לא יוצר רשומה כפולה.
- * שם+הגעה מוחלפים תמיד. אימייל/כתובת: ריק שומר את הישן; אם נשלח ערך חדש
- * ושונה מהישן, ללא confirmOverwrite מוחזר needsConfirmation (בלי לשמור
- * כלום עדיין) כדי שהלקוח יאושר במפורש לפני שדורסים ערך קודם.
+ * Upsert לפי מספר טלפון — מילוי הטופס תמיד זהה/רגיל (ראו yeshiva.html), כל
+ * הבדיקות והשאלות קורות כאן בשרת מיד עם השליחה, לא לפני:
+ * 1. אם כבר קיימת רשומה לטלפון הזה ועדיין לא אושר confirmExisting — מוחזר
+ *    needsExistingConfirmation בלי לשמור כלום, כדי שהלקוח יאשר שהוא אכן
+ *    מתכוון לשנות תשובה קודמת (אחרת יכול לשנות את הטלפון ולנסות שוב).
+ * 2. רק אחרי אישור קיום: שם+הגעה תמיד מוחלפים; אימייל/כתובת ריקים שומרים
+ *    על הערך הקודם; ערך חדש ושונה מהקודם, ללא confirmOverwrite, מוחזר
+ *    needsConfirmation (עדיין בלי לשמור) עד אישור מפורש לדריסה.
  */
-export async function createYeshivaRegistration({ fullName, phone, attendance, email, address, confirmOverwrite }) {
+export async function createYeshivaRegistration({ fullName, phone, attendance, email, address, confirmExisting, confirmOverwrite }) {
   const normalizedPhone = normalizePhone(phone);
   const { rows: existingRows } = await pool.query(
     `SELECT * FROM yeshiva_registrations WHERE normalized_phone = $1`, [normalizedPhone]
@@ -58,6 +53,10 @@ export async function createYeshivaRegistration({ fullName, phone, attendance, e
     );
     await logAction('yeshiva_registration_created', { fullName, phone, attendance, email: email || null, address: address || null });
     return { registration: mapRow(rows[0]) };
+  }
+
+  if (!confirmExisting) {
+    return { needsExistingConfirmation: true };
   }
 
   const existing = existingRows[0];

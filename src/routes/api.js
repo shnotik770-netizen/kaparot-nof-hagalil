@@ -35,7 +35,7 @@ import {
 } from '../lib/seudot.js';
 import {
   createYeshivaRegistration, listYeshivaRegistrations, updateYeshivaRegistration, deleteYeshivaRegistration,
-  checkYeshivaPhoneExists, ATTENDANCE_VALUES,
+  ATTENDANCE_VALUES,
 } from '../lib/yeshiva.js';
 import {
   listEnabledDonationCategories, listAllDonationCategories, createDonationCategory, updateDonationCategory,
@@ -400,25 +400,18 @@ router.get('/yeshiva/settings', wrap(async (req, res) => {
   res.json({ closeAt: s.yeshivaCloseAt, closedMessage: s.yeshivaClosedMessage, isOpen });
 }));
 
-// נבדק במסך הטלפון שלפני שאר הטופס (ראו yeshiva.html) — כדי לשאול מראש
-// "כבר מילאת תשובה בעבר, לשנות?" בלי לחשוף שום פרט מעבר ל-exists עצמו.
-router.get('/yeshiva/check-phone/:phone', wrap(async (req, res) => {
-  const phone = String(req.params.phone || '').trim();
-  if (!isValidIsraeliPhone(normalizePhone(phone))) {
-    return res.status(400).json({ error: 'מספר טלפון לא תקין.' });
-  }
-  res.json({ exists: await checkYeshivaPhoneExists(phone) });
-}));
-
+// מילוי הטופס תמיד רגיל (ראו yeshiva.html) — כל הבדיקות/שאלות (כבר קיימת
+// תשובה? אימייל/כתובת שונים מהקודם?) קורות כאן, מיד עם השליחה, לא לפניה.
 router.post('/yeshiva/register', wrap(async (req, res) => {
   const s = await getSettings();
   if (s.yeshivaCloseAt && new Date(s.yeshivaCloseAt) <= new Date()) {
     return res.status(400).json({ error: s.yeshivaClosedMessage });
   }
   const fields = parseYeshivaFields(req.body);
+  const confirmExisting = req.body?.confirmExisting === true;
   const confirmOverwrite = typeof req.body?.confirmOverwrite === 'boolean' ? req.body.confirmOverwrite : undefined;
-  const result = await createYeshivaRegistration({ ...fields, confirmOverwrite });
-  if (result.needsConfirmation) return res.json(result);
+  const result = await createYeshivaRegistration({ ...fields, confirmExisting, confirmOverwrite });
+  if (result.needsExistingConfirmation || result.needsConfirmation) return res.json(result);
   res.json({ success: true, id: result.registration.id });
 }));
 
