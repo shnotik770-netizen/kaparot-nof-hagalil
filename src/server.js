@@ -60,13 +60,18 @@ app.use('/api', apiRouter);
 const staticOptions = { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') };
 app.use(express.static(path.join(__dirname, '..', 'public'), staticOptions));
 
-// חזיתות נפרדות: לקוח (index.html), קיוסק חלוקה (kiosk.html), מנהל (admin.html),
-// טופס רישום סעודות שמחת תורה (seudot.html) וטופס "הישיבה הגדולה" (yeshiva.html)
-// — שניהם עצמאיים, לא קשורים לכפרות.
+// חזיתות נפרדות: לקוח-כפרות (index.html, עבר מהשורש ל-/kaparot — ראו הפניה
+// למטה), קיוסק חלוקה (kiosk.html), מנהל (admin.html), טופס רישום סעודות
+// שמחת תורה (seudot.html) וטופס "הישיבה הגדולה" (yeshiva.html) — שניהם
+// עצמאיים, לא קשורים לכפרות.
 app.get('/kiosk*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'kiosk.html')));
 app.get('/admin*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'admin.html')));
 app.get('/seudot*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'seudot.html')));
 app.get('/yeshiva*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'yeshiva.html')));
+app.get('/kaparot*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+// השורש הריק (הקישור הראשי הישן של הכפרות) לא בוטל — מפנה ל-/kaparot
+// בינתיים (302, לא קבוע: ייעודו הסופי טרם נקבע — "חסדי מנחם", לפי בקשת המנהל).
+app.get('/', (req, res) => res.redirect('/kaparot'));
 app.get('*', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
 // eslint-disable-next-line no-unused-vars
