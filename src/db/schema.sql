@@ -90,6 +90,12 @@ ALTER TABLE admins ALTER COLUMN can_incoming_sms SET DEFAULT TRUE;
 ALTER TABLE admins ALTER COLUMN can_seudot SET NOT NULL;
 ALTER TABLE admins ALTER COLUMN can_seudot SET DEFAULT TRUE;
 
+-- הרשאה עצמאית נוספת — טאב "הישיבה הגדולה" (ראו seudot למעלה, אותו דפוס בדיוק).
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS can_yeshiva BOOLEAN;
+UPDATE admins SET can_yeshiva = can_orders WHERE can_yeshiva IS NULL;
+ALTER TABLE admins ALTER COLUMN can_yeshiva SET NOT NULL;
+ALTER TABLE admins ALTER COLUMN can_yeshiva SET DEFAULT TRUE;
+
 -- ================= קודי אימות סמס (OTP) — לאזור אישי חוזר ולכניסת מנהל =================
 CREATE TABLE IF NOT EXISTS otp_codes (
   id               SERIAL PRIMARY KEY,
@@ -351,5 +357,21 @@ CREATE INDEX IF NOT EXISTS idx_seudot_registrations_status ON seudot_registratio
 -- רישום שהושלם בקוד קופון (ראו seudot_coupon_code ב-settings) — פטור מתשלום
 -- לגמרי, amount=0, status='paid' מיד. מאפשר למנהל לראות מי נכנס בלי לשלם.
 ALTER TABLE seudot_registrations ADD COLUMN IF NOT EXISTS via_coupon BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- ================= רישום "הישיבה הגדולה" (טופס עצמאי נוסף, לא קשור לכפרות) =================
+-- אין כאן בכלל תשלום (בשונה מ-seudot_registrations למעלה) — טופס אישור
+-- הגעה פשוט, אין token/קישור עריכה עצמית (עריכה/מחיקה רק ע"י מנהל).
+CREATE TABLE IF NOT EXISTS yeshiva_registrations (
+  id                SERIAL PRIMARY KEY,
+  full_name         TEXT NOT NULL,
+  phone             TEXT NOT NULL,
+  normalized_phone  TEXT NOT NULL,
+  attendance        TEXT NOT NULL CHECK (attendance IN ('coming','checking','not_coming')),
+  -- רק כשattendance='coming' — כדי שאפשר יהיה לשלוח את השי, ראו yeshiva.html.
+  email             TEXT,
+  address           TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_yeshiva_registrations_phone ON yeshiva_registrations(normalized_phone);
 
 -- טבלת session ל-express-session תיווצר אוטומטית ע"י connect-pg-simple (createTableIfMissing: true)

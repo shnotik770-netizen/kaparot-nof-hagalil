@@ -22,6 +22,9 @@ const DEFAULTS = {
   seudotClosedMessage: 'ההרשמה לסעודות שמחת תורה נסגרה.',
   // קוד קופון שמאפשר למי שקיבל אותו מהמנהל להירשם בלי תשלום — ריק = אין קופון פעיל.
   seudotCouponCode: '',
+  // טופס "הישיבה הגדולה" (עצמאי, בלי תשלום) — ריק = בלי דדליין, הטופס תמיד פתוח.
+  yeshivaCloseAt: '',
+  yeshivaClosedMessage: 'ההרשמה נסגרה.',
 };
 
 export async function getSettings() {
@@ -57,6 +60,9 @@ export async function getSettings() {
     seudotCloseAt: (map.seudot_close_at || '').trim(),
     seudotClosedMessage: (map.seudot_closed_message || '').trim() || DEFAULTS.seudotClosedMessage,
     seudotCouponCode: (map.seudot_coupon_code || '').trim(),
+    // מועד סגירת טופס "הישיבה הגדולה" (ISO, ריק = תמיד פתוח) + ההודעה שמוצגת כשסגור.
+    yeshivaCloseAt: (map.yeshiva_close_at || '').trim(),
+    yeshivaClosedMessage: (map.yeshiva_closed_message || '').trim() || DEFAULTS.yeshivaClosedMessage,
   };
 }
 

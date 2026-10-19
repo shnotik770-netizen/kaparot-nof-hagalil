@@ -33,6 +33,10 @@ import {
   createSeudotRegistration, getSeudotRegistrationByToken, updateSeudotRegistration, confirmSeudotPaymentClient,
   listSeudotRegistrations, SEUDOT_AMOUNT,
 } from '../lib/seudot.js';
+import {
+  createYeshivaRegistration, listYeshivaRegistrations, updateYeshivaRegistration, deleteYeshivaRegistration,
+  ATTENDANCE_VALUES,
+} from '../lib/yeshiva.js';
 import { listActions, logAction } from '../lib/actionLog.js';
 import { sendSms, sendBulkSms, getSmsHistoryForPhone, getAllIncomingSms, getBroadcastResponses, BROADCAST_ANSWER_LABEL } from '../lib/sms.js';
 import { runYemotTestCalls } from '../lib/yemotIvr.js';
@@ -362,6 +366,43 @@ router.put('/seudot/registration/:token', wrap(async (req, res) => {
   }
   const { fullName, adultsCount, childrenCount } = parseSeudotFields(req.body);
   res.json(await updateSeudotRegistration(req.params.token, { fullName, adultsCount, childrenCount }));
+}));
+
+// אימות משותף לטופס "הישיבה הגדולה" — בלי שום תשלום (בשונה מ-seudot).
+function parseYeshivaFields(body) {
+  const fullName = String(body?.fullName || '').trim();
+  const phone = String(body?.phone || '').trim();
+  const attendance = String(body?.attendance || '').trim();
+  if (!fullName) throw Object.assign(new Error('נא להזין שם ושם משפחה.'), { status: 400 });
+  if (!isValidIsraeliPhone(normalizePhone(phone))) throw Object.assign(new Error('מספר טלפון לא תקין.'), { status: 400 });
+  if (!ATTENDANCE_VALUES.includes(attendance)) throw Object.assign(new Error('נא לבחור אחת מהאפשרויות.'), { status: 400 });
+  let email = '';
+  let address = '';
+  if (attendance === 'coming') {
+    email = String(body?.email || '').trim();
+    address = String(body?.address || '').trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw Object.assign(new Error('כתובת המייל אינה תקינה.'), { status: 400 });
+    }
+    if (!address) throw Object.assign(new Error('נא להזין כתובת מגורים.'), { status: 400 });
+  }
+  return { fullName, phone, attendance, email, address };
+}
+
+router.get('/yeshiva/settings', wrap(async (req, res) => {
+  const s = await getSettings();
+  const isOpen = !s.yeshivaCloseAt || new Date(s.yeshivaCloseAt) > new Date();
+  res.json({ closeAt: s.yeshivaCloseAt, closedMessage: s.yeshivaClosedMessage, isOpen });
+}));
+
+router.post('/yeshiva/register', wrap(async (req, res) => {
+  const s = await getSettings();
+  if (s.yeshivaCloseAt && new Date(s.yeshivaCloseAt) <= new Date()) {
+    return res.status(400).json({ error: s.yeshivaClosedMessage });
+  }
+  const fields = parseYeshivaFields(req.body);
+  const registration = await createYeshivaRegistration(fields);
+  res.json({ success: true, id: registration.id });
 }));
 
 // ============== מנהל ==============
@@ -735,6 +776,40 @@ router.put('/admin/seudot/settings', requireAdmin, requirePermission('seudot'), 
   });
   const s = await getSettings();
   res.json({ closeAt: s.seudotCloseAt, closedMessage: s.seudotClosedMessage, couponCode: s.seudotCouponCode });
+}));
+
+// ---- הישיבה הגדולה ----
+// הרשאה עצמאית משלה ('yeshiva'), לא מגובה על 'orders' — ראו admins.js.
+router.get('/admin/yeshiva', requireAdmin, requirePermission('yeshiva'), wrap(async (req, res) => {
+  res.json(await listYeshivaRegistrations());
+}));
+router.put('/admin/yeshiva/:id', requireAdmin, requirePermission('yeshiva'), wrap(async (req, res) => {
+  const fullName = String(req.body?.fullName || '').trim();
+  const phone = String(req.body?.phone || '').trim();
+  const attendance = String(req.body?.attendance || '').trim();
+  if (!fullName) return res.status(400).json({ error: 'נא להזין שם ושם משפחה.' });
+  if (!isValidIsraeliPhone(normalizePhone(phone))) return res.status(400).json({ error: 'מספר טלפון לא תקין.' });
+  if (!ATTENDANCE_VALUES.includes(attendance)) return res.status(400).json({ error: 'נא לבחור אחת מהאפשרויות.' });
+  const email = String(req.body?.email || '').trim();
+  const address = String(req.body?.address || '').trim();
+  res.json(await updateYeshivaRegistration(
+    Number(req.params.id), { fullName, phone, attendance, email, address }, req.session.adminName || 'admin'
+  ));
+}));
+router.delete('/admin/yeshiva/:id', requireAdmin, requirePermission('yeshiva'), wrap(async (req, res) => {
+  res.json(await deleteYeshivaRegistration(Number(req.params.id), req.session.adminName || 'admin'));
+}));
+router.get('/admin/yeshiva/settings', requireAdmin, requirePermission('yeshiva'), wrap(async (req, res) => {
+  const s = await getSettings();
+  res.json({ closeAt: s.yeshivaCloseAt, closedMessage: s.yeshivaClosedMessage });
+}));
+router.put('/admin/yeshiva/settings', requireAdmin, requirePermission('yeshiva'), wrap(async (req, res) => {
+  await setSettings({
+    yeshiva_close_at: req.body?.closeAt || '',
+    yeshiva_closed_message: req.body?.closedMessage || '',
+  });
+  const s = await getSettings();
+  res.json({ closeAt: s.yeshivaCloseAt, closedMessage: s.yeshivaClosedMessage });
 }));
 
 // ---- איפוס קשיח ----

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>כנס נכבד לתומכי תמימים</title>
+<!-- תגי Open Graph מפורשים — כדי שתצוגה מקדימה של הקישור (למשל בהדבקה
+     בוואטסאפ) תציג את מודעת האירוע עצמה, לא את שם הדומיין הגולמי. -->
+<meta property="og:site_name" content="כנס תומכי תמימים">
+<meta property="og:title" content="כנס נכבד לתומכי תמימים — בוגרי הישיבה">
+<meta property="og:description" content="אולם הישיבה הגדולה, חב&quot;ד 13, נוף הגליל">
+<meta property="og:image" content="/yeshiva-poster.jpg">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="/shared.css">
+<style>
+  .poster{width:100%;border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:16px;display:block}
+  .radio-row{display:flex;align-items:center;gap:8px;padding:10px 0;font-weight:normal;cursor:pointer}
+  .radio-row input{width:auto;margin:0}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <h1>כנס נכבד לתומכי תמימים</h1>
+    <div class="topbar-subtitle">בוגרי הישיבה · אולם הישיבה הגדולה, חב"ד 13, נוף הגליל</div>
+  </div>
+</div>
+<div class="wrap" id="app">
+  <img class="poster" src="/yeshiva-poster.jpg" alt="מודעת הכנס">
+  <div class="loading" id="initialLoading">טוען…</div>
+
+  <div class="card" id="closedCard" style="display:none">
+    <div class="notice critical" id="closedMessage"></div>
+  </div>
+
+  <div class="card" id="formCard" style="display:none">
+    <p class="hint" style="margin:0 0 4px">ליל שישי, כ' מרחשון, בשעה 20:30</p>
+    <label for="fullNameInput">שם ושם משפחה</label>
+    <input type="text" id="fullNameInput" placeholder="לדוגמה: ישראל ישראלי">
+    <label for="phoneInput">טל. נייד</label>
+    <input type="tel" id="phoneInput" inputmode="tel" placeholder="05X-XXXXXXX">
+
+    <label style="margin-top:16px">האם תגיעו?</label>
+    <label class="radio-row"><input type="radio" name="attendance" value="coming"> כן, גם אני מגיע בע"ה</label>
+    <label class="radio-row"><input type="radio" name="attendance" value="checking"> עדיין בודק אם יתאפשר לי</label>
+    <label class="radio-row"><input type="radio" name="attendance" value="not_coming"> לצערי, לא אוכל להגיע</label>
+
+    <div id="giftFields" style="display:none">
+      <p class="hint" style="margin:14px 0 0">ע"מ שנוכל להעניק לך את השי בצורה הטובה ביותר, אנא מלא:</p>
+      <label for="emailInput">כתובת דוא"ל</label>
+      <input type="email" id="emailInput" placeholder="example@mail.com">
+      <label for="addressInput">כתובת מגורים</label>
+      <input type="text" id="addressInput" placeholder="רחוב, מספר, עיר">
+    </div>
+
+    <div class="spacer"></div>
+    <button class="primary" id="submitBtn">שליחה</button>
+    <div id="formError" class="error" style="display:none"></div>
+  </div>
+
+  <div class="card" id="successCard" style="display:none">
+    <div class="success">תודה! התשובה שלכם נקלטה בהצלחה.</div>
+  </div>
+</div>
+
+<script>
+async function api(path, options = {}) {
+  const res = await fetch(`/api${path}`, {
+    method: options.method || 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'שגיאה לא צפויה.');
+  return data;
+}
+
+async function init() {
+  try {
+    const settings = await api('/yeshiva/settings');
+    document.getElementById('initialLoading').style.display = 'none';
+    if (!settings.isOpen) {
+      document.getElementById('closedMessage').textContent = settings.closedMessage;
+      document.getElementById('closedCard').style.display = '';
+      return;
+    }
+    document.getElementById('formCard').style.display = '';
+  } catch (err) {
+    document.getElementById('initialLoading').textContent = err.message;
+  }
+}
+init();
+
+document.querySelectorAll('input[name="attendance"]').forEach((input) => {
+  input.addEventListener('change', () => {
+    document.getElementById('giftFields').style.display = document.querySelector('input[name="attendance"]:checked')?.value === 'coming' ? '' : 'none';
+  });
+});
+
+document.getElementById('submitBtn').onclick = async () => {
+  const btn = document.getElementById('submitBtn');
+  const errorEl = document.getElementById('formError');
+  errorEl.style.display = 'none';
+  const fullName = document.getElementById('fullNameInput').value.trim();
+  const phone = document.getElementById('phoneInput').value.trim();
+  const attendance = document.querySelector('input[name="attendance"]:checked')?.value;
+  const email = document.getElementById('emailInput').value.trim();
+  const address = document.getElementById('addressInput').value.trim();
+
+  if (!fullName) { errorEl.textContent = 'נא להזין שם ושם משפחה.'; errorEl.style.display = ''; return; }
+  if (!phone) { errorEl.textContent = 'נא להזין מספר טלפון.'; errorEl.style.display = ''; return; }
+  if (!attendance) { errorEl.textContent = 'נא לבחור אחת מהאפשרויות.'; errorEl.style.display = ''; return; }
+
+  btn.disabled = true; btn.textContent = 'שולח…';
+  try {
+    await api('/yeshiva/register', { method: 'POST', body: { fullName, phone, attendance, email, address } });
+    document.getElementById('formCard').style.display = 'none';
+    document.getElementById('successCard').style.display = '';
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = '';
+    btn.disabled = false; btn.textContent = 'שליחה';
+  }
+};
+</script>
+</body>
+</html>

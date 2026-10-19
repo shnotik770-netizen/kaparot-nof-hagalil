@@ -177,7 +177,7 @@ function downloadCustomersCsv(customers, slots, phonesFilter) {
 }
 // סדר המפתחות כאן קובע את סדר הטאבים בתפריט. 'settings' ו'slots' אוחדו
 // לכפתור אחד (ראו renderSettingsTab) — עדיין שתי הרשאות נפרדות, אבל ניווט משותף.
-const TAB_TITLES = { orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', incomingSms: '📥 הודעות נכנסות', seudot: '🍽️ שמחת תורה', settings: 'הגדרות וזמני חלוקה', actionLog: 'יומן פעולות' };
+const TAB_TITLES = { orders: 'הזמנות ותשלומים', dashboard: 'דשבורד', incomingSms: '📥 הודעות נכנסות', seudot: '🍽️ שמחת תורה', yeshiva: '🎓 כנס תומכי תמימים', settings: 'הגדרות וזמני חלוקה', actionLog: 'יומן פעולות' };
 // 'יומן פעולות' משתמש בהרשאת 'הגדרות' (אין לו הרשאה נפרדת משלו — כל מי שרואה הגדרות רואה גם את היומן).
 // כל שאר הטאבים משתמשים בהרשאה בעלת אותו שם בדיוק (orders/dashboard/incomingSms/seudot) — לא צריך ערך כאן.
 const TAB_PERMISSION = { actionLog: 'settings' };
@@ -526,6 +526,7 @@ async function showTab(tab) {
   if (tab === 'actionLog') return renderActionLogTab();
   if (tab === 'incomingSms') return renderIncomingSmsTab();
   if (tab === 'seudot') return renderSeudotTab();
+  if (tab === 'yeshiva') return renderYeshivaTab();
 }
 
 // פתיחת טאב היומן עם חיפוש ממולא מראש לפי טלפון — משמש מכפתור "היסטוריית
@@ -942,6 +943,7 @@ async function renderSettingsCore() {
             <label><input type="checkbox" id="newPermSlots" checked> זמני חלוקה</label>
             <label><input type="checkbox" id="newPermIncomingSms" checked> הודעות נכנסות</label>
             <label><input type="checkbox" id="newPermSeudot" checked> שמחת תורה</label>
+            <label><input type="checkbox" id="newPermYeshiva" checked> כנס תומכי תמימים</label>
           </div>
           <button class="primary big-action" id="addAdmin" style="width:100%">הוספת מנהל</button>
         </fieldset>
@@ -1045,6 +1047,7 @@ async function renderSettingsCore() {
             slots: document.getElementById('newPermSlots').checked,
             incomingSms: document.getElementById('newPermIncomingSms').checked,
             seudot: document.getElementById('newPermSeudot').checked,
+            yeshiva: document.getElementById('newPermYeshiva').checked,
           };
       await api('/admin/admins', { method: 'POST', body: {
         name: document.getElementById('newAdminName').value,
@@ -1064,7 +1067,7 @@ async function renderSettingsCore() {
   renderAdminsList();
 }
 
-const PERM_LABELS = { settings: 'הגדרות', orders: 'הזמנות', dashboard: 'דשבורד', slots: 'זמני חלוקה', incomingSms: 'הודעות נכנסות', seudot: 'שמחת תורה' };
+const PERM_LABELS = { settings: 'הגדרות', orders: 'הזמנות', dashboard: 'דשבורד', slots: 'זמני חלוקה', incomingSms: 'הודעות נכנסות', seudot: 'שמחת תורה', yeshiva: 'כנס תומכי תמימים' };
 const FULL_ACCESS_PERMISSIONS = Object.fromEntries(Object.keys(PERM_LABELS).map((k) => [k, true]));
 
 async function renderAdminsList() {
@@ -1106,6 +1109,7 @@ async function renderAdminsList() {
           <label><input type="checkbox" data-perm="slots" data-id="${a.id}" ${a.permissions.slots ? 'checked' : ''}> זמני חלוקה</label>
           <label><input type="checkbox" data-perm="incomingSms" data-id="${a.id}" ${a.permissions.incomingSms ? 'checked' : ''}> הודעות נכנסות</label>
           <label><input type="checkbox" data-perm="seudot" data-id="${a.id}" ${a.permissions.seudot ? 'checked' : ''}> שמחת תורה</label>
+          <label><input type="checkbox" data-perm="yeshiva" data-id="${a.id}" ${a.permissions.yeshiva ? 'checked' : ''}> כנס תומכי תמימים</label>
         </div>
         <div class="row">
           <button class="primary big-action" data-save-admin="${a.id}">שמירה</button>
@@ -1148,6 +1152,7 @@ async function renderAdminsList() {
             slots: box.querySelector(`[data-perm="slots"][data-id="${id}"]`).checked,
             incomingSms: box.querySelector(`[data-perm="incomingSms"][data-id="${id}"]`).checked,
             seudot: box.querySelector(`[data-perm="seudot"][data-id="${id}"]`).checked,
+            yeshiva: box.querySelector(`[data-perm="yeshiva"][data-id="${id}"]`).checked,
           };
       try {
         await api(`/admin/admins/${id}`, { method: 'PUT', body: { name, phone, password, permissions } });
@@ -3280,6 +3285,161 @@ async function renderSeudotTab() {
       document.getElementById('seudotSettingsMsg').innerHTML = `<div class="success">נשמר.</div>`;
     } catch (err) {
       document.getElementById('seudotSettingsMsg').innerHTML = `<div class="error">${err.message}</div>`;
+    } finally {
+      btn.disabled = false;
+    }
+  };
+}
+
+// ============== כנס תומכי תמימים ==============
+// ראו public/yeshiva.html + src/lib/yeshiva.js — טופס אישור הגעה פשוט, בלי
+// שום תשלום. תצוגה: סיכום + רשימה עם חיפוש + ייצוא CSV + עריכה/מחיקה
+// ע"י מנהל (אין ללקוח קישור עריכה עצמית, בשונה מסעודות שמחת תורה).
+
+const ATTENDANCE_LABEL = { coming: '✅ מגיע', checking: '🤔 בודק', not_coming: '❌ לא מגיע' };
+let yeshivaSearchText = '';
+
+async function renderYeshivaTab() {
+  const content = document.getElementById('tabContent');
+  const [registrations, settings] = await Promise.all([
+    api('/admin/yeshiva'),
+    api('/admin/yeshiva/settings'),
+  ]);
+  const coming = registrations.filter((r) => r.attendance === 'coming');
+  const checking = registrations.filter((r) => r.attendance === 'checking');
+  const notComing = registrations.filter((r) => r.attendance === 'not_coming');
+
+  content.innerHTML = `
+    <div class="card">
+      <h2 style="margin:0 0 4px">🎓 כנס נכבד לתומכי תמימים — בוגרי הישיבה</h2>
+      <p class="hint" style="margin:0 0 10px">אולם הישיבה הגדולה, חב"ד 13, נוף הגליל · טופס נפרד ב-<a href="/yeshiva" target="_blank">/yeshiva</a></p>
+      <div class="item-row"><span>סה"כ נרשמו</span><span><b>${registrations.length}</b></span></div>
+      <div class="item-row"><span>מגיעים</span><span><b>${coming.length}</b></span></div>
+      <div class="item-row"><span>עדיין בודקים</span><span><b>${checking.length}</b></span></div>
+      <div class="item-row"><span>לא מגיעים</span><span><b>${notComing.length}</b></span></div>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 8px;font-size:14px">מתי הטופס פתוח</h3>
+      <label for="yeshivaCloseAt">הטופס פתוח עד (ריק = תמיד פתוח)</label>
+      <input type="datetime-local" id="yeshivaCloseAt" value="${toLocalDatetimeInputValue(settings.closeAt)}">
+      <label for="yeshivaClosedMessage">ההודעה שתוצג ללקוח כשהטופס סגור</label>
+      <input type="text" id="yeshivaClosedMessage" value="${esc(settings.closedMessage)}">
+      <div class="spacer"></div>
+      <button class="secondary" id="yeshivaSettingsSave">שמירה</button>
+      <div id="yeshivaSettingsMsg"></div>
+    </div>
+    <div class="card">
+      <div class="row">
+        <input type="text" id="yeshivaSearch" placeholder="חיפוש לפי שם או טלפון" value="${esc(yeshivaSearchText)}">
+        <button class="mini-btn" id="yeshivaCsvBtn" title="ייצוא ל-CSV">📄 ייצוא</button>
+      </div>
+      <div id="yeshivaListWrap" style="margin-top:12px"></div>
+    </div>
+  `;
+
+  function renderList() {
+    const q = yeshivaSearchText.trim();
+    const filtered = q ? registrations.filter((r) => r.fullName.includes(q) || r.phone.includes(q)) : registrations;
+    document.getElementById('yeshivaListWrap').innerHTML = filtered.length ? `
+      <table>
+        <thead><tr><th>שם</th><th>טלפון</th><th>הגעה</th><th>אימייל</th><th>כתובת</th><th>תאריך</th><th></th></tr></thead>
+        <tbody>
+          ${filtered.map((r) => `
+            <tr>
+              <td>${esc(r.fullName)}</td>
+              <td>${esc(r.phone)}</td>
+              <td>${ATTENDANCE_LABEL[r.attendance] || r.attendance}</td>
+              <td>${esc(r.email || '')}</td>
+              <td>${esc(r.address || '')}</td>
+              <td class="meta">${new Date(r.createdAt).toLocaleString('he-IL')}</td>
+              <td style="white-space:nowrap">
+                <button type="button" class="ghost" data-yeshiva-edit="${r.id}">עריכה</button>
+                <button type="button" class="ghost" data-yeshiva-del="${r.id}" style="color:var(--wine)">מחיקה</button>
+              </td>
+            </tr>
+            <tr id="yeshivaEdit-${r.id}" hidden><td colspan="7" style="padding:8px 0;border-top:1px dashed var(--line)"></td></tr>
+          `).join('')}
+        </tbody>
+      </table>
+    ` : `<p class="hint">אין רשומות תואמות.</p>`;
+
+    filtered.forEach((r) => {
+      document.querySelector(`[data-yeshiva-edit="${r.id}"]`).onclick = () => {
+        const row = document.getElementById(`yeshivaEdit-${r.id}`);
+        if (!row.hidden) { row.hidden = true; return; }
+        row.hidden = false;
+        const cell = row.querySelector('td');
+        cell.innerHTML = `
+          <div class="cols2">
+            <div><label>שם</label><input type="text" id="yEditName-${r.id}" value="${esc(r.fullName)}"></div>
+            <div><label>טלפון</label><input type="tel" id="yEditPhone-${r.id}" value="${esc(r.phone)}"></div>
+          </div>
+          <label>הגעה</label>
+          <select id="yEditAttendance-${r.id}">
+            <option value="coming" ${r.attendance === 'coming' ? 'selected' : ''}>${ATTENDANCE_LABEL.coming}</option>
+            <option value="checking" ${r.attendance === 'checking' ? 'selected' : ''}>${ATTENDANCE_LABEL.checking}</option>
+            <option value="not_coming" ${r.attendance === 'not_coming' ? 'selected' : ''}>${ATTENDANCE_LABEL.not_coming}</option>
+          </select>
+          <div class="cols2">
+            <div><label>אימייל</label><input type="email" id="yEditEmail-${r.id}" value="${esc(r.email || '')}"></div>
+            <div><label>כתובת</label><input type="text" id="yEditAddress-${r.id}" value="${esc(r.address || '')}"></div>
+          </div>
+          <button class="primary" type="button" id="yEditSave-${r.id}" style="margin-top:8px;width:100%">שמירה</button>
+          <div id="yEditMsg-${r.id}"></div>
+        `;
+        document.getElementById(`yEditSave-${r.id}`).onclick = async () => {
+          try {
+            await api(`/admin/yeshiva/${r.id}`, {
+              method: 'PUT',
+              body: {
+                fullName: document.getElementById(`yEditName-${r.id}`).value.trim(),
+                phone: document.getElementById(`yEditPhone-${r.id}`).value.trim(),
+                attendance: document.getElementById(`yEditAttendance-${r.id}`).value,
+                email: document.getElementById(`yEditEmail-${r.id}`).value.trim(),
+                address: document.getElementById(`yEditAddress-${r.id}`).value.trim(),
+              },
+            });
+            renderYeshivaTab();
+          } catch (err) {
+            document.getElementById(`yEditMsg-${r.id}`).innerHTML = `<div class="error">${err.message}</div>`;
+          }
+        };
+      };
+      document.querySelector(`[data-yeshiva-del="${r.id}"]`).onclick = async () => {
+        if (!confirm(`למחוק את הרשומה של ${r.fullName}?`)) return;
+        try {
+          await api(`/admin/yeshiva/${r.id}`, { method: 'DELETE' });
+          renderYeshivaTab();
+        } catch (err) { alert(err.message); }
+      };
+    });
+  }
+  renderList();
+  document.getElementById('yeshivaSearch').oninput = (e) => { yeshivaSearchText = e.target.value; renderList(); };
+
+  document.getElementById('yeshivaCsvBtn').onclick = () => {
+    const header = ['שם', 'טלפון', 'הגעה', 'אימייל', 'כתובת', 'תאריך הרשמה'];
+    const rows = registrations.map((r) => [
+      r.fullName, r.phone, ATTENDANCE_LABEL[r.attendance] || r.attendance,
+      r.email || '', r.address || '', new Date(r.createdAt).toLocaleString('he-IL'),
+    ]);
+    triggerCsvDownload('דוח-כנס-תומכי-תמימים', null, header, rows);
+  };
+
+  document.getElementById('yeshivaSettingsSave').onclick = async () => {
+    const btn = document.getElementById('yeshivaSettingsSave');
+    btn.disabled = true;
+    try {
+      await api('/admin/yeshiva/settings', {
+        method: 'PUT',
+        body: {
+          closeAt: fromLocalDatetimeInputValue(document.getElementById('yeshivaCloseAt').value),
+          closedMessage: document.getElementById('yeshivaClosedMessage').value.trim(),
+        },
+      });
+      document.getElementById('yeshivaSettingsMsg').innerHTML = `<div class="success">נשמר.</div>`;
+    } catch (err) {
+      document.getElementById('yeshivaSettingsMsg').innerHTML = `<div class="error">${err.message}</div>`;
     } finally {
       btn.disabled = false;
     }

@@ -20,6 +20,7 @@ function rowToAdmin(row) {
       slots: row.can_slots,
       incomingSms: row.can_incoming_sms,
       seudot: row.can_seudot,
+      yeshiva: row.can_yeshiva,
     },
     createdAt: row.created_at,
   };
@@ -66,13 +67,13 @@ export async function createAdmin({ name, phone, password, permissions = {} }) {
   }
   const hash = await bcrypt.hash(String(password), 12);
   const { rows } = await query(
-    `INSERT INTO admins(name, phone, normalized_phone, password_hash, can_settings, can_orders, can_dashboard, can_slots, can_incoming_sms, can_seudot)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    `INSERT INTO admins(name, phone, normalized_phone, password_hash, can_settings, can_orders, can_dashboard, can_slots, can_incoming_sms, can_seudot, can_yeshiva)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
     [
       clean, phone, normalized, hash,
       permissions.settings !== false, permissions.orders !== false,
       permissions.dashboard !== false, permissions.slots !== false,
-      permissions.incomingSms !== false, permissions.seudot !== false,
+      permissions.incomingSms !== false, permissions.seudot !== false, permissions.yeshiva !== false,
     ]
   );
   const admin = rowToAdmin(rows[0]);
@@ -89,12 +90,12 @@ export async function updateAdmin(id, { name, phone, password, permissions = {} 
     const hash = await bcrypt.hash(String(password), 12);
     const { rows } = await query(
       `UPDATE admins SET name=$2, phone=$3, normalized_phone=$4, password_hash=$5,
-         can_settings=$6, can_orders=$7, can_dashboard=$8, can_slots=$9, can_incoming_sms=$10, can_seudot=$11
+         can_settings=$6, can_orders=$7, can_dashboard=$8, can_slots=$9, can_incoming_sms=$10, can_seudot=$11, can_yeshiva=$12
        WHERE id=$1 RETURNING *`,
       [
         id, name, phone, normalized, hash,
         permissions.settings !== false, permissions.orders !== false, permissions.dashboard !== false, permissions.slots !== false,
-        permissions.incomingSms !== false, permissions.seudot !== false,
+        permissions.incomingSms !== false, permissions.seudot !== false, permissions.yeshiva !== false,
       ]
     );
     if (!rows.length) throw Object.assign(new Error('מנהל לא נמצא.'), { status: 404 });
@@ -102,12 +103,12 @@ export async function updateAdmin(id, { name, phone, password, permissions = {} 
   } else {
     const { rows } = await query(
       `UPDATE admins SET name=$2, phone=$3, normalized_phone=$4,
-         can_settings=$5, can_orders=$6, can_dashboard=$7, can_slots=$8, can_incoming_sms=$9, can_seudot=$10
+         can_settings=$5, can_orders=$6, can_dashboard=$7, can_slots=$8, can_incoming_sms=$9, can_seudot=$10, can_yeshiva=$11
        WHERE id=$1 RETURNING *`,
       [
         id, name, phone, normalized,
         permissions.settings !== false, permissions.orders !== false, permissions.dashboard !== false, permissions.slots !== false,
-        permissions.incomingSms !== false, permissions.seudot !== false,
+        permissions.incomingSms !== false, permissions.seudot !== false, permissions.yeshiva !== false,
       ]
     );
     if (!rows.length) throw Object.assign(new Error('מנהל לא נמצא.'), { status: 404 });
