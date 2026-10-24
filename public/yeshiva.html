@@ -16,11 +16,14 @@
   /* צבעי המודעה של האירוע (נייבי כהה + ירוק-ליים) — דריסה מקומית לדף הזה
      בלבד של משתני הצבע הגלובליים (shared.css), לא נוגעת בשום דף אחר. */
   :root{
-    --bg:#10192f; --surface:#182445; --surface-2:#212f57; --ink:#f4f6fb; --ink-dim:#aab4d6;
+    --bg:#10192f; --surface:#182445; --surface-2:#212f57; --ink:#ffffff; --ink-dim:#c7cfea;
     --line:#2d3a68; --accent:#c3f000; --accent-ink:#c3f000; --accent-soft:#26331a;
     --wine:#ff8a93; --wine-soft:#3a1b24; --sage:#c3f000; --sage-soft:#243018;
     --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 26px -12px rgba(0,0,0,.6);
   }
+  /* תוויות (label) כבדות משקל יותר על הרקע הכהה — shared.css משתמש ב-
+     ink-dim לתוויות, שעדיין קצת חלש מול נייבי כהה; פה דורסים לצבע בהיר יותר. */
+  label{color:var(--ink);font-weight:800}
   /* כפתור ראשי כ"כדור" ליים מלא — כמו תגי השעות העגולים במודעה עצמה. */
   button.primary{background:var(--accent);border:2px solid var(--accent);color:var(--bg);border-radius:999px;font-weight:800}
   .poster{width:100%;border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:16px;display:block}
@@ -43,10 +46,20 @@
   .attendance-opt{
     display:flex;align-items:center;gap:10px;padding:14px 18px;margin-top:8px;
     border:1.5px solid var(--line);border-radius:999px;background:var(--surface-2);
-    cursor:pointer;font-weight:700;font-size:14.5px;transition:background .15s,border-color .15s;
+    cursor:pointer;font-weight:800;font-size:15px;color:var(--ink);transition:background .15s,border-color .15s;
   }
   .attendance-opt input{width:auto;margin:0}
   .attendance-opt:has(input:checked){background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+
+  /* רמז גלילה מתחת למודעה — כדי שיהיה ברור כבר בכניסה שהטופס עצמו נמצא
+     למטה, לא רק המודעה. */
+  .scroll-hint{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    text-align:center;color:var(--bg);background:var(--accent);
+    font-weight:800;font-size:14px;border-radius:999px;padding:10px 16px;margin-bottom:16px;
+    animation:scroll-hint-bounce 1.6s ease-in-out infinite;
+  }
+  @keyframes scroll-hint-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(5px)}}
 </style>
 </head>
 <body>
@@ -58,6 +71,7 @@
 </div>
 <div class="wrap" id="app">
   <img class="poster" src="/yeshiva-poster.jpg" alt="מודעת האירוע">
+  <div class="scroll-hint">להרשמה לחצו וגללו למטה ⬇️</div>
   <div class="loading" id="initialLoading">טוען…</div>
 
   <div class="card" id="closedCard" style="display:none">
