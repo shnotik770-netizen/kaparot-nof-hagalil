@@ -62,12 +62,15 @@
   }
   @keyframes scroll-hint-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(5px)}}
 
-  /* "קופסת השי" — ריבוע מודגש ומעניין, לא עוד טקסט עמום בתוך הטופס. */
-  .gift-box{
-    margin-top:18px;padding:16px;border-radius:16px;
-    border:1.5px solid var(--accent);background:var(--accent-soft);
+  /* רק כותרת "השי" בתוך תג מודגש — באותה שפה עיצובית כמו הבדג'ים
+     העגולים של לוח הזמנים (מילוי ליים, טקסט כהה) — לא כל הקטע בתוך קופסה. */
+  .gift-box{margin-top:18px}
+  .gift-title{
+    display:inline-flex;align-items:center;gap:8px;
+    background:var(--accent);color:var(--bg);
+    font-weight:900;font-size:14.5px;border-radius:999px;
+    padding:9px 18px;margin:0 0 10px;
   }
-  .gift-box .gift-title{display:flex;align-items:center;gap:8px;font-weight:900;font-size:15.5px;color:var(--accent);margin:0 0 4px}
 </style>
 </head>
 <body>
