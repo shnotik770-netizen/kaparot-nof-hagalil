@@ -52,14 +52,22 @@
   .attendance-opt:has(input:checked){background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
 
   /* רמז גלילה בראש העמוד, מעל המודעה — כדי שיהיה ברור כבר בכניסה (לפני
-     גלילה בכלל, גם אם המודעה תופסת את כל גובה המסך) שהטופס נמצא למטה. */
+     גלילה בכלל, גם אם המודעה תופסת את כל גובה המסך) שהטופס נמצא למטה.
+     כפתור אמיתי (לא רק טקסט) — לחיצה קופצת ישר לטופס. */
   .scroll-hint{
-    display:flex;align-items:center;justify-content:center;gap:8px;
-    text-align:center;color:var(--bg);background:var(--accent);
-    font-weight:800;font-size:14px;border-radius:999px;padding:10px 16px;margin-bottom:16px;
-    animation:scroll-hint-bounce 1.6s ease-in-out infinite;
+    display:flex;width:100%;align-items:center;justify-content:center;gap:8px;
+    text-align:center;color:var(--bg);background:var(--accent);border:none;
+    font-family:inherit;font-weight:800;font-size:14px;border-radius:999px;padding:10px 16px;margin-bottom:16px;
+    cursor:pointer;animation:scroll-hint-bounce 1.6s ease-in-out infinite;
   }
   @keyframes scroll-hint-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(5px)}}
+
+  /* "קופסת השי" — ריבוע מודגש ומעניין, לא עוד טקסט עמום בתוך הטופס. */
+  .gift-box{
+    margin-top:18px;padding:16px;border-radius:16px;
+    border:1.5px solid var(--accent);background:var(--accent-soft);
+  }
+  .gift-box .gift-title{display:flex;align-items:center;gap:8px;font-weight:900;font-size:15.5px;color:var(--accent);margin:0 0 4px}
 </style>
 </head>
 <body>
@@ -70,7 +78,7 @@
   </div>
 </div>
 <div class="wrap" id="app">
-  <div class="scroll-hint">להרשמה לחצו וגללו למטה ⬇️</div>
+  <button type="button" class="scroll-hint" id="scrollToFormBtn">לרישום לחצו כאן ⬇️</button>
   <img class="poster" src="/yeshiva-poster.jpg" alt="מודעת האירוע">
   <div class="loading" id="initialLoading">טוען…</div>
 
@@ -99,7 +107,7 @@
   <div class="card" id="formCard" style="display:none">
     <label for="fullNameInput">שם ושם משפחה</label>
     <input type="text" id="fullNameInput" placeholder="לדוגמה: ישראל ישראלי">
-    <label for="phoneInput">טל. נייד</label>
+    <label for="phoneInput">טל' נייד</label>
     <input type="tel" id="phoneInput" inputmode="tel" placeholder="05X-XXXXXXX">
 
     <label style="margin-top:16px">האם תגיעו?</label>
@@ -107,8 +115,8 @@
     <label class="attendance-opt"><input type="radio" name="attendance" value="checking"> עדיין בודק אם יתאפשר לי</label>
     <label class="attendance-opt"><input type="radio" name="attendance" value="not_coming"> לצערי, לא אוכל להגיע</label>
 
-    <div id="giftFields">
-      <p class="hint" style="margin:16px 0 2px">נשמח לשלוח לך שי מרענן מהישיבה</p>
+    <div id="giftFields" class="gift-box">
+      <p class="gift-title">🎁 נשמח לתת לך שי מרענן מהישיבה</p>
       <p class="hint" style="margin:0 0 4px">ע"מ שנוכל להעניק לך את השי בצורה הטובה ביותר, אנא מלא:</p>
       <label for="emailInput">דואר אלקטרוני</label>
       <input type="email" id="emailInput" placeholder="example@mail.com">
@@ -155,6 +163,15 @@ async function init() {
   }
 }
 init();
+
+// כפתור "לרישום לחצו כאן" בראש העמוד — קופץ ישר לטופס (או להודעת "סגור",
+// אם ההרשמה כבר נסגרה), בלי לחכות שהמשתמש יגלול בעצמו.
+document.getElementById('scrollToFormBtn').onclick = () => {
+  const target = document.getElementById('formCard').style.display !== 'none'
+    ? document.getElementById('formCard')
+    : document.getElementById('closedCard');
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
 
 document.getElementById('submitBtn').onclick = async () => {
   const btn = document.getElementById('submitBtn');
