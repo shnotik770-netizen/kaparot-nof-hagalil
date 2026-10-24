@@ -16,7 +16,7 @@
   /* צבעי המודעה של האירוע (נייבי כהה + ירוק-ליים) — דריסה מקומית לדף הזה
      בלבד של משתני הצבע הגלובליים (shared.css), לא נוגעת בשום דף אחר. */
   :root{
-    --bg:#10192f; --surface:#182445; --surface-2:#212f57; --ink:#ffffff; --ink-dim:#c7cfea;
+    --bg:#10192f; --surface:#202f5c; --surface-2:#2a3c73; --ink:#ffffff; --ink-dim:#c7cfea;
     --line:#2d3a68; --accent:#c3f000; --accent-ink:#c3f000; --accent-soft:#26331a;
     --wine:#ff8a93; --wine-soft:#3a1b24; --sage:#c3f000; --sage-soft:#243018;
     --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 26px -12px rgba(0,0,0,.6);
@@ -62,14 +62,15 @@
   }
   @keyframes scroll-hint-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(5px)}}
 
-  /* רק כותרת "השי" בתוך תג מודגש — באותה שפה עיצובית כמו הבדג'ים
-     העגולים של לוח הזמנים (מילוי ליים, טקסט כהה) — לא כל הקטע בתוך קופסה. */
+  /* כל שאלה בטופס (לא רק שדה) מתויגת באותו תג ליים מודגש — אותה שפה
+     עיצובית כמו הבדג'ים העגולים של לוח הזמנים (מילוי ליים, טקסט כהה) —
+     עקבי בכל הטופס, לא רק בקטע השי. */
   .gift-box{margin-top:18px}
-  .gift-title{
+  .q-badge{
     display:inline-flex;align-items:center;gap:8px;
     background:var(--accent);color:var(--bg);
     font-weight:900;font-size:14.5px;border-radius:999px;
-    padding:9px 18px;margin:0 0 10px;
+    padding:9px 18px;margin:16px 0 10px;
   }
 </style>
 </head>
@@ -108,18 +109,18 @@
   </div>
 
   <div class="card" id="formCard" style="display:none">
-    <label for="fullNameInput">שם ושם משפחה</label>
+    <label class="q-badge" for="fullNameInput">שם ושם משפחה</label>
     <input type="text" id="fullNameInput" placeholder="לדוגמה: ישראל ישראלי">
-    <label for="phoneInput">טל' נייד</label>
+    <label class="q-badge" for="phoneInput">טל' נייד</label>
     <input type="tel" id="phoneInput" inputmode="tel" placeholder="05X-XXXXXXX">
 
-    <label style="margin-top:16px">האם תגיעו?</label>
+    <label class="q-badge">האם תגיעו?</label>
     <label class="attendance-opt"><input type="radio" name="attendance" value="coming"> כן, גם אני מגיע בע"ה</label>
     <label class="attendance-opt"><input type="radio" name="attendance" value="checking"> עדיין בודק אם יתאפשר לי</label>
     <label class="attendance-opt"><input type="radio" name="attendance" value="not_coming"> לצערי, לא אוכל להגיע</label>
 
     <div id="giftFields" class="gift-box">
-      <p class="gift-title">🎁 נשמח לתת לך שי מרענן מהישיבה</p>
+      <p class="q-badge">🎁 נשמח לתת לך שי מרענן מהישיבה</p>
       <p class="hint" style="margin:0 0 4px">ע"מ שנוכל להעניק לך את השי בצורה הטובה ביותר, אנא מלא:</p>
       <label for="emailInput">דואר אלקטרוני</label>
       <input type="email" id="emailInput" placeholder="example@mail.com">
