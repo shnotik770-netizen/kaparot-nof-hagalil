@@ -51,8 +51,8 @@
   .attendance-opt input{width:auto;margin:0}
   .attendance-opt:has(input:checked){background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
 
-  /* רמז גלילה מתחת למודעה — כדי שיהיה ברור כבר בכניסה שהטופס עצמו נמצא
-     למטה, לא רק המודעה. */
+  /* רמז גלילה בראש העמוד, מעל המודעה — כדי שיהיה ברור כבר בכניסה (לפני
+     גלילה בכלל, גם אם המודעה תופסת את כל גובה המסך) שהטופס נמצא למטה. */
   .scroll-hint{
     display:flex;align-items:center;justify-content:center;gap:8px;
     text-align:center;color:var(--bg);background:var(--accent);
@@ -70,8 +70,8 @@
   </div>
 </div>
 <div class="wrap" id="app">
-  <img class="poster" src="/yeshiva-poster.jpg" alt="מודעת האירוע">
   <div class="scroll-hint">להרשמה לחצו וגללו למטה ⬇️</div>
+  <img class="poster" src="/yeshiva-poster.jpg" alt="מודעת האירוע">
   <div class="loading" id="initialLoading">טוען…</div>
 
   <div class="card" id="closedCard" style="display:none">
